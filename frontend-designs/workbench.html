@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Workbench — MonoGame Playground</title>
+  <style>
+    :root { color-scheme:dark; --bg:#0e1212; --panel:#171c1c; --panel2:#202626; --line:#343c3b; --text:#d9ded8; --muted:#7d8884; --amber:#f4b73e; --green:#79dc9c; --red:#ff685f; }
+    *{box-sizing:border-box} button{font:inherit} body{margin:0;height:100vh;overflow:hidden;background:var(--bg);color:var(--text);font-family:"Aptos Narrow","Arial Narrow",sans-serif}
+    body::after{content:"";position:fixed;inset:0;pointer-events:none;opacity:.08;background:repeating-linear-gradient(0deg,#fff 0 1px,transparent 1px 4px)}
+    .app{height:100%;display:grid;grid-template-rows:54px 1fr 24px;padding:8px;gap:7px}
+    .bar,.rail,.editor,.preview,.drawer,.status{border:1px solid var(--line);background:var(--panel);box-shadow:inset 0 1px #ffffff09}
+    .bar{display:flex;align-items:center;padding:0 12px;gap:7px}.brand{font:900 17px "Rockwell",serif;letter-spacing:-.03em;margin-right:20px}.brand i{color:var(--amber);font-style:normal}
+    .tool{height:31px;border:1px solid var(--line);background:#111616;color:var(--muted);padding:0 12px;text-transform:uppercase;font:700 10px ui-monospace,monospace;letter-spacing:.09em;cursor:pointer}.tool:hover{border-color:#6a7571;color:white}.tool.primary{margin-left:auto;color:#10130d;background:var(--amber);border-color:#ffcc64}.tool.stop{color:var(--red)}.tool:disabled{opacity:.3;cursor:not-allowed}
+    .lamp{width:7px;height:7px;border-radius:50%;background:var(--muted);box-shadow:0 0 0 3px #0004;margin-left:10px}body[data-running=true] .lamp{background:var(--green);box-shadow:0 0 10px var(--green)}
+    .workspace{min-height:0;display:grid;grid-template-columns:180px minmax(330px,1.2fr) minmax(360px,1fr);grid-template-rows:minmax(0,1fr) 170px;gap:7px}
+    .rail{grid-row:1/3;padding:12px 9px}.label{color:var(--muted);font:700 9px ui-monospace,monospace;letter-spacing:.16em;text-transform:uppercase;padding:4px 7px 12px}
+    .project{border-top:1px solid var(--line);padding-top:8px}.file{display:flex;gap:8px;align-items:center;width:100%;border:0;background:none;color:var(--muted);padding:8px;text-align:left;cursor:pointer;font:12px ui-monospace,monospace}.file::before{content:"CS";font-size:8px;color:var(--green)}.file.active{color:#fff;background:var(--panel2);box-shadow:inset 2px 0 var(--amber)}
+    .mini-meter{margin-top:30px;border-top:1px solid var(--line);padding:14px 7px}.mini-meter b{display:block;font:10px ui-monospace,monospace;color:var(--muted);margin-bottom:8px}.meter{height:5px;background:#0b0e0e}.meter span{display:block;width:62%;height:100%;background:var(--green)}
+    .editor{min-width:0;overflow:hidden}.panel-head{height:36px;display:flex;align-items:center;padding:0 12px;border-bottom:1px solid var(--line);color:var(--muted);font:10px ui-monospace,monospace;letter-spacing:.1em}.panel-head strong{color:var(--text);margin-right:auto}.dirty{color:var(--amber)}
+    .code{height:calc(100% - 36px);overflow:auto;padding:13px 0;font:12px/1.62 "SFMono-Regular","Cascadia Code",monospace;counter-reset:line;background:#111616}.line{display:block;white-space:pre;padding-right:16px}.line::before{counter-increment:line;content:counter(line);display:inline-block;width:42px;margin-right:14px;text-align:right;color:#46504d}.line.selected{background:#3d2f15;box-shadow:inset 2px 0 var(--amber)}.kw{color:#e97ba5}.type{color:#73cdd1}.fn{color:#e5cc78}.str{color:#a6d780}.comment{color:#65706c}
+    .preview{min-width:0;display:grid;grid-template-rows:36px 1fr}.scope{position:relative;min-height:0;margin:12px;border:1px solid #3b4743;background:#080b0b;overflow:hidden}.scope::before{content:"";position:absolute;inset:0;background-image:linear-gradient(#16201e 1px,transparent 1px),linear-gradient(90deg,#16201e 1px,transparent 1px);background-size:24px 24px}.scope::after{content:"";position:absolute;width:90px;height:90px;border:2px solid var(--amber);left:calc(50% - 45px);top:calc(50% - 45px);transform:rotate(45deg);opacity:.35}
+    .screen-label{position:absolute;z-index:2;inset:0;display:grid;place-items:center;color:var(--muted);font:700 10px ui-monospace,monospace;letter-spacing:.16em}body[data-running=true] .scope{background:#10252b}body[data-running=true] .scope::after{background:var(--amber);opacity:1;animation:orbit 3s linear infinite;box-shadow:0 0 40px #f4b73e55}body[data-running=true] .screen-label{transform:translateY(85px);color:var(--green)}@keyframes orbit{to{transform:rotate(405deg) scale(.7)}}
+    .drawer{grid-column:2/4;min-height:0;display:grid;grid-template-rows:34px 1fr}.tabs{display:flex;border-bottom:1px solid var(--line)}.tab{border:0;border-right:1px solid var(--line);background:#111616;color:var(--muted);padding:0 18px;font:700 9px ui-monospace,monospace;letter-spacing:.12em;cursor:pointer}.tab.active{color:var(--amber);background:var(--panel2)}.tab em{font-style:normal;color:var(--red);margin-left:6px}
+    .drawer-body{min-height:0;overflow:auto;padding:9px 13px;font:11px/1.7 ui-monospace,monospace}.log-row{display:grid;grid-template-columns:74px 1fr;color:var(--muted)}.log-row time{color:#4c5753}.log-row.success span{color:var(--green)}.problem{display:grid;grid-template-columns:70px 1fr 120px;gap:10px;padding:7px;border-bottom:1px solid var(--line);cursor:pointer}.problem:hover{background:#291d1d}.problem b{color:var(--red)}
+    .status{display:flex;align-items:center;padding:0 9px;color:var(--muted);font:9px ui-monospace,monospace;letter-spacing:.08em}.status span+span{margin-left:20px}.status .runtime{margin-left:auto;color:var(--green)}
+    .theme-switch{display:flex;align-items:center;gap:7px;margin-left:7px;padding:0 9px}.theme-switch::before{content:"";width:16px;height:8px;border:1px solid var(--muted);border-radius:8px;box-shadow:inset 7px 0 0 var(--amber);transition:.2s}.theme-switch span::after{content:"DARK"}
+    body[data-theme=light]{color-scheme:light;--bg:#d8d8ce;--panel:#edede5;--panel2:#deded4;--line:#aaa99c;--text:#202522;--muted:#68706b;--amber:#e98a19;--green:#16784a;--red:#c8463d}
+    body[data-theme=light]::after{opacity:.045;background:repeating-linear-gradient(0deg,#000 0 1px,transparent 1px 4px)}
+    body[data-theme=light] .bar,body[data-theme=light] .rail,body[data-theme=light] .editor,body[data-theme=light] .preview,body[data-theme=light] .drawer,body[data-theme=light] .status{box-shadow:inset 0 1px #fff,0 1px 3px #3332}
+    body[data-theme=light] .tool{background:#e4e4dc;color:#5b625e}body[data-theme=light] .tool:hover{border-color:#4b514d;color:#171b18}body[data-theme=light] .tool.primary{background:var(--amber);color:#fff;border-color:#cc7310}
+    body[data-theme=light] .code{background:#f6f5ee}body[data-theme=light] .line::before{color:#a6a69b}body[data-theme=light] .line.selected{background:#f6dcb8}body[data-theme=light] .kw{color:#a83262}body[data-theme=light] .type{color:#167381}body[data-theme=light] .fn{color:#9a6010}body[data-theme=light] .str{color:#38763d}body[data-theme=light] .comment{color:#7a837d}
+    body[data-theme=light] .scope{background:#d5ddd8;border-color:#7d8b85}body[data-theme=light] .scope::before{background-image:linear-gradient(#7a8d841c 1px,transparent 1px),linear-gradient(90deg,#7a8d841c 1px,transparent 1px)}body[data-theme=light][data-running=true] .scope{background:#b9d5dc}
+    body[data-theme=light] .tab{background:#e3e3da}body[data-theme=light] .tab.active{background:#d6d6cc}body[data-theme=light] .drawer-body{background:#f5f4ed}body[data-theme=light] .log-row time{color:#9a9e99}body[data-theme=light] .problem:hover{background:#f3d9d5}
+    body[data-theme=light] .meter{background:#bbbdb5}body[data-theme=light] .theme-switch::before{box-shadow:inset -7px 0 0 var(--amber)}body[data-theme=light] .theme-switch span::after{content:"LIGHT"}
+    @media(max-width:900px){.workspace{grid-template-columns:145px 1fr;grid-template-rows:1fr 44% 160px}.rail{grid-row:1/4}.preview{grid-column:2;grid-row:2}.editor{grid-column:2;grid-row:1}.drawer{grid-column:2;grid-row:3}} @media(max-width:600px){.rail{display:none}.workspace{grid-template-columns:1fr}.editor,.preview,.drawer{grid-column:1}.brand{font-size:14px;margin-right:4px}.tool:not(.primary):not(.stop):not(.theme-switch){display:none}.theme-switch{padding:0 5px}.theme-switch span{display:none}}
+  </style>
+</head>
+<body data-phase="ready">
+  <main class="app">
+    <header class="bar">
+      <div class="brand">MONO<i>GAME</i> / WORKBENCH</div>
+      <button class="tool">New</button><button class="tool">Open</button><button class="tool">Save</button><button class="tool theme-switch" data-theme-toggle aria-label="Switch color theme"><span></span></button>
+      <span class="lamp"></span><span data-status class="label" style="padding:0">STOPPED</span>
+      <button data-run class="tool primary">▶ Run</button><button data-stop class="tool stop">■ Stop</button>
+    </header>
+    <section class="workspace">
+      <aside class="rail">
+        <div class="label">Project / hello-world</div>
+        <div class="project">
+          <button class="file active" data-file="Game1.cs">Game1.cs</button>
+          <button class="file" data-file="Player.cs">Player.cs</button>
+          <button class="file" data-file="playground.json">playground.json</button>
+          <button class="file" data-file="Content/player.xnb">Content/player.xnb</button>
+        </div>
+        <div class="mini-meter"><b>WASM HEAP / 128 MB</b><div class="meter"><span></span></div></div>
+        <div class="mini-meter"><b>PINNED RUNTIME</b><span style="font:10px ui-monospace;color:var(--green)">eb687a0ec</span></div>
+      </aside>
+      <section class="editor">
+        <div class="panel-head"><strong data-file-name>Game1.cs</strong><span class="dirty">● UNSAVED</span></div>
+        <code class="code"><span class="line"><span class="kw">using</span> Microsoft.Xna.Framework;</span><span class="line"><span class="kw">using</span> Microsoft.Xna.Framework.Graphics;</span><span class="line"><span class="kw">using</span> Microsoft.Xna.Framework.Input;</span><span class="line"> </span><span class="line"><span class="kw">public sealed class</span> <span class="type">Game1</span> : <span class="type">Game</span></span><span class="line">{</span><span class="line">    <span class="kw">private readonly</span> <span class="type">GraphicsDeviceManager</span> _graphics;</span><span class="line"> </span><span class="line">    <span class="kw">public</span> <span class="fn">Game1</span>()</span><span class="line">    {</span><span class="line">        _graphics = <span class="kw">new</span>(<span class="kw">this</span>);</span><span class="line">        IsMouseVisible = <span class="kw">true</span>;</span><span class="line">    }</span><span class="line"> </span><span class="line">    <span class="kw">protected override void</span> <span class="fn">Update</span>(<span class="type">GameTime</span> time)</span><span class="line">    {</span><span class="line">        <span class="kw">if</span> (<span class="type">Keyboard</span>.<span class="fn">GetState</span>().<span class="fn">IsKeyDown</span>(<span class="type">Keys</span>.Escape))</span><span class="line" data-code-line="18">            <span class="fn">Exit</span>();</span><span class="line">        <span class="kw">base</span>.<span class="fn">Update</span>(time);</span><span class="line">    }</span><span class="line"> </span><span class="line">    <span class="kw">protected override void</span> <span class="fn">Draw</span>(<span class="type">GameTime</span> time)</span><span class="line">    {</span><span class="line">        GraphicsDevice.<span class="fn">Clear</span>(<span class="type">Color</span>.CornflowerBlue);</span><span class="line">        <span class="kw">base</span>.<span class="fn">Draw</span>(time);</span><span class="line">    }</span><span class="line">}</span></code>
+      </section>
+      <section class="preview"><div class="panel-head"><strong>PREVIEW / 800 × 480</strong><span>WEBGL2 · 60HZ</span></div><div class="scope"><div data-preview-label class="screen-label">PRESS RUN TO START</div></div></section>
+      <section class="drawer">
+        <nav class="tabs"><button class="tab active" data-panel="output">OUTPUT</button><button class="tab" data-panel="problems">PROBLEMS <em>1</em></button><button class="tab" data-panel="assets">ASSETS</button></nav>
+        <div class="drawer-body">
+          <div data-panel-view="output" data-log><div class="log-row"><time>18:10:02</time><span>Runtime ready · MonoGame.Framework.Native</span></div><div class="log-row"><time>18:10:03</time><span>Press Ctrl+Enter to compile and run</span></div></div>
+          <div data-panel-view="problems" hidden><div class="problem" data-diagnostic><b>WARNING</b><span>IDE0058 Expression value is never used</span><span>Game1.cs:18:29</span></div></div>
+          <div data-panel-view="assets" hidden>Content/player.xnb <span style="color:var(--green)">WEB PROFILE · VALID</span></div>
+        </div>
+      </section>
+    </section>
+    <footer class="status"><span>main*</span><span>Ln 18, Col 29</span><span>Spaces: 4</span><span class="runtime">● OFFLINE RUNTIME READY</span></footer>
+  </main>
+  <script>
+    (() => {
+      const requested = new URLSearchParams(location.search).get("theme");
+      let saved = null;
+      try { saved = localStorage.getItem("workbench-theme"); } catch {}
+      const preferred = matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
+      const theme = requested === "light" || requested === "dark" ? requested : saved || preferred;
+      document.body.dataset.theme = theme;
+      document.querySelector("[data-theme-toggle]").addEventListener("click", () => {
+        const next = document.body.dataset.theme === "light" ? "dark" : "light";
+        document.body.dataset.theme = next;
+        try { localStorage.setItem("workbench-theme", next); } catch {}
+      });
+    })();
+  </script>
+  <script src="shared.js"></script>
+</body>
+</html>

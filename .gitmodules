@@ -1,0 +1,4 @@
+[submodule "external/MonoGame"]
+	path = external/MonoGame
+	url = https://github.com/infinitespace-studios/MonoGame.git
+	branch = feature/openglnative

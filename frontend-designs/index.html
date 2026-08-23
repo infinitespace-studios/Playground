@@ -1,0 +1,67 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MonoGame Playground — UI Directions</title>
+  <style>
+    :root { color-scheme: dark; --ink:#e9ede6; --muted:#8d948b; --line:#343a35; --acid:#c7ff4a; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; background:#111411; color:var(--ink); font-family:"Aptos Narrow","Arial Narrow",sans-serif; }
+    body::before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.18; background-image:repeating-linear-gradient(90deg,transparent 0 79px,#374034 80px),repeating-linear-gradient(0deg,transparent 0 79px,#374034 80px); }
+    main { position:relative; width:min(1180px,calc(100% - 48px)); margin:auto; padding:64px 0; }
+    header { display:grid; grid-template-columns:1fr auto; align-items:end; border-bottom:1px solid var(--line); padding-bottom:24px; }
+    .kicker { color:var(--acid); font:700 12px/1 ui-monospace,monospace; letter-spacing:.18em; text-transform:uppercase; }
+    h1 { max-width:760px; margin:14px 0 0; font:500 clamp(42px,7vw,92px)/.88 "Rockwell","Roboto Slab",serif; letter-spacing:-.055em; }
+    header p { max-width:270px; color:var(--muted); font-size:15px; line-height:1.55; }
+    .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:18px; margin-top:30px; }
+    article { min-height:430px; border:1px solid var(--line); background:#171b17; display:flex; flex-direction:column; transition:.25s ease; }
+    article:hover { transform:translateY(-7px); border-color:var(--acid); box-shadow:0 20px 60px #0008; }
+    .swatch { height:210px; position:relative; overflow:hidden; border-bottom:1px solid var(--line); }
+    .swatch::after { content:""; position:absolute; inset:22px; border:1px solid currentColor; opacity:.8; }
+    .workbench { color:#f6be3d; background:repeating-linear-gradient(-45deg,#151b1b 0 14px,#1d2424 14px 28px); }
+    .paper { color:#e95436; background:#eee9dd; }
+    .paper::before { content:"Aa"; position:absolute; right:30px; bottom:4px; color:#1b2b36; font:italic 110px/.8 Baskerville,serif; }
+    .signal { color:#4ef5b2; background:radial-gradient(circle at 68% 45%,#123f35,transparent 30%),#050807; }
+    .signal::before { content:"RUN  60 FPS"; position:absolute; left:35px; top:50%; font:700 12px ui-monospace,monospace; letter-spacing:.15em; }
+    .copy { padding:24px; flex:1; }
+    .num { color:var(--muted); font:12px ui-monospace,monospace; }
+    h2 { margin:12px 0 8px; font:600 27px "Rockwell",serif; }
+    p { color:var(--muted); line-height:1.5; }
+    a { margin:0 24px 24px; display:flex; justify-content:space-between; color:var(--ink); text-decoration:none; border-top:1px solid var(--line); padding-top:16px; font:700 12px ui-monospace,monospace; letter-spacing:.08em; }
+    a span { color:var(--acid); }
+    .variants{display:grid;grid-template-columns:1fr 1fr;margin:0 24px 24px;border-top:1px solid var(--line)}.variants a{margin:0;border:0;padding:16px 8px 0 0}.variants a+a{padding-left:14px;border-left:1px solid var(--line)}
+    footer { margin-top:38px; color:var(--muted); font:12px ui-monospace,monospace; }
+    @media(max-width:800px){ header{grid-template-columns:1fr} .grid{grid-template-columns:1fr} article{min-height:0} }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <div>
+        <div class="kicker">MonoGame Playground / UI studies</div>
+        <h1>Three ways to make code feel playable.</h1>
+      </div>
+      <p>Interactive, dependency-free concepts derived from PRD workflows. Open any direction; press Run; break things.</p>
+    </header>
+    <section class="grid">
+      <article>
+        <div class="swatch workbench"></div>
+        <div class="copy"><span class="num">01 / INDUSTRIAL</span><h2>Workbench</h2><p>Dense, tactile engineering tool. Hardware labels, amber state, mechanical controls.</p></div>
+        <div class="variants"><a href="workbench.html?theme=dark">Dark <span>↗</span></a><a href="workbench.html?theme=light">Light <span>↗</span></a></div>
+      </article>
+      <article>
+        <div class="swatch paper"></div>
+        <div class="copy"><span class="num">02 / EDITORIAL</span><h2>Paper Lab</h2><p>Bright, calm learning surface. Code treated like annotated technical literature.</p></div>
+        <a href="paper-lab.html">Open prototype <span>↗</span></a>
+      </article>
+      <article>
+        <div class="swatch signal"></div>
+        <div class="copy"><span class="num">03 / RETRO-FUTURE</span><h2>Signal Deck</h2><p>Game-runtime cockpit. Preview dominates; telemetry turns iteration into performance.</p></div>
+        <a href="signal-deck.html">Open prototype <span>↗</span></a>
+      </article>
+    </section>
+    <footer>STATIC PROTOTYPES · NO CDN · RESPONSIVE · KEYBOARD: CTRL/⌘ + ENTER TO RUN, ESC TO STOP</footer>
+  </main>
+</body>
+</html>
