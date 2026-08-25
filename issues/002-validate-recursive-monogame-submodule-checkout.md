@@ -1,7 +1,7 @@
 # Validate recursive MonoGame submodule checkout
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [001-record-pinned-toolchain-manifest.md](001-record-pinned-toolchain-manifest.md)
 **PRD references:** 2.2, 11.1, 11.3, 22.4
 **User stories:** US8
@@ -54,7 +54,7 @@ Create a standalone, idempotent shell script `scripts/validate-submodule.sh` (pl
 
 ## Acceptance criteria
 
-- [ ] `scripts/validate-submodule.sh` exists, is executable, and exits 0 on the current healthy checkout
+- [ ] `scripts/validate-submodule.sh` exists and is executable; it exits 0 in an isolated clean checkout at the pinned SHA
 - [ ] Temporarily renaming/emptying `external/MonoGame` (in a scratch clone, not this checkout) causes the script to print the exact PRD section 11.3 message and exit non-zero
 - [ ] The script exits non-zero with a clear mismatch message when the manifest's `commitSha` is temporarily edited to a wrong value (test in a scratch copy of the manifest, then revert)
 - [ ] `scripts/validate-submodule.ps1` mirrors the same checks
@@ -66,16 +66,18 @@ Run:
 ```bash
 bash scripts/validate-submodule.sh; echo "exit=$?"
 ```
-Expect `exit=0` and a success line containing the current `external/MonoGame` HEAD SHA. Then simulate failure without touching the real checkout: `cp docs/toolchain-manifest.json /tmp_manifest_backup.json` is forbidden by policy (no /tmp) — instead copy to `docs/toolchain-manifest.json.bak` in the working tree, edit the working copy's `commitSha` to `deadbeefdeadbeefdeadbeefdeadbeefdeadbeef`, rerun the script and confirm non-zero exit and a mismatch message, then restore: `mv docs/toolchain-manifest.json.bak docs/toolchain-manifest.json`. The verifier must capture both console transcripts (success and simulated failure) as evidence and confirm the manifest file is byte-identical to its pre-test state afterward (`git diff --stat docs/toolchain-manifest.json` shows no changes).
+If the shared checkout already contains user changes under `external/MonoGame`, expect non-zero exit and the dirty-submodule message. Do not clean, stash, reset, stage, or otherwise modify those changes. Prove the success path in an isolated clean checkout or disposable fixture containing the pinned submodule SHA and an equivalent manifest; record its path and remove only that specifically created fixture afterward.
+
+Then simulate a manifest mismatch using a disposable copy of the repository inputs or an isolated fixture. Do not edit the real `docs/toolchain-manifest.json` in the shared checkout. Confirm non-zero exit and a message containing both expected and actual SHAs. The verifier must capture transcripts for the clean success, dirty failure, and SHA-mismatch failure paths, and confirm the real parent and submodule worktrees are byte-for-byte unchanged from their pre-verification baselines.
 
 ## Verification record
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent background verifier `9976f603-504f-4c17-abed-7dd19587fe60`
+- **Date:** 2026-08-25
+- **Evidence:** Real dirty checkout exited 1 with actionable guidance while preserving its baseline exactly. Isolated fixture proved clean pinned-SHA success, dirty failure, expected/actual SHA mismatch, exact uninitialized-submodule guidance, unreachable protected-ref failure, and graceful offline fetch handling. Bash syntax and executable mode passed. PowerShell was unavailable, so verifier performed line-by-line parity review. `docs/submodule-workflow.md` contains both recursive clone and submodule update commands. Fixture was removed; real manifest, parent state, and submodule state remained unchanged.
 
 ## Commit gate
 
