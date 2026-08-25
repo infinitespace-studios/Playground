@@ -1,7 +1,7 @@
 # Hash and verify required MonoGame WASM artifacts
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [004-build-monogame-via-build-csproj.md](004-build-monogame-via-build-csproj.md)
 **PRD references:** 11.3, 11.4, 2.6
 **User stories:** US8
@@ -92,10 +92,10 @@ Expect exit 0 and a JSON object with one hash per required file. Then temporaril
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent background verifier `d7ffe727-1c52-48d9-8884-599afc9910c2`
+- **Date:** 2026-08-25
+- **Evidence:** Authoritative inventory contains 183 sorted, unique, safe relative paths: all 176 boot-manifest resources plus runtime bootstrap, two referenced Content assets, and provenance. Source maps and precompressed copies were confirmed non-runtime. Toolchain, inventory, provenance, and submodule SHAs matched. Bash verification produced 183 valid lowercase SHA-256 values; independent recomputation found zero mismatches and repeated runs were byte-identical. Isolated spaced-path fixture proved exact missing-file reporting, restoration success, SHA/provenance mismatch rejection, and traversal rejection without touching real artifacts. Bash syntax/mode passed; PowerShell received semantic parity review.
 
 ## Commit gate
 
