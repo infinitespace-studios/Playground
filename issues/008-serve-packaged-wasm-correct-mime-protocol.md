@@ -1,7 +1,7 @@
 # Serve packaged WASM with correct MIME/custom protocol
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [007-render-monogame-web-example-in-tauri.md](007-render-monogame-web-example-in-tauri.md)
 **PRD references:** 20.1, 19, 18
 **User stories:** US7
@@ -51,10 +51,10 @@ Launch the packaged Release build with WebView devtools enabled (Tauri supports 
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent background verifier `95bf42e5-96fa-4fce-91a3-2861be17080a`
+- **Date:** 2026-08-25
+- **Evidence:** Tauri `2.11.5` built-in `tauri://` asset handler was traced through `tauri-utils 2.9.3` and `infer 0.19.0`, whose WASM magic-byte matcher returns `application/wasm`; no custom protocol or new privilege was needed. DevTools independently observed status 200 and `Content-Type: application/wasm` for the real native runtime URL. Runtime diagnostics showed compile/instantiate streaming called and succeeded, buffer fallback false, and no MIME errors. Release and debug-config packaged binaries rendered animated frames with 12.8% and 7.0% changed canvas pixels and opened no sockets. CLI `2.11.4` matched the toolchain manifest; Rust crate `2.11.5` remained lockfile-pinned and distinct.
 
 ## Commit gate
 

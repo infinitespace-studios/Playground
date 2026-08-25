@@ -236,6 +236,17 @@ h2 {
   text-transform: none;
 }
 
+.runtime-diagnostics {
+  display: grid;
+  justify-items: end;
+  gap: 3px;
+  text-align: right;
+}
+
+#wasm-diagnostic {
+  color: #bdc8c3;
+}
+
 html[data-runtime="rendering"] .runtime-state-light {
   animation: runtime-pulse 1.8s ease-in-out infinite;
 }
@@ -254,6 +265,7 @@ html[data-runtime="error"] .runtime-state-light {
 
 @media (max-width: 720px) {
   .build-chip,
+  #wasm-diagnostic,
   #runtime-build {
     display: none;
   }
