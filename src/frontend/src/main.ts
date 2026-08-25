@@ -753,3 +753,259 @@ void runIssue011Proof().catch((error: unknown) => {
   });
   console.error("Issue 011 proof instrumentation failed", error);
 });
+
+const runIssue010Proof = async () => {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (!invoke || !(await invoke<boolean>("issue010_is_proof_enabled"))) {
+    return;
+  }
+
+  const AudioContextConstructor =
+    window.AudioContext ??
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  if (!AudioContextConstructor) {
+    throw new Error("Web Audio AudioContext is unavailable");
+  }
+
+  const startedAt = performance.now();
+  const audioErrors: Array<Record<string, unknown>> = [];
+  const audioConsole: Array<Record<string, unknown>> = [];
+  const stateTransitions: Array<{ state: AudioContextState; atMilliseconds: number }> = [];
+  const recordAudioError = (source: string, error: unknown) => {
+    audioErrors.push({
+      source,
+      atMilliseconds: performance.now() - startedAt,
+      message: error instanceof Error ? error.stack ?? error.message : String(error),
+    });
+  };
+  const context = new AudioContextConstructor();
+  stateTransitions.push({ state: context.state, atMilliseconds: performance.now() - startedAt });
+  context.addEventListener("statechange", () => {
+    stateTransitions.push({ state: context.state, atMilliseconds: performance.now() - startedAt });
+  });
+
+  const originalLog = console.log.bind(console);
+  const originalWarnForProof = console.warn.bind(console);
+  const originalErrorForProof = console.error.bind(console);
+  const captureAudioConsole =
+    (level: string, original: (...args: unknown[]) => void) =>
+    (...args: unknown[]) => {
+      const message = args.map(String).join(" ");
+      if (/audio|faudio|sound|openal|alc|content loading complete/i.test(message)) {
+        audioConsole.push({ level, atMilliseconds: performance.now() - startedAt, message });
+      }
+      original(...args);
+    };
+  console.log = captureAudioConsole("log", originalLog);
+  console.warn = captureAudioConsole("warn", originalWarnForProof);
+  console.error = captureAudioConsole("error", originalErrorForProof);
+
+  const prompt = document.createElement("button");
+  prompt.id = "issue010-audio-proof";
+  prompt.type = "button";
+  prompt.textContent = "Activate audio proof (click or press a key)";
+  prompt.setAttribute("aria-label", "Activate issue 010 audio proof");
+  Object.assign(prompt.style, {
+    position: "fixed",
+    zIndex: "10000",
+    inset: "20px",
+    border: "3px solid #c9ff3d",
+    background: "#080b0bee",
+    color: "#c9ff3d",
+    font: "600 22px system-ui",
+  });
+  document.body.append(prompt);
+  prompt.focus();
+
+  await new Promise<void>((resolve) => window.setTimeout(resolve, 100));
+  await context.suspend();
+  const stateBeforeGesture = context.state;
+  const gesture = await new Promise<{
+    type: string;
+    trusted: boolean;
+    atMilliseconds: number;
+    key: string | null;
+    stateAtGesture: AudioContextState;
+  }>((resolve, reject) => {
+    const accept = async (event: MouseEvent | KeyboardEvent) => {
+      if (!event.isTrusted) {
+        return;
+      }
+      window.removeEventListener("keydown", accept, true);
+      prompt.removeEventListener("click", accept);
+      const observation = {
+        type: event.type,
+        trusted: event.isTrusted,
+        atMilliseconds: performance.now() - startedAt,
+        key: event instanceof KeyboardEvent ? event.key : null,
+        stateAtGesture: context.state,
+      };
+      try {
+        await context.resume();
+        resolve(observation);
+      } catch (error: unknown) {
+        reject(error);
+      }
+    };
+    window.addEventListener("keydown", accept, true);
+    prompt.addEventListener("click", accept);
+  });
+  prompt.remove();
+
+  const stateAfterGestureResume = context.state;
+  const samples: Array<{ atMilliseconds: number; peak: number; rms: number; activeBins: number }> = [];
+  let oscillatorEndedAt: number | null = null;
+  try {
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0;
+    oscillator.frequency.value = 440;
+    gain.gain.value = 0.015;
+    oscillator.connect(gain);
+    gain.connect(analyser);
+    analyser.connect(context.destination);
+
+    const ended = new Promise<void>((resolve) => {
+      oscillator.addEventListener(
+        "ended",
+        () => {
+          oscillatorEndedAt = performance.now() - startedAt;
+          resolve();
+        },
+        { once: true },
+      );
+    });
+    const timeDomain = new Float32Array(analyser.fftSize);
+    const frequency = new Float32Array(analyser.frequencyBinCount);
+    oscillator.start();
+    oscillator.stop(context.currentTime + 0.25);
+    while (oscillatorEndedAt === null) {
+      analyser.getFloatTimeDomainData(timeDomain);
+      analyser.getFloatFrequencyData(frequency);
+      let peak = 0;
+      let sumSquares = 0;
+      for (const value of timeDomain) {
+        peak = Math.max(peak, Math.abs(value));
+        sumSquares += value * value;
+      }
+      samples.push({
+        atMilliseconds: performance.now() - startedAt,
+        peak,
+        rms: Math.sqrt(sumSquares / timeDomain.length),
+        activeBins: frequency.filter((value) => Number.isFinite(value) && value > -80).length,
+      });
+      await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    }
+    await ended;
+    oscillator.disconnect();
+    gain.disconnect();
+    analyser.disconnect();
+  } catch (error: unknown) {
+    recordAudioError("signal-path", error);
+  }
+
+  const resourceEntries = performance
+    .getEntriesByType("resource")
+    .filter((entry) => /(?:^|\/)testsound\.xnb(?:[?#]|$)/i.test(entry.name))
+    .map((entry) => {
+      const resource = entry as PerformanceResourceTiming;
+      return {
+        name: resource.name,
+        initiatorType: resource.initiatorType,
+        startTime: resource.startTime,
+        duration: resource.duration,
+        transferSize: resource.transferSize,
+        decodedBodySize: resource.decodedBodySize,
+      };
+    });
+  const maximumPeak = samples.reduce((maximum, sample) => Math.max(maximum, sample.peak), 0);
+  const maximumRms = samples.reduce((maximum, sample) => Math.max(maximum, sample.rms), 0);
+  const maximumActiveBins = samples.reduce(
+    (maximum, sample) => Math.max(maximum, sample.activeBins),
+    0,
+  );
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    proofMode: "MONOGAME_ISSUE010_PROOF=1",
+    gesture,
+    audioContext: {
+      createdBeforeGesture: true,
+      initialState: stateTransitions[0]?.state ?? null,
+      stateBeforeGesture,
+      stateAfterGestureResume,
+      stateAfterResume: context.state,
+      transitions: stateTransitions,
+      sampleRate: context.sampleRate,
+      baseLatency: context.baseLatency,
+    },
+    signal: {
+      kind: "440 Hz oscillator through low-volume GainNode and AnalyserNode to destination",
+      gain: 0.015,
+      scheduledDurationMilliseconds: 250,
+      oscillatorEndedAt,
+      sampleCount: samples.length,
+      maximumPeak,
+      maximumRms,
+      maximumActiveBins,
+      measurable: maximumPeak > 0.001 && maximumRms > 0.0001 && maximumActiveBins > 0,
+      samples,
+    },
+    monoGame: {
+      testsoundResourceRequests: resourceEntries,
+      runtimeState: document.documentElement.dataset.runtime ?? null,
+      renderedFramesObserved: diagnostics.renderedFramesObserved,
+      loadEvidence:
+        audioConsole.some((entry) => /Loaded Content\/testsound\.xnb into VFS/.test(String(entry.message)))
+          ? "Runtime log directly observed testsound.xnb loaded into VFS before content-loading completion and rendering."
+          : "No completed testsound.xnb load message was observed.",
+      backendEvidence: audioConsole,
+      faudioInitialization: {
+        observed: audioConsole.some((entry) => /faudio|openal|alc/i.test(String(entry.message))),
+        status: audioConsole.some((entry) => /faudio|openal|alc/i.test(String(entry.message)))
+          ? "observed in runtime console"
+          : "unproven: no explicit FAudio initialization message was emitted",
+        readOnlySourceInspection:
+          "The pinned WEB platform SoundEffect implementation has an empty PlatformInitialize and no-op playback methods; it does not expose FAudio initialization evidence.",
+      },
+      managedSoundEffectPlay: {
+        observed: false,
+        status: "unproven",
+        reason:
+          "No policy-safe product-owned managed activation/observation hook exists outside external/MonoGame.",
+        remainingGaps: ["issue 014", "issue 040"],
+      },
+    },
+    errors: {
+      audio: audioErrors,
+      console: [...diagnostics.consoleErrors],
+      unhandled: [...diagnostics.unhandledErrors],
+    },
+    pass:
+      gesture.trusted &&
+      stateBeforeGesture === "suspended" &&
+      gesture.stateAtGesture === "suspended" &&
+      context.state === "running" &&
+      oscillatorEndedAt !== null &&
+      maximumPeak > 0.001 &&
+      maximumRms > 0.0001 &&
+      maximumActiveBins > 0,
+  };
+  await context.close().catch((error: unknown) => recordAudioError("context-close", error));
+  await invoke("issue010_emit_report", { report: JSON.stringify(report) });
+};
+
+void runIssue010Proof().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  void window.__TAURI_INTERNALS__?.invoke("issue010_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: message,
+      diagnostics,
+    }),
+  });
+  console.error("Issue 010 proof instrumentation failed", error);
+});
