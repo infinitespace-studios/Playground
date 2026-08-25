@@ -33,13 +33,21 @@ incompatible installed SDK. The `wasm-tools` workload is present in the current
 SDK installation, but build validation must verify or restore it for the pinned
 SDK.
 
+## Emscripten environment
+
 The expected Emscripten checkout is `../emsdk`, relative to the repository root,
-at tag `3.1.56`. On macOS or Linux, initialize it in the shell that will run the
-MonoGame build:
+at tag `3.1.56`. Before any MonoGame native or WebAssembly build on macOS or
+Linux, initialize it in the same shell that will run the build:
 
 ```bash
 source ../emsdk/emsdk_env.sh
 ```
+
+This command is mandatory and must be run from the repository root. It must be
+sourced rather than executed as a child process, because `emsdk_env.sh` sets
+environment variables in the calling shell. Use `scripts/check-emsdk-env.sh`
+(or its PowerShell twin, `scripts/check-emsdk-env.ps1`) to confirm that the
+environment is active before building.
 
 ## Updating the manifest
 

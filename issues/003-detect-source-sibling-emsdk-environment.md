@@ -1,7 +1,7 @@
 # Detect and source sibling emsdk environment
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [001-record-pinned-toolchain-manifest.md](001-record-pinned-toolchain-manifest.md)
 **PRD references:** 11.2
 **User stories:** US8
@@ -78,10 +78,10 @@ Expect exit 0. If `../emsdk` does not exist in the verifier's environment, it is
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent background verifier `63eb41a6-9399-4cc5-b44a-295607a31433`
+- **Date:** 2026-08-25
+- **Evidence:** Sanitized unsourced shell exited 1 and printed exact `source ../emsdk/emsdk_env.sh` guidance. Sourced shell detected EMSDK `/Users/dean/Documents/Sandbox/emsdk`, emcc `3.1.56`, and exited 0. An isolated fixture proved the missing-directory path. Bash syntax and executable mode passed. PowerShell was unavailable, so verifier performed line-by-line semantic parity review covering repository-relative path resolution, EMSDK/emcc checks, messages, and exit codes. `docs/build.md` accurately documents sibling layout and mandatory sourcing.
 
 ## Commit gate
 
