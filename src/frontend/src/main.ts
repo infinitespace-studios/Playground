@@ -25,9 +25,36 @@ interface WasmDiagnostics {
   streamingError: string | null;
 }
 
+interface Issue011OuterBounds {
+  physical: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  logical: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  scaleFactor: number;
+}
+
+interface Issue011FrameSample {
+  hash: string;
+  nonBlackPixels: number;
+  totalPixels: number;
+  glError: number;
+  pixels: Uint8Array;
+}
+
 declare global {
   interface Window {
     __MONOGAME_DIAGNOSTICS__: RuntimeDiagnostics;
+    __TAURI_INTERNALS__?: {
+      invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+    };
   }
 }
 
@@ -248,4 +275,195 @@ const startMonoGame = async () => {
 
 void startMonoGame().catch((error: unknown) => {
   console.error("Unable to start packaged MonoGame runtime", error);
+});
+
+const runIssue011Proof = async () => {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (!invoke || !(await invoke<boolean>("issue011_is_proof_enabled"))) {
+    return;
+  }
+
+  let contextLostEvents = 0;
+  let contextRestoredEvents = 0;
+  canvas.addEventListener("webglcontextlost", () => {
+    contextLostEvents += 1;
+  });
+  canvas.addEventListener("webglcontextrestored", () => {
+    contextRestoredEvents += 1;
+  });
+
+  const wait = (milliseconds: number) =>
+    new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+
+  const waitForRendering = async () => {
+    const deadline = performance.now() + 30_000;
+    while (document.documentElement.dataset.runtime !== "rendering") {
+      if (performance.now() >= deadline) {
+        throw new Error("Issue 011 proof timed out waiting for active rendering");
+      }
+      await wait(100);
+    }
+  };
+
+  const readOuterBounds = async (): Promise<Issue011OuterBounds> => {
+    const [x, y, width, height, scaleFactor] = await invoke<[number, number, number, number, number]>(
+      "issue011_outer_bounds",
+    );
+    return {
+      physical: { x, y, width, height },
+      logical: {
+        x: x / scaleFactor,
+        y: y / scaleFactor,
+        width: width / scaleFactor,
+        height: height / scaleFactor,
+      },
+      scaleFactor,
+    };
+  };
+
+  const readFrame = (gl: WebGL2RenderingContext): Issue011FrameSample => {
+    const pixels = new Uint8Array(gl.drawingBufferWidth * gl.drawingBufferHeight * 4);
+    gl.readPixels(
+      0,
+      0,
+      gl.drawingBufferWidth,
+      gl.drawingBufferHeight,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      pixels,
+    );
+
+    let hash = 0x811c9dc5;
+    let nonBlackPixels = 0;
+    for (let index = 0; index < pixels.length; index += 4) {
+      if (pixels[index] > 8 || pixels[index + 1] > 8 || pixels[index + 2] > 8) {
+        nonBlackPixels += 1;
+      }
+      for (let channel = 0; channel < 4; channel += 1) {
+        hash ^= pixels[index + channel];
+        hash = Math.imul(hash, 0x01000193);
+      }
+    }
+
+    return {
+      hash: (hash >>> 0).toString(16).padStart(8, "0"),
+      nonBlackPixels,
+      totalPixels: gl.drawingBufferWidth * gl.drawingBufferHeight,
+      glError: gl.getError(),
+      pixels,
+    };
+  };
+
+  const summarizeChange = (before: Issue011FrameSample, after: Issue011FrameSample) => {
+    let materiallyChangedPixels = 0;
+    for (let index = 0; index < before.pixels.length; index += 4) {
+      const maximumChannelDelta = Math.max(
+        Math.abs(before.pixels[index] - after.pixels[index]),
+        Math.abs(before.pixels[index + 1] - after.pixels[index + 1]),
+        Math.abs(before.pixels[index + 2] - after.pixels[index + 2]),
+      );
+      if (maximumChannelDelta > 12) {
+        materiallyChangedPixels += 1;
+      }
+    }
+    return {
+      materiallyChangedPixels,
+      materiallyChangedPercent: (materiallyChangedPixels / before.totalPixels) * 100,
+    };
+  };
+
+  const cases = [
+    { name: "baseline", width: 1280, height: 800 },
+    { name: "small", width: 800, height: 480 },
+    { name: "720p", width: 1280, height: 720 },
+  ];
+  const measurements = [];
+
+  await waitForRendering();
+  for (const testCase of cases) {
+    await invoke("issue011_set_outer_size", {
+      width: testCase.width,
+      height: testCase.height,
+    });
+    await wait(1_000);
+
+    const gl = canvas.getContext("webgl2");
+    if (!gl) {
+      throw new Error("Issue 011 proof could not access the active WebGL 2 context");
+    }
+
+    const framesBefore = diagnostics.renderedFramesObserved;
+    const animationFrameBefore = await new Promise<number>((resolve) =>
+      requestAnimationFrame(() => resolve(performance.now())),
+    );
+    const firstFrame = readFrame(gl);
+    await wait(1_000);
+    const animationFrameAfter = await new Promise<number>((resolve) =>
+      requestAnimationFrame(() => resolve(performance.now())),
+    );
+    const secondFrame = readFrame(gl);
+    const rect = canvas.getBoundingClientRect();
+
+    measurements.push({
+      case: testCase,
+      outerBounds: await readOuterBounds(),
+      viewport: { width: window.innerWidth, height: window.innerHeight },
+      canvasCss: { width: canvas.clientWidth, height: canvas.clientHeight, x: rect.x, y: rect.y },
+      canvasBacking: { width: canvas.width, height: canvas.height },
+      drawingBuffer: { width: gl.drawingBufferWidth, height: gl.drawingBufferHeight },
+      devicePixelRatio: window.devicePixelRatio,
+      runtimeState: document.documentElement.dataset.runtime ?? null,
+      renderedFramesObserved: {
+        before: framesBefore,
+        after: diagnostics.renderedFramesObserved,
+      },
+      animationFrameProgressMilliseconds: animationFrameAfter - animationFrameBefore,
+      frames: [
+        {
+          hash: firstFrame.hash,
+          nonBlackPixels: firstFrame.nonBlackPixels,
+          totalPixels: firstFrame.totalPixels,
+          glError: firstFrame.glError,
+        },
+        {
+          hash: secondFrame.hash,
+          nonBlackPixels: secondFrame.nonBlackPixels,
+          totalPixels: secondFrame.totalPixels,
+          glError: secondFrame.glError,
+        },
+      ],
+      pixelChange: summarizeChange(firstFrame, secondFrame),
+      context: {
+        lostEvents: contextLostEvents,
+        restoredEvents: contextRestoredEvents,
+        currentlyLost: gl.isContextLost(),
+      },
+      errors: {
+        console: [...diagnostics.consoleErrors],
+        unhandled: [...diagnostics.unhandledErrors],
+      },
+    });
+  }
+
+  await invoke("issue011_set_outer_size", { width: 1280, height: 800 });
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    proofMode: "MONOGAME_ISSUE011_PROOF=1",
+    measurements,
+  };
+  await invoke("issue011_emit_report", { report: JSON.stringify(report) });
+};
+
+void runIssue011Proof().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  void window.__TAURI_INTERNALS__?.invoke("issue011_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: message,
+      diagnostics,
+    }),
+  });
+  console.error("Issue 011 proof instrumentation failed", error);
 });

@@ -1,7 +1,7 @@
 # Prove preview and canvas resize in packaged shell
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [008-serve-packaged-wasm-correct-mime-protocol.md](008-serve-packaged-wasm-correct-mime-protocol.md)
 **PRD references:** 13.4, 22.3, 19
 **User stories:** US3
@@ -38,10 +38,10 @@ Resize the packaged Tauri window at runtime and confirm the MonoGame canvas and 
 
 ## Acceptance criteria
 
-- [ ] The packaged window can be resized to at least two distinct sizes while the Example game is running
-- [ ] At each size, the canvas renders without corruption, blank frames, or WebGL context loss
-- [ ] No JS exception appears in devtools during or after resize
-- [ ] If resize does not work correctly, this is explicitly documented as a known limitation for the shell ADR (issue 14) rather than silently ignored
+- [x] The packaged window can be resized to at least two distinct sizes while the Example game is running
+- [x] At each size, the canvas renders without corruption, blank frames, or WebGL context loss
+- [x] No JS exception appears in devtools during or after resize
+- [x] If resize does not work correctly, this is explicitly documented as a known limitation for the shell ADR (issue 14) rather than silently ignored
 
 ## Verification
 
@@ -51,10 +51,19 @@ Reproduce the resize steps above at two window sizes and capture screenshots or 
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+### Attempt 1
+
+- **Verdict:** FAIL (inconclusive)
+- **Verifier:** Issue 011 Verifier (`50b52f3d-5ce4-4127-bfae-eed24090a072`)
+- **Date:** 2026-08-25
+- **Evidence:** Static inspection corroborated CSS-only scaling over a fixed 320x200 backing buffer, but ScreenCaptureKit and Accessibility could not provide safe window-bounded live evidence. Full-screen capture was prohibited, so the mandatory live reproduction could not be completed.
+
+### Attempt 2
+
+- **Verdict:** PASS
+- **Verifier:** Issue 011 Verifier (`50b52f3d-5ce4-4127-bfae-eed24090a072`)
+- **Date:** 2026-08-25
+- **Evidence:** Independently rebuilt the frontend and packaged application, then ran environment-gated, product-owned instrumentation with `MONOGAME_ISSUE011_PROOF=1`. At 1280x800, 800x480, and 1280x720 logical outer sizes, the CSS canvas measured 714x447, 320x200, and 604x378 respectively, while the canvas backing store and WebGL drawing buffer remained 320x200. Two live frame samples at every size had distinct hashes, 1,259-1,427 materially changed pixels, and all 64,000 pixels were non-black. Every sample reported active rendering, zero GL errors, no context loss/restoration, and no console or unhandled errors. A normal run without the environment variable emitted no proof output, confirming the instrumentation is inactive by default. This is a PASS against the documented fallback claim: native/CSS resize works without disrupting rendering, but the fixed 320x200 backing buffer is upscaled and must be recorded as a known limitation in the shell ADR (issue 14).
 
 ## Commit gate
 
