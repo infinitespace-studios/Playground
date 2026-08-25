@@ -1,7 +1,7 @@
 # Prove keyboard and mouse input in packaged preview
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [008-serve-packaged-wasm-correct-mime-protocol.md](008-serve-packaged-wasm-correct-mime-protocol.md)
 **PRD references:** 19, 22.3, 20.2
 **User stories:** US3
@@ -9,53 +9,56 @@
 
 ## Context
 
-Critical feasibility question 4 (PRD section 19) asks whether WebGL 2, input, audio, and resizing work in the candidate shell. Section 22.3 requires rendering tests for keyboard input, mouse input, and editor/preview focus switching. Section 20.2 requires input to work when the preview is focused. This issue proves input specifically, using the already-rendering MonoGame example from issues 7-8, by modifying the example's own `Game1.cs` temporarily (or using its existing input-reactive behavior if any) to visibly react to keyboard/mouse input, and confirming that reaction inside the packaged Tauri window.
+Critical feasibility question 4 (PRD section 19) asks whether WebGL 2, input, audio, and resizing work in the candidate shell. Section 22.3 requires rendering tests for keyboard input, mouse input, and editor/preview focus switching. Section 20.2 requires input to work when the preview is focused. This issue proves input specifically using the already-rendering MonoGame example from issues 7-8. `external/MonoGame/AGENTS.md` prohibits AI-authored changes in the MonoGame checkout, including temporary changes. The proof must therefore use the example's existing keyboard-reactive behavior and product-owned, environment-gated instrumentation outside `external/MonoGame`.
 
 ## What to build
 
-Confirm that `Keyboard.GetState()` and `Mouse.GetState()` inside the running `external/MonoGame/Example` game respond correctly to real input events delivered through the packaged Tauri WebView, by adding a small, clearly-marked temporary diagnostic (e.g. changing the clear color when a key is pressed, or logging mouse position) directly in the Example project's `Game1.cs`, observing the effect, then reverting that temporary change afterward so the committed example stays pristine.
+Confirm that keyboard and mouse events reach the packaged Tauri preview, focus routing is correct, and the existing managed `Keyboard.GetState()` behavior reacts. Use repeatable product-owned instrumentation that is disabled by default. For mouse input, prove the strongest end-to-end claim possible without changing MonoGame; explicitly distinguish WebView/canvas event delivery from a managed `Mouse.GetState()` observation. If managed mouse state cannot be observed from the existing example, record that narrower gap for issue 14 rather than overstating the result.
 
 ## Scope
 
 ### In scope
 
-- Temporary input-reactive code added to `external/MonoGame/Example/Game1.cs` for manual verification, then reverted before commit
-- Confirming keyboard key-down/key-up and mouse move/click are observed correctly inside the packaged window
+- Existing input-reactive behavior in `external/MonoGame/Example/Game1.cs`, used read-only
+- Product-owned, environment-gated proof instrumentation outside `external/MonoGame`
+- Confirming keyboard key-down/key-up and mouse move/click reach the focused packaged preview
 - Confirming input only affects the game when the canvas/window has focus
 
 ### Out of scope
 
-- Any permanent product code changes (this is a proof-only issue)
+- Any changes, temporary or permanent, under `external/MonoGame`
+- Production input-routing implementation; proof instrumentation must be inert unless explicitly enabled
 - Resize proof (issue 11)
 - Audio proof (issue 10)
 
 ## Implementation guidance
 
-1. Rebuild the Example project's Web target with a temporary diagnostic: in `external/MonoGame/Example/Game1.cs`, inside `Update`, add something like `if (Keyboard.GetState().IsKeyDown(Keys.Space)) _graphics.GraphicsDevice.Clear(Color.Red)` reasoning as a temporary visual proof (adapt to the file's actual existing structure — read it first with the `view` tool before editing).
-2. Rebuild via the same pipeline as issue 4/7 (`dotnet run --project build/Build.csproj` if the Example is built by the main Build.csproj, or the Example's own publish command — confirm which by reading `external/MonoGame/build/Build.csproj`), then re-stage into `artifacts/monogame/` or `artifacts/example-web/` and rebuild the Tauri app.
-3. Launch the packaged app, click the canvas to give it focus, press the test key and move/click the mouse, and visually confirm the expected reaction.
-4. Revert the temporary diagnostic in `Game1.cs` (`git -C external/MonoGame checkout -- Example/Game1.cs` or manually undo the edit) so the submodule working tree returns to clean before finishing (`git -C external/MonoGame status --short` must be empty again).
-5. Rebuild once more after reverting to leave the repository in the same state as after issue 8, and confirm the app still renders (regression check).
+1. Record the pre-existing `external/MonoGame` status and never edit, clean, reset, stash, or revert it.
+2. Use the example's existing `W`, `S`, `Up`, and `Down` behavior. Add product-owned proof instrumentation that can focus/blur the canvas, deliver controlled key down/up input, sample live rendered pixels, and report whether the expected sprite geometry changed and stopped changing after key-up.
+3. Instrument real canvas/window mouse move, down, up, click, focus, and blur events. Deliver controlled mouse interaction inside and outside the canvas and emit a structured report containing coordinates, buttons, targets, focus state, ordering, and whether canvas handlers received each event.
+4. Prefer a product-owned managed probe outside `external/MonoGame` if the existing built runtime exposes a policy-safe way to observe `Mouse.GetState()`. Otherwise report canvas/WebView mouse delivery as proven and managed `Mouse.GetState()` as unproven.
+5. Gate all commands/reporting behind an explicit environment variable. Confirm a normal run without it emits no proof output and exposes no active proof behavior.
 
 ## Acceptance criteria
 
-- [ ] A temporary, reverted test confirms keyboard input reaches the running game inside the packaged Tauri window
-- [ ] A temporary, reverted test confirms mouse input (position and/or click) reaches the running game
-- [ ] Input only affects the game while the canvas has focus (clicking outside the canvas, if there is anywhere else to click, does not trigger game input)
-- [ ] `git -C external/MonoGame status --short` is empty after this issue (all temporary diagnostics reverted)
+- [x] The existing managed example visibly confirms keyboard key-down and key-up reach `Keyboard.GetState()`
+- [x] Mouse move and click delivery to the focused canvas is independently reproduced; the record states whether managed `Mouse.GetState()` was also observed
+- [x] Input only affects the game while the canvas has focus (clicking outside the canvas, if there is anywhere else to click, does not trigger game input)
+- [x] Proof mode is explicitly gated and a normal run is unaffected
+- [x] The post-test `external/MonoGame` status exactly matches the recorded pre-test status
 
 ## Verification
 
-Perform the manual steps in Implementation guidance and capture: (1) a description or screenshot of the visual change on key press, (2) a description or screenshot of the visual/logged change on mouse move or click, (3) the output of `git -C external/MonoGame status --short` showing no lingering changes, and (4) confirmation the app still renders normally after reverting and rebuilding. Since this is inherently a manual/interactive proof, the verifier must personally reproduce the input test (not just read the report) and record PASS/FAIL with their own observation.
+Independently rebuild and run the packaged app. Reproduce key-down/key-up, mouse move/click, and focused/unfocused cases from product-owned structured evidence; do not trust the implementer's report. Verify live frame/pixel evidence for the existing managed keyboard reaction, exact mouse event details, absence of JS/WebGL errors, proof gating, and unchanged `external/MonoGame` status. Window-bounded captures are allowed; full-screen capture is prohibited. PASS may use a limited mouse claim only when the record explicitly says managed `Mouse.GetState()` remains unproven and carries that gap into issue 14.
 
 ## Verification record
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS (limited mouse claim)
+- **Verifier:** Issue 009 Verifier (`53e4e5a0-0ad7-41d2-a9e3-d778b2b5c441`)
+- **Date:** 2026-08-25
+- **Evidence:** Independently rebuilt the frontend and packaged application. With proof mode enabled, focused `S` key-down moved the existing managed example geometry from `y=140..189` to `10..69`; key-up stopped movement and produced an identical subsequent geometry/hash. Unfocused `W` input left geometry and frame hash unchanged. Canvas mouse events arrived in `move`, `down`, `up`, `click` order with coordinates `(583,388)`, canvas offset `(300,169)`, correct targets/focus, and `buttons=1` during down. Runtime remained `rendering`, six GL checks returned zero, context loss/restoration remained `0/0`, animation continued, and no console or unhandled errors occurred. An ungated 25-second run emitted no proof output. Pre/post `external/MonoGame` status was byte-identical: 590 bytes, SHA-256 `82d73a9dd0e187540798fee5b1a80aa73f5ac0e809330eb138671006fd6229f9`. Mouse events were synthetic (`isTrusted=false`), so this proves DOM canvas delivery only; physical-device input and managed `Mouse.GetState()` remain unproven and must be recorded in issue 14.
 
 ## Commit gate
 

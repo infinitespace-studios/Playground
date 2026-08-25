@@ -1,3 +1,23 @@
+fn issue009_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE009_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue009_is_proof_enabled() -> bool {
+    issue009_proof_enabled()
+}
+
+#[tauri::command]
+fn issue009_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue009_proof_enabled() {
+        return Err("issue 009 proof instrumentation is disabled".into());
+    }
+
+    println!("ISSUE009_REPORT={report}");
+    app.exit(0);
+    Ok(())
+}
+
 fn issue011_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE011_PROOF").is_some_and(|value| value == "1")
 }
@@ -53,6 +73,8 @@ fn issue011_emit_report(report: String) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
+            issue009_is_proof_enabled,
+            issue009_emit_report,
             issue011_is_proof_enabled,
             issue011_set_outer_size,
             issue011_outer_bounds,

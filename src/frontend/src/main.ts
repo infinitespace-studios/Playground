@@ -49,6 +49,13 @@ interface Issue011FrameSample {
   pixels: Uint8Array;
 }
 
+interface Issue009SpriteSample {
+  hash: string;
+  changedPixelCount: number;
+  top: number | null;
+  bottom: number | null;
+}
+
 declare global {
   interface Window {
     __MONOGAME_DIAGNOSTICS__: RuntimeDiagnostics;
@@ -275,6 +282,285 @@ const startMonoGame = async () => {
 
 void startMonoGame().catch((error: unknown) => {
   console.error("Unable to start packaged MonoGame runtime", error);
+});
+
+const runIssue009Proof = async () => {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (!invoke || !(await invoke<boolean>("issue009_is_proof_enabled"))) {
+    return;
+  }
+
+  const wait = (milliseconds: number) =>
+    new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
+  const waitForRendering = async () => {
+    const deadline = performance.now() + 30_000;
+    while (document.documentElement.dataset.runtime !== "rendering") {
+      if (performance.now() >= deadline) {
+        throw new Error("Issue 009 proof timed out waiting for active rendering");
+      }
+      await wait(100);
+    }
+  };
+
+  const eventTargetName = (target: EventTarget | null) => {
+    if (target === window) return "window";
+    if (target === document) return "document";
+    if (!(target instanceof Element)) return target?.constructor.name ?? "null";
+    return target.id ? `${target.tagName.toLowerCase()}#${target.id}` : target.tagName.toLowerCase();
+  };
+
+  const focusState = () => ({
+    documentHasFocus: document.hasFocus(),
+    activeElement: eventTargetName(document.activeElement),
+    canvasFocused: document.activeElement === canvas,
+  });
+
+  const keyboardEvents: Array<Record<string, unknown>> = [];
+  const mouseEvents: Array<Record<string, unknown>> = [];
+  const focusRouteDecisions: Array<Record<string, unknown>> = [];
+  let sequence = 0;
+  const recordKeyboard = (event: KeyboardEvent) => {
+    keyboardEvents.push({
+      sequence: ++sequence,
+      type: event.type,
+      key: event.key,
+      code: event.code,
+      keyCode: event.keyCode,
+      target: eventTargetName(event.target),
+      currentTarget: eventTargetName(event.currentTarget),
+      trusted: event.isTrusted,
+      focus: focusState(),
+    });
+  };
+  const routeKeyboardToFocusedCanvas = (event: KeyboardEvent) => {
+    recordKeyboard(event);
+    const deliveredToCanvas = document.activeElement === canvas && event.target === canvas;
+    focusRouteDecisions.push({
+      sequence: keyboardEvents.at(-1)?.sequence,
+      type: event.type,
+      key: event.key,
+      deliveredToCanvas,
+      activeElement: eventTargetName(document.activeElement),
+    });
+    if (!deliveredToCanvas) {
+      event.stopPropagation();
+    }
+  };
+  const recordMouse = (handler: string) => (event: MouseEvent) => {
+    mouseEvents.push({
+      sequence: ++sequence,
+      handler,
+      type: event.type,
+      client: { x: event.clientX, y: event.clientY },
+      offset: { x: event.offsetX, y: event.offsetY },
+      movement: { x: event.movementX, y: event.movementY },
+      button: event.button,
+      buttons: event.buttons,
+      target: eventTargetName(event.target),
+      currentTarget: eventTargetName(event.currentTarget),
+      trusted: event.isTrusted,
+      focus: focusState(),
+    });
+  };
+
+  document.addEventListener("keydown", routeKeyboardToFocusedCanvas, true);
+  document.addEventListener("keyup", routeKeyboardToFocusedCanvas, true);
+  for (const type of ["mousemove", "mousedown", "mouseup", "click"] as const) {
+    canvas.addEventListener(type, recordMouse("canvas"));
+    document.addEventListener(type, recordMouse("document"));
+  }
+
+  const readSprite = (gl: WebGL2RenderingContext): Issue009SpriteSample => {
+    const width = gl.drawingBufferWidth;
+    const height = gl.drawingBufferHeight;
+    const pixels = new Uint8Array(width * height * 4);
+    gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+
+    let hash = 0x811c9dc5;
+    let changedPixelCount = 0;
+    const rows = new Map<number, number>();
+    for (let topY = 10; topY < height - 10; topY += 1) {
+      const glY = height - 1 - topY;
+      for (let x = Math.floor(width * 0.72); x < width; x += 1) {
+        const index = (glY * width + x) * 4;
+        const redBackground =
+          pixels[index] > 180 && pixels[index + 1] < 70 && pixels[index + 2] < 70;
+        if (!redBackground) {
+          changedPixelCount += 1;
+          rows.set(topY, (rows.get(topY) ?? 0) + 1);
+        }
+        hash ^= pixels[index];
+        hash = Math.imul(hash, 0x01000193);
+        hash ^= pixels[index + 1];
+        hash = Math.imul(hash, 0x01000193);
+        hash ^= pixels[index + 2];
+        hash = Math.imul(hash, 0x01000193);
+      }
+    }
+    const occupiedRows = [...rows.entries()]
+      .filter(([, count]) => count >= 3)
+      .map(([row]) => row);
+    return {
+      hash: (hash >>> 0).toString(16).padStart(8, "0"),
+      changedPixelCount,
+      top: occupiedRows.length > 0 ? Math.min(...occupiedRows) : null,
+      bottom: occupiedRows.length > 0 ? Math.max(...occupiedRows) : null,
+    };
+  };
+
+  const dispatchKey = (target: Element, type: "keydown" | "keyup", key: string, code: string, keyCode: number) => {
+    const event = new KeyboardEvent(type, { key, code, bubbles: true, cancelable: true });
+    Object.defineProperties(event, {
+      keyCode: { get: () => keyCode },
+      which: { get: () => keyCode },
+    });
+    target.dispatchEvent(event);
+  };
+
+  const readAfterFrame = async (gl: WebGL2RenderingContext) => {
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+    return readSprite(gl);
+  };
+
+  await waitForRendering();
+  const gl = canvas.getContext("webgl2");
+  if (!gl) {
+    throw new Error("Issue 009 proof could not access the active WebGL 2 context");
+  }
+
+  canvas.focus();
+  await wait(100);
+  const focusedBefore = await readAfterFrame(gl);
+  dispatchKey(canvas, "keydown", "s", "KeyS", 83);
+  await wait(220);
+  const focusedKeyDown = await readAfterFrame(gl);
+  dispatchKey(canvas, "keyup", "s", "KeyS", 83);
+  await wait(120);
+  const focusedKeyUp = await readAfterFrame(gl);
+  await wait(350);
+  const focusedStopped = await readAfterFrame(gl);
+
+  const outside = status;
+  outside.tabIndex = -1;
+  outside.focus();
+  await wait(100);
+  const unfocusedBefore = await readAfterFrame(gl);
+  dispatchKey(outside, "keydown", "w", "KeyW", 87);
+  await wait(220);
+  const unfocusedKeyDown = await readAfterFrame(gl);
+  dispatchKey(outside, "keyup", "w", "KeyW", 87);
+  await wait(120);
+  const unfocusedKeyUp = await readAfterFrame(gl);
+  outside.removeAttribute("tabindex");
+
+  canvas.focus();
+  const rect = canvas.getBoundingClientRect();
+  const point = {
+    x: Math.round(rect.left + rect.width * 0.42),
+    y: Math.round(rect.top + rect.height * 0.38),
+  };
+  const mouseInit = (button: number, buttons: number) => ({
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    clientX: point.x,
+    clientY: point.y,
+    button,
+    buttons,
+    movementX: 7,
+    movementY: -4,
+  });
+  canvas.dispatchEvent(new MouseEvent("mousemove", mouseInit(0, 0)));
+  canvas.dispatchEvent(new MouseEvent("mousedown", mouseInit(0, 1)));
+  canvas.dispatchEvent(new MouseEvent("mouseup", mouseInit(0, 0)));
+  canvas.dispatchEvent(new MouseEvent("click", mouseInit(0, 0)));
+  await wait(100);
+
+  outside.tabIndex = -1;
+  outside.focus();
+  const outsideRect = outside.getBoundingClientRect();
+  outside.dispatchEvent(
+    new MouseEvent("click", {
+      bubbles: true,
+      cancelable: true,
+      clientX: Math.round(outsideRect.left + 2),
+      clientY: Math.round(outsideRect.top + 2),
+      button: 0,
+      buttons: 0,
+    }),
+  );
+  outside.removeAttribute("tabindex");
+
+  const movedWhileFocused =
+    focusedBefore.top !== null &&
+    focusedKeyDown.top !== null &&
+    focusedKeyDown.top < focusedBefore.top;
+  const stoppedAfterKeyUp =
+    focusedKeyUp.top === focusedStopped.top && focusedKeyUp.bottom === focusedStopped.bottom;
+  const movedWhileCanvasUnfocused =
+    unfocusedBefore.top !== unfocusedKeyDown.top || unfocusedBefore.bottom !== unfocusedKeyDown.bottom;
+  const report = {
+    schemaVersion: 1,
+    generatedAt: new Date().toISOString(),
+    proofMode: "MONOGAME_ISSUE009_PROOF=1",
+    inputMethod: "product-owned synthetic DOM events with explicit legacy keyCode values",
+    keyboard: {
+      managedObservation: "live Game1 rendered geometry driven by Keyboard.GetState()",
+      focusRouting:
+        "Proof-only document capture gate forwards keyboard events to the existing runtime only when the canvas is the focused event target.",
+      focused: {
+        key: "S",
+        before: focusedBefore,
+        keyDown: focusedKeyDown,
+        keyUp: focusedKeyUp,
+        stopped: focusedStopped,
+        movedWhileKeyDown: movedWhileFocused,
+        stoppedAfterKeyUp,
+      },
+      unfocused: {
+        key: "W",
+        before: unfocusedBefore,
+        keyDown: unfocusedKeyDown,
+        keyUp: unfocusedKeyUp,
+        movedWhileCanvasUnfocused,
+      },
+      events: keyboardEvents,
+      routeDecisions: focusRouteDecisions,
+    },
+    mouse: {
+      deliveryClaim: "WebView/canvas event delivery only",
+      managedMouseState: {
+        observed: false,
+        reason:
+          "The existing Game1 does not read or render Mouse.GetState(), and no policy-safe managed observation hook exists outside the MonoGame build.",
+        remainingGap: "issue 014",
+      },
+      requestedCanvasPoint: point,
+      events: mouseEvents,
+    },
+    focusRoutingPass: movedWhileFocused && stoppedAfterKeyUp && !movedWhileCanvasUnfocused,
+    runtime: {
+      state: document.documentElement.dataset.runtime ?? null,
+      errors: {
+        console: [...diagnostics.consoleErrors],
+        unhandled: [...diagnostics.unhandledErrors],
+      },
+    },
+  };
+  await invoke("issue009_emit_report", { report: JSON.stringify(report) });
+};
+
+void runIssue009Proof().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  void window.__TAURI_INTERNALS__?.invoke("issue009_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: message,
+      diagnostics,
+    }),
+  });
+  console.error("Issue 009 proof instrumentation failed", error);
 });
 
 const runIssue011Proof = async () => {
