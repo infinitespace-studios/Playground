@@ -1,7 +1,7 @@
 # Boot persistent Roslyn WASM compiler context
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [015-define-version-protocol-envelopes-and-errors.md](015-define-version-protocol-envelopes-and-errors.md)
 **PRD references:** 12.1, 12.4, 19
 **User stories:** US1
@@ -56,10 +56,10 @@ public static partial class CompilerExports
 
 ## Acceptance criteria
 
-- [ ] `src/compiler/Playground.Compiler.csproj` builds successfully for `browser-wasm` in Release configuration
-- [ ] `CompilerExports.Ping()` is callable from JavaScript after the WASM runtime boots
-- [ ] Calling `Ping()` twice via two separate user-triggered events returns `call=1` then `call=2`, proving the runtime instance persists between calls rather than being recreated per call
-- [ ] `docs/toolchain-manifest.json` records the exact Roslyn package version and target framework moniker used
+- [x] `src/compiler/Playground.Compiler.csproj` builds successfully for `browser-wasm` in Release configuration
+- [x] `CompilerExports.Ping()` is callable from JavaScript after the WASM runtime boots
+- [x] Calling `Ping()` twice via two separate user-triggered events returns `call=1` then `call=2`, proving the runtime instance persists between calls rather than being recreated per call
+- [x] `docs/toolchain-manifest.json` records the exact Roslyn package version and target framework moniker used
 
 ## Verification
 
@@ -72,10 +72,10 @@ Expect a successful build with browser-wasm output present. Then load the test h
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Issue 016 Verifier (`4339914d-7894-4c76-a01b-a751f66fd668`)
+- **Date:** 2026-08-25
+- **Evidence:** Independently built Release with .NET SDK 9.0.315 and installed `wasm-tools` 9.0.19, producing zero warnings/errors and an AppBundle containing `dotnet.js`, `dotnet.native.js`, `dotnet.native.wasm`, `Playground.Compiler.wasm`, and `Microsoft.CodeAnalysis.CSharp.wasm`. Two separate CDP platform mouse clicks reached the harness as trusted input and returned calls 1 and 2 with identical runtime identity `394580d6-0f11-463d-b05f-5ac1f80e2ced`; startup attempts/successes remained 1/1, and a third attempted activation produced no call. Runtime metadata identified `Microsoft.CodeAnalysis.CSharp` assembly version 4.12.0.0, package 4.12.0, and `Microsoft.CodeAnalysis.CSharp.CSharpCompilation` without invoking compilation. No exceptions, console errors, loading failures, or external requests occurred. Compiler metadata matched the toolchain manifest, generated `bin`/`obj` remained ignored, source was ASCII, and `git diff --check` passed. Pre/post `external/MonoGame` status was byte-identical at 590 bytes with SHA-256 `df1e80c0c6da4bb77538f6779a990f31daf3fd2f5cf1a06a7bfbd2f24d75fa97`. The local SDK patch differs from the preserved 9.0.112 MonoGame manifest pin.
 
 ## Commit gate
 
