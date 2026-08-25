@@ -1,7 +1,7 @@
 # Build MonoGame via build/Build.csproj
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [002-validate-recursive-monogame-submodule-checkout.md](002-validate-recursive-monogame-submodule-checkout.md), [003-detect-source-sibling-emsdk-environment.md](003-detect-source-sibling-emsdk-environment.md)
 **PRD references:** 11.2, 11.4
 **User stories:** US8
@@ -15,6 +15,8 @@ PRD section 11.2 mandates that MonoGame is built before the playground using the
 
 Create `scripts/build-monogame.sh` (and `.ps1` twin) that: runs `scripts/validate-submodule.sh`, runs `scripts/check-emsdk-env.sh`, and if both pass, executes the required build command sequence exactly as specified in PRD 11.2, then copies the resulting native/WASM build outputs into `artifacts/monogame/` at the repository root (create this directory; it must be listed in `.gitignore` — check `.gitignore` first and add an entry only if one for `artifacts/` is not already present).
 
+For local development only, the script must support an explicit `--allow-dirty` (`-AllowDirty` in PowerShell) override requested by the repository owner. The override may bypass only the clean-worktree failure: initialization, pinned HEAD, protected-ref, emsdk, build, and artifact checks remain mandatory. Default and CI/release behavior must remain strict.
+
 ## Scope
 
 ### In scope
@@ -23,6 +25,8 @@ Create `scripts/build-monogame.sh` (and `.ps1` twin) that: runs `scripts/validat
 - Adding `artifacts/` to `.gitignore` if not already ignored
 - Running the build and copying known output paths into `artifacts/monogame/`
 - Printing the pinned commit SHA being built, per PRD 11.2 item 3
+- Adding an opt-in dirty-worktree flag to the validation/build scripts while preserving strict default behavior
+- Writing generated artifact provenance that records the pinned SHA, active SDK, dirty override, and SHA-256 of the exact pre-build `git status --short` output
 
 ### Out of scope
 
@@ -32,7 +36,7 @@ Create `scripts/build-monogame.sh` (and `.ps1` twin) that: runs `scripts/validat
 
 ## Implementation guidance
 
-1. Before writing the script, run the two prerequisite checks manually to confirm they pass in this environment: `bash scripts/validate-submodule.sh && bash scripts/check-emsdk-env.sh` (source emsdk first if needed).
+1. Before writing the script, run the two prerequisite checks manually. In a dirty development checkout, confirm strict validation fails, then use only the explicit `--allow-dirty` path after recording the exact status. Source emsdk first.
 2. `scripts/build-monogame.sh` body:
 ```bash
 #!/usr/bin/env bash
@@ -54,16 +58,19 @@ mkdir -p artifacts/monogame
 # authoritative expected-file list).
 ```
    Replace the trailing comment with real `cp -R` / `rsync` commands once you inspect the actual output paths produced by running `dotnet run --project build/Build.csproj` in `external/MonoGame` (run it first, then use `find external/MonoGame -newer <timestamp-before-build> -type f` to discover exactly what changed).
-3. Mirror in `scripts/build-monogame.ps1`.
-4. Check `.gitignore` for an existing `artifacts/` or `artifacts` entry; if absent, append `artifacts/` on its own line.
-5. Do not commit anything under `external/MonoGame`; the build only writes to its own `bin`/`obj`/build-output directories which are already gitignored inside that submodule (verify with `git -C external/MonoGame status --short` after the build — it must remain empty; if the build modifies tracked files, stop and report this rather than committing it, since that would be a submodule content change requiring separate review per PRD section 2.4).
+3. Add `--allow-dirty` to `scripts/validate-submodule.sh` and `-AllowDirty` to its PowerShell twin. With the flag, emit a prominent warning and continue only past the dirty-state check. Without it, retain issue 002 behavior exactly.
+4. When dirty override is used, write `artifacts/monogame/provenance.json` containing `commitSha`, `dotnetSdkVersion`, `allowDirty: true`, the full pre-build status text, and its SHA-256. Clean builds record `allowDirty: false`.
+5. Mirror build behavior in `scripts/build-monogame.ps1`.
+6. Check `.gitignore` for an existing `artifacts/` or `artifacts` entry; if absent, append `artifacts/` on its own line.
+7. Do not commit anything under `external/MonoGame`. Compare pre/post status and report any new tracked or untracked entries introduced by the build separately from the pre-existing baseline.
 
 ## Acceptance criteria
 
 - [ ] `scripts/build-monogame.sh` runs the exact three commands from PRD 11.2 in the same shell (`cd external/MonoGame`, `dotnet run --project build/Build.csproj`, `cd ../..`)
 - [ ] The script fails fast with the validation-script messages if the submodule or emsdk checks fail
+- [ ] Strict validation still exits non-zero on a dirty submodule; explicit dirty override prints a warning and records complete provenance
 - [ ] After a successful run, `artifacts/monogame/` contains the native/WebAssembly build outputs needed to run the MonoGame web example
-- [ ] `git -C external/MonoGame status --short` is empty after the build (no tracked submodule files were modified)
+- [ ] Any post-build submodule status difference from the recorded pre-build baseline is limited to expected generated build outputs and is documented; no user changes are reverted or staged
 - [ ] `.gitignore` ignores `artifacts/`
 
 ## Verification
@@ -71,22 +78,24 @@ mkdir -p artifacts/monogame
 Run:
 ```bash
 source ../emsdk/emsdk_env.sh
-bash scripts/build-monogame.sh
+bash scripts/validate-submodule.sh; echo "strict_exit=$?"
+bash scripts/build-monogame.sh --allow-dirty
 echo "exit=$?"
 ls -la artifacts/monogame
+python3 -m json.tool artifacts/monogame/provenance.json
 git -C external/MonoGame status --short
 git status --short
 ```
-Expect exit 0, a non-empty `artifacts/monogame` listing containing recognizable MonoGame native/WASM build outputs, an empty `git -C external/MonoGame status --short`, and `git status --short` showing only the new script files and the `.gitignore` change (not `artifacts/`, which must be ignored). This build can take several minutes on first run; give it at least 20 minutes before treating it as hung. The verifier must attach the full console log of the build.
+Expect strict validation to reject a dirty checkout, the explicit override build to exit 0 with a prominent warning, a non-empty `artifacts/monogame` listing containing recognizable MonoGame native/WASM outputs, and valid provenance matching the pre-build status. Compare pre/post submodule snapshots and confirm no user change was reverted or staged. `git status --short` must show only issue-scoped source changes; `artifacts/` must be ignored. This build can take several minutes on first run; give it at least 20 minutes before treating it as hung. The verifier must attach the full console log.
 
 ## Verification record
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent background verifier `a49063f4-8da4-4cc9-a293-c29de72c7ca8`
+- **Date:** 2026-08-25
+- **Evidence:** Strict validator rejected dirty state; explicit `--allow-dirty` bypassed only that check and retained initialization, pinned-SHA, protected-ref, and emsdk gates. Owner explicitly authorized building the current dirty checkout. Sourced emsdk and `dotnet run --project build/Build.csproj` completed with SDK `9.0.315`; Debug `Example.Web` output staged 370 files, and all 176 boot-manifest references hash-verified. Provenance commit/status/hash matched verifier baseline; pre/post submodule state was identical and no user changes were removed or staged. Release Web build remains blocked by an upstream `wasm-opt` validation pass omitting thread support for atomic SDL2/FAudio instructions; issue 004 accepts Debug artifacts, while Release packaging must resolve this downstream. Bash and PowerShell validators/builders passed syntax or semantic parity review, including independent per-pattern artifact checks that permit multiple fingerprint generations but reject every missing category.
 
 ## Commit gate
 

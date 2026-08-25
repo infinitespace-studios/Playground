@@ -1,3 +1,8 @@
+[CmdletBinding()]
+param(
+    [switch]$AllowDirty
+)
+
 $ErrorActionPreference = "Stop"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
@@ -61,8 +66,13 @@ if ($LASTEXITCODE -ne 0) {
     exit 1
 }
 if ($DirtyState) {
-    [Console]::Error.WriteLine("MonoGame submodule has uncommitted changes; commit or discard them inside external/MonoGame before building.")
-    exit 1
+    if ($AllowDirty) {
+        [Console]::Error.WriteLine("WARNING: -AllowDirty enabled; building the dirty MonoGame development checkout as-is.")
+    }
+    else {
+        [Console]::Error.WriteLine("MonoGame submodule has uncommitted changes; commit or discard them inside external/MonoGame before building.")
+        exit 1
+    }
 }
 
 $RemoteRef = "refs/remotes/origin/$ProtectedRef"

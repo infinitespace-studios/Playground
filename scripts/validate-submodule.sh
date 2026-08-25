@@ -6,6 +6,20 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd -P)
 SUBMODULE_DIR="$REPO_ROOT/external/MonoGame"
 MANIFEST_PATH="$REPO_ROOT/docs/toolchain-manifest.json"
+ALLOW_DIRTY=false
+
+if [ "$#" -gt 1 ]; then
+    echo "Usage: $0 [--allow-dirty]" >&2
+    exit 2
+fi
+if [ "$#" -eq 1 ]; then
+    if [ "$1" != "--allow-dirty" ]; then
+        echo "Unknown argument: $1" >&2
+        echo "Usage: $0 [--allow-dirty]" >&2
+        exit 2
+    fi
+    ALLOW_DIRTY=true
+fi
 
 submodule_not_initialized() {
     cat >&2 <<'EOF'
@@ -67,8 +81,12 @@ if ! DIRTY_STATE=$(git -C "$SUBMODULE_DIR" status --porcelain); then
     exit 1
 fi
 if [ -n "$DIRTY_STATE" ]; then
-    echo "MonoGame submodule has uncommitted changes; commit or discard them inside external/MonoGame before building." >&2
-    exit 1
+    if [ "$ALLOW_DIRTY" = true ]; then
+        echo "WARNING: --allow-dirty enabled; building the dirty MonoGame development checkout as-is." >&2
+    else
+        echo "MonoGame submodule has uncommitted changes; commit or discard them inside external/MonoGame before building." >&2
+        exit 1
+    fi
 fi
 
 REMOTE_REF="refs/remotes/origin/$PROTECTED_REF"
