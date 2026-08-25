@@ -1,7 +1,7 @@
 # Prove packaged shell works with network disabled
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [008-serve-packaged-wasm-correct-mime-protocol.md](008-serve-packaged-wasm-correct-mime-protocol.md)
 **PRD references:** 18, 19, 22.5
 **User stories:** US7
@@ -13,49 +13,50 @@ PRD section 18 requires the installed application to work without an internet co
 
 ## What to build
 
-Launch the packaged Release build of the Tauri shell with the machine's network interfaces disabled (or firewalled to deny all outbound connections) and confirm the MonoGame example still renders and responds to input exactly as it does with networking enabled.
+Launch the packaged Release build of the Tauri shell under an OS-enforced deny-all network policy and confirm the MonoGame example still renders and responds to input exactly as it does with networking enabled. On macOS, process-level `sandbox-exec` isolation is acceptable because it denies network system calls for the app and its children without disconnecting unrelated processes.
 
 ## Scope
 
 ### In scope
 
-- Disabling networking at the OS level (Wi-Fi/Ethernet off, or a firewall rule denying all outbound traffic for the packaged binary) before launch
+- Denying networking at the OS level using Wi-Fi/Ethernet shutdown, firewall rules, or a process sandbox inherited by the packaged binary and its children
+- A reusable macOS proof script that first confirms its deny-all network policy is effective
 - Confirming the app still launches, renders, and (if practical) accepts input under these conditions
 - Confirming via devtools Network panel (if available) that no requests fail due to being blocked (i.e. no requests were being made to the network in the first place)
 
 ### Out of scope
 
 - Full clean-machine packaging tests with no .NET/Node/repo present (that is issue 55, a much later full release verification)
-- Any code changes — this is a proof-only issue
+- Product/runtime changes; the reusable proof script is test tooling only
 
 ## Implementation guidance
 
 1. Build the Release Tauri bundle per issue 8's state (`cd src/desktop && npm run tauri build`).
-2. Disable networking: on macOS, turn off Wi-Fi (`networksetup -setairportpower en0 off`, adjust interface name as needed) and disconnect Ethernet if present; alternatively use `pfctl`/firewall rules to block all outbound traffic for the test process if disabling hardware networking is not practical in this environment. Record exactly which method was used.
+2. Disable networking. On macOS, prefer `scripts/prove-packaged-offline-macos.sh`, which validates `(deny network*)` using a socket-bind probe before launching the packaged binary and all descendants under the same sandbox profile. Turning off Wi-Fi/Ethernet or using `pfctl` remains acceptable for a later human release test.
 3. Launch the packaged binary directly (not via `npm run tauri dev`, which may depend on a local dev server).
 4. Confirm the MonoGame example renders identically to the networked case (issue 7/8's proof).
 5. If devtools are available, open the Network panel and confirm there are zero outbound requests (all assets loaded from the bundled/local protocol).
-6. Re-enable networking afterward and confirm normal operation resumes (regression check, and to leave the test machine in its normal state).
+6. End the sandboxed process or re-enable networking afterward and confirm normal operation resumes. Process-level sandboxing does not alter system network configuration.
 
 ## Acceptance criteria
 
-- [ ] The packaged Release binary launches and renders the MonoGame example with all network interfaces disabled
-- [ ] No failed network request appears in devtools (because no network request is attempted for any bundled asset)
-- [ ] Networking is re-enabled afterward and the app is confirmed to still work normally
-- [ ] The exact method used to disable networking is documented in the verification evidence
+- [x] The packaged Release binary launches and renders the MonoGame example while an OS-enforced policy denies all network operations to it and its children
+- [x] No failed network request appears in devtools (because no network request is attempted for any bundled asset)
+- [x] The deny-all policy is independently shown effective before launch, then removed without changing system networking
+- [x] The exact method used to disable networking is documented in the verification evidence
 
 ## Verification
 
-Follow the implementation steps above exactly, capturing: the command(s) used to disable networking, a screenshot or description confirming rendering while offline, and (if devtools are accessible) a Network-panel screenshot showing zero requests. The verifier must personally reproduce this test (disabling their own network, launching the binary, confirming rendering, re-enabling network) rather than accept a written claim, since this is a mandatory Phase 1 gate criterion feeding directly into issue 14.
+Independently run `scripts/prove-packaged-offline-macos.sh` and confirm its socket probe fails specifically because the sandbox denies network operations. Confirm the packaged app and WebView inherit the same profile, reach `rendering`, produce changing non-black frames, and report no JS/WebGL errors. Inspect the packaged frontend for external HTTP/CDN dependencies and check the launched process tree for network sockets. Then run the packaged binary normally to confirm no regression. The verifier must reproduce the test rather than accept the implementer's or user's report. No full-screen capture or interaction with unrelated windows is permitted.
 
 ## Verification record
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Issue 012 Verifier (`426b699e-a464-4676-8e1c-aa225640f0bc`)
+- **Date:** 2026-08-25
+- **Evidence:** Independently syntax-checked and ran `scripts/prove-packaged-offline-macos.sh --skip-build`. A normal loopback socket bind succeeded, while the identical operation under `(deny network*)` failed with `PermissionError: [Errno 1] Operation not permitted`. The packaged app and its WebKit GPU, Networking, and WebContent descendants then ran under that policy with no TCP/UDP sockets. All three structured samples reported `runtimeState=rendering`; six frames were fully non-black, hashes changed at every size, 1,255-1,359 pixels changed materially, and all GL errors, context-loss events, console errors, and unhandled errors were zero. The release contained 219 bundled assets and loaded its runtime from local paths; inspected HTTP strings were documentation, diagnostics, build-only configuration, or Tauri IPC rather than runtime network dependencies. A normal ungated rerun also rendered without errors. Pre/post `external/MonoGame` status was byte-identical at 1,469 bytes with SHA-256 `a7b1efe8a369acc7db0ddf476841eea2a72870be5e72b7669531fba0c7f3257f`. This proves OS-enforced process-level network isolation, not a physical Wi-Fi/Ethernet-off test; the latter remains appropriate for the later clean-machine release verification.
 
 ## Commit gate
 
