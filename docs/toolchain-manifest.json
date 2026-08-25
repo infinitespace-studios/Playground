@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "monogame": {
+    "repository": "https://github.com/infinitespace-studios/MonoGame.git",
+    "branch": "feature/openglnative",
+    "commitSha": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+    "protectedRef": "feature/openglnative"
+  },
+  "dotnet": {
+    "sdkVersion": "9.0.112",
+    "wasmWorkload": "wasm-tools"
+  },
+  "emscripten": {
+    "expectedPath": "../emsdk",
+    "version": "3.1.56"
+  },
+  "shell": {
+    "kind": "pending-issue-6",
+    "tauriCli": null,
+    "rustToolchain": null,
+    "comment": "The shell, Tauri CLI, and Rust toolchain will be selected and pinned by issue 006."
+  },
+  "frontend": {
+    "nodeVersion": "pending-issue-6",
+    "packageManager": "pending-issue-6",
+    "lockfileIdentity": "pending-issue-6",
+    "comment": "Node.js, the package manager, and the frontend lockfile will be selected and pinned by issue 006."
+  }
+}
