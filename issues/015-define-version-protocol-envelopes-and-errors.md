@@ -1,7 +1,7 @@
 # Define and version protocol envelopes and errors
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [014-approve-shell-adr.md](014-approve-shell-adr.md)
 **PRD references:** 9.7
 **User stories:** US9
@@ -45,10 +45,10 @@ Author `src/shared/Protocol.md` defining every message envelope, message type, e
 
 ## Acceptance criteria
 
-- [ ] `src/shared/Protocol.md` defines the envelope shape, every message type listed in Implementation guidance, binary transfer rules, concrete size/timeout limits, diagnostics shapes, asset path normalization rules, and a versioning/compatibility rule
-- [ ] `src/shared/MessageContracts.ts` compiles as valid TypeScript (`npx tsc --noEmit src/shared/MessageContracts.ts` or equivalent) and defines a type or interface for every message type named in `Protocol.md`
-- [ ] Every message type includes fields for protocol version, correlation ID, and type, matching the documented envelope
-- [ ] The document defines an explicit error code for an unsupported/missing protocol version
+- [x] `src/shared/Protocol.md` defines the envelope shape, every message type listed in Implementation guidance, binary transfer rules, concrete size/timeout limits, diagnostics shapes, asset path normalization rules, and a versioning/compatibility rule
+- [x] `src/shared/MessageContracts.ts` compiles as valid TypeScript (`npx tsc --noEmit src/shared/MessageContracts.ts` or equivalent) and defines a type or interface for every message type named in `Protocol.md`
+- [x] Every message type includes fields for protocol version, correlation ID, and type, matching the documented envelope
+- [x] The document defines an explicit error code for an unsupported/missing protocol version
 
 ## Verification
 
@@ -61,10 +61,40 @@ Expect zero type errors. Then the verifier must manually cross-reference `src/sh
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+### Attempt 1
+
+- **Verdict:** FAIL
+- **Verifier:** Issue 015 Verifier (`1d3bd289-7199-42ea-b95e-3c1218556472`)
+- **Date:** 2026-08-25
+- **Evidence:** Found contradictory `protocol.error` terminal correlation, impossible receiver-side transfer-list validation, contradictory exit/stopped ordering, and incomplete mount replay/collision semantics.
+
+### Attempt 2
+
+- **Verdict:** FAIL
+- **Verifier:** Issue 015 Verifier (`1d3bd289-7199-42ea-b95e-3c1218556472`)
+- **Date:** 2026-08-25
+- **Evidence:** The first four defects were fixed, but concurrent mount transactions could validate the same mount ID or path before either committed.
+
+### Attempt 3
+
+- **Verdict:** FAIL
+- **Verifier:** Issue 015 Verifier (`1d3bd289-7199-42ea-b95e-3c1218556472`)
+- **Date:** 2026-08-25
+- **Evidence:** Mount transactions were serialized and committed atomically, but preview start could overlap queued or staged mounts and allow publication during startup.
+
+### Attempt 4
+
+- **Verdict:** FAIL
+- **Verifier:** Issue 015 Verifier (`1d3bd289-7199-42ea-b95e-3c1218556472`)
+- **Date:** 2026-08-25
+- **Evidence:** Mount/start synchronization was fixed, but concurrent preview loads and start-during-load remained possible because loading was outside the shared lifecycle critical section.
+
+### Attempt 5
+
+- **Verdict:** PASS
+- **Verifier:** Issue 015 Verifier (`1d3bd289-7199-42ea-b95e-3c1218556472`)
+- **Date:** 2026-08-25
+- **Evidence:** Strict ES2022/DOM TypeScript compilation passed. Mechanical audit found exactly 18 documented message literals, 18 map keys, and 18 correctly enveloped aliases; 29 limits, six timeout mappings, 32 error codes, ten diagnostic IDs, and all compilation/lifecycle/output literals matched. Conservative maximum messages remained below the 32 MiB outer limit: assets 25,311,248 bytes, compile response 22,280,448 bytes, and protocol error 9,715,072 bytes. Adversarial review confirmed coherent single-terminal behavior for compile cancellation and preview load/mount/start/stop/exit/failure/timeout races. The final shared pre-start queue serializes load and mount work, start requires a committed load and no queued work, irreversible load failures force teardown, and stop/teardown prevents late commits. PRD sections 9.7, 12.1, 12.3, 13.3, 14.3, 16, and 17 were covered, and `git diff --check` passed.
 
 ## Commit gate
 
