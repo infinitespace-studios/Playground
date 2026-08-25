@@ -1,25 +1,274 @@
 :root {
-  color: #1c2630;
-  background: #f4f6f8;
+  color: #e8ede7;
+  background: #0a0d0d;
   font-family:
-    system-ui,
-    -apple-system,
-    BlinkMacSystemFont,
-    "Segoe UI",
+    "Avenir Next Condensed",
+    "Helvetica Neue",
     sans-serif;
+  font-synthesis: none;
+  --ink: #080b0b;
+  --panel: #111615;
+  --line: #2d3834;
+  --acid: #c9ff3d;
+  --muted: #8e9b96;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
-  display: grid;
   min-height: 100vh;
   margin: 0;
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 35%, rgb(48 65 57 / 24%), transparent 45%),
+    repeating-linear-gradient(90deg, transparent 0 39px, rgb(255 255 255 / 2%) 40px),
+    var(--ink);
+}
+
+.shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-rows: 82px minmax(0, 1fr) 48px;
+}
+
+.masthead,
+.runtime-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-color: var(--line);
+  background: rgb(10 14 13 / 88%);
+  padding-inline: clamp(22px, 4vw, 58px);
+}
+
+.masthead {
+  border-bottom: 1px solid var(--line);
+}
+
+.wordmark {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+}
+
+.wordmark-mark {
+  display: grid;
+  width: 42px;
+  aspect-ratio: 1;
   place-items: center;
+  border: 1px solid var(--acid);
+  color: var(--acid);
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.08em;
+  transform: rotate(-3deg);
 }
 
-main {
-  text-align: center;
+h1,
+h2,
+p {
+  margin: 0;
 }
 
-#status {
-  font-size: 1.125rem;
+h1 {
+  font-size: clamp(20px, 2.2vw, 28px);
+  font-weight: 540;
+  letter-spacing: -0.025em;
+}
+
+h2 {
+  margin-top: 3px;
+  font-size: clamp(24px, 3vw, 38px);
+  font-weight: 500;
+  letter-spacing: -0.035em;
+}
+
+.eyebrow,
+.verified-label,
+.build-chip,
+.runtime-footer {
+  font-family: "SFMono-Regular", Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.eyebrow {
+  color: var(--muted);
+}
+
+.build-chip,
+.runtime-state {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+.build-chip {
+  color: #bdc8c3;
+}
+
+.build-chip-light,
+.runtime-state-light {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--acid);
+  box-shadow: 0 0 12px rgb(201 255 61 / 72%);
+}
+
+.runtime {
+  display: grid;
+  min-height: 0;
+  align-items: stretch;
+  justify-items: center;
+  padding: clamp(20px, 3vh, 34px) clamp(22px, 5vw, 70px);
+}
+
+.viewport {
+  display: grid;
+  width: min(100%, 1040px);
+  min-height: 0;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.viewport-heading {
+  display: flex;
+  align-items: end;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.verified-label {
+  border-bottom: 1px solid var(--acid);
+  color: var(--acid);
+  padding-bottom: 5px;
+}
+
+.canvas-frame {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #080b0b;
+  padding: clamp(20px, 4vh, 42px);
+  box-shadow: 0 28px 80px rgb(0 0 0 / 46%);
+}
+
+.canvas-grid {
+  position: absolute;
+  inset: 0;
+  opacity: 0.22;
+  background-image:
+    linear-gradient(var(--line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--line) 1px, transparent 1px);
+  background-size: 24px 24px;
+  pointer-events: none;
+}
+
+/* Keep the canvas itself free of border and padding so MonoGame input coordinates remain valid. */
+#canvas {
+  position: relative;
+  z-index: 1;
+  display: block;
+  width: auto;
+  max-width: 100%;
+  height: 100%;
+  max-height: 100%;
+  aspect-ratio: 8 / 5;
+  border: 0;
+  padding: 0;
+  outline: none;
+  background: #000;
+  box-shadow: 0 0 0 1px #000, 0 16px 50px rgb(0 0 0 / 70%);
+}
+
+#canvas:focus-visible {
+  box-shadow: 0 0 0 2px var(--acid), 0 16px 50px rgb(0 0 0 / 70%);
+}
+
+.corner {
+  position: absolute;
+  z-index: 2;
+  width: 18px;
+  height: 18px;
+  border-color: var(--acid);
+  pointer-events: none;
+}
+
+.corner-nw {
+  top: 10px;
+  left: 10px;
+  border-top: 1px solid;
+  border-left: 1px solid;
+}
+
+.corner-ne {
+  top: 10px;
+  right: 10px;
+  border-top: 1px solid;
+  border-right: 1px solid;
+}
+
+.corner-sw {
+  bottom: 10px;
+  left: 10px;
+  border-bottom: 1px solid;
+  border-left: 1px solid;
+}
+
+.corner-se {
+  right: 10px;
+  bottom: 10px;
+  border-right: 1px solid;
+  border-bottom: 1px solid;
+}
+
+.runtime-footer {
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+html[data-runtime="rendering"] .runtime-state-light {
+  animation: runtime-pulse 1.8s ease-in-out infinite;
+}
+
+html[data-runtime="error"] .runtime-state-light {
+  background: #ff5f4a;
+  box-shadow: 0 0 12px rgb(255 95 74 / 72%);
+}
+
+@keyframes runtime-pulse {
+  50% {
+    opacity: 0.4;
+    transform: scale(0.72);
+  }
+}
+
+@media (max-width: 720px) {
+  .build-chip,
+  #runtime-build {
+    display: none;
+  }
+
+  .shell {
+    grid-template-rows: 72px minmax(0, 1fr) 44px;
+  }
+
+  .canvas-frame {
+    padding: 16px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .runtime-state-light {
+    animation: none !important;
+  }
 }

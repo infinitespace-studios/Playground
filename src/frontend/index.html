@@ -7,9 +7,60 @@
     <script type="module" src="/src/main.ts"></script>
   </head>
   <body>
-    <main>
-      <h1>MonoGame Playground</h1>
-      <div id="status">MonoGame Playground shell OK</div>
-    </main>
+    <div class="shell">
+      <header class="masthead">
+        <div class="wordmark">
+          <span class="wordmark-mark" aria-hidden="true">MG</span>
+          <div>
+            <p class="eyebrow">Desktop feasibility build</p>
+            <h1>MonoGame Playground</h1>
+          </div>
+        </div>
+        <div class="build-chip" aria-label="Release desktop shell using verified Debug MonoGame runtime">
+          <span class="build-chip-light" aria-hidden="true"></span>
+          Release shell · Debug runtime
+        </div>
+      </header>
+
+      <main class="runtime">
+        <section class="viewport" aria-labelledby="viewport-title">
+          <div class="viewport-heading">
+            <div>
+              <p class="eyebrow">Example.Web / live output</p>
+              <h2 id="viewport-title">Render surface</h2>
+            </div>
+            <span class="verified-label">Verified payload</span>
+          </div>
+
+          <div class="canvas-frame">
+            <div class="canvas-grid" aria-hidden="true"></div>
+            <canvas
+              id="canvas"
+              tabindex="0"
+              aria-label="Animated MonoGame Example.Web scene"
+              oncontextmenu="event.preventDefault()"
+            >
+              MonoGame requires a browser with WebGL 2 canvas support.
+            </canvas>
+            <div class="corner corner-nw" aria-hidden="true"></div>
+            <div class="corner corner-ne" aria-hidden="true"></div>
+            <div class="corner corner-sw" aria-hidden="true"></div>
+            <div class="corner corner-se" aria-hidden="true"></div>
+          </div>
+        </section>
+      </main>
+
+      <footer class="runtime-footer">
+        <div class="runtime-state">
+          <span class="runtime-state-light" aria-hidden="true"></span>
+          <span id="runtime-status" role="status" aria-live="polite">
+            Loading verified Debug Example.Web payload…
+          </span>
+        </div>
+        <span id="runtime-build">MonoGame artifacts: verifying</span>
+      </footer>
+    </div>
+
+    <script type="module" src="/main.js"></script>
   </body>
 </html>

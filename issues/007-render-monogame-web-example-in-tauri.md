@@ -1,7 +1,7 @@
 # Render existing MonoGame web example inside Tauri
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [005-hash-verify-monogame-wasm-artifacts.md](005-hash-verify-monogame-wasm-artifacts.md), [006-create-minimal-tauri-desktop-shell.md](006-create-minimal-tauri-desktop-shell.md)
 **PRD references:** 9.4, 20.1, 19
 **User stories:** US7
@@ -54,14 +54,18 @@ npm run tauri build
 ```
 Then run the produced native binary directly (not via `npm run tauri dev`, to prove no dev server is required) and visually confirm rendering. If devtools are available in the WebView (Tauri allows opening them in debug builds), capture the console output and confirm no errors. The verifier must record a screenshot or explicit visual description of what rendered, plus confirmation that the launched process was the packaged binary path (e.g. `src-tauri/target/release/<app-binary>`), not a dev-server URL.
 
+## Implementation note
+
+The Release Tauri shell deliberately packages the verified **Debug** `Example.Web` payload staged by issues 004/005. The frontend build runs `scripts/verify-monogame-artifacts.sh`, hash-checks and copies only its authoritative runtime inventory from ignored `artifacts/monogame/` into ignored `src/frontend/.generated-public/`, and then lets Vite copy that payload into `dist/`. This is temporary because the pinned upstream MonoGame Release Web publish currently fails its `wasm-opt` thread/atomic validation pass; this issue does not rebuild MonoGame or alter protocol/MIME handling.
+
 ## Verification record
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent background verifier `3c9adf10-9b72-4047-b1ae-2370ee5cae1f`
+- **Date:** 2026-08-25
+- **Evidence:** Artifact verifier passed all 183 required files. Deterministic staging hash-checked 181 runtime files from the authoritative Debug inventory, rejected unsafe paths, removed stale output, and exposed build provenance. Lockfile installs and Release Tauri build produced app and DMG. Packaged binary launched directly as PID 42497 with zero network sockets. Two frames 2.5 seconds apart had 3,163 materially changed sampled pixels and visibly different animated sprite state; in-app diagnostics reported zero console errors. Built DOM contained exactly one `id="canvas"`. CSP added only `wasm-unsafe-eval`; no shell privileges expanded. Generated payload remained ignored and unrelated/submodule state stayed unchanged.
 
 ## Commit gate
 

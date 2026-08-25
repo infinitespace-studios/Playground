@@ -4,8 +4,9 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build"
+    "stage:monogame": "bash ../../scripts/verify-monogame-artifacts.sh && node scripts/stage-monogame.mjs",
+    "dev": "npm run stage:monogame && vite",
+    "build": "npm run stage:monogame && vite build"
   },
   "devDependencies": {
     "typescript": "5.9.2",
