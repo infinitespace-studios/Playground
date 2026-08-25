@@ -1,0 +1,12 @@
+{
+  "name": "monogame-playground-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "tauri": "npm --prefix ../frontend install --no-audit --no-fund && tauri"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.11.4"
+  }
+}

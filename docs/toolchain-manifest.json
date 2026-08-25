@@ -15,15 +15,13 @@
     "version": "3.1.56"
   },
   "shell": {
-    "kind": "pending-issue-6",
-    "tauriCli": null,
-    "rustToolchain": null,
-    "comment": "The shell, Tauri CLI, and Rust toolchain will be selected and pinned by issue 006."
+    "kind": "tauri",
+    "tauriCli": "2.11.4",
+    "rustToolchain": "rustc 1.98.0 (88d9e12ae 2026-08-18)"
   },
   "frontend": {
-    "nodeVersion": "pending-issue-6",
-    "packageManager": "pending-issue-6",
-    "lockfileIdentity": "pending-issue-6",
-    "comment": "Node.js, the package manager, and the frontend lockfile will be selected and pinned by issue 006."
+    "nodeVersion": "v26.3.0",
+    "packageManager": "npm 11.16.0",
+    "lockfileIdentity": "src/frontend/package-lock.json sha256:38b1fe4020dc15968cf2d50ba9917efee3ad1077ada752c0498b070473e2c7cd"
   }
 }
