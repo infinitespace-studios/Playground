@@ -92,6 +92,40 @@ environment variables in the calling shell. Use `scripts/check-emsdk-env.sh`
 (or its PowerShell twin, `scripts/check-emsdk-env.ps1`) to confirm that the
 environment is active before building.
 
+### MonoGame Web native archives
+
+The preview links `mgruntime.a`, `libSDL2.a`, and `libFAudio.a`. They are
+Release/Emscripten outputs of the pinned MonoGame build task, not arbitrary
+local libraries. A clean checkout produces and stages them with:
+
+```bash
+source ../emsdk/emsdk_env.sh
+./scripts/build-monogame.sh
+node scripts/verify-preview-native-artifacts.mjs
+dotnet build src/preview/Playground.Preview.csproj --configuration Release
+node scripts/inspect-preview-wasm.mjs
+```
+
+`build-monogame.sh` runs `dotnet run --project build/Build.csproj` inside the
+validated submodule, then copies the three archives from
+`external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/` to
+ignored product staging under `artifacts/monogame/native/`. The script records
+the source SHA, Emscripten version, Release configuration, and pre-build
+submodule state in `provenance.json`. The committed manifest binds each staged
+file to its exact size and SHA-256; missing, extra, stale, or modified archives
+fail before the preview build. Run
+`npm --prefix src/frontend run test:preview-native-artifacts` for the
+clean-state rejection regression.
+
+`WasmEnableThreads=false` is authoritative: the final runtime has unshared
+memory and no worker asset or `Worker` construction. The MonoGame archives do
+contain atomic instructions, so `--enable-threads` is passed only to
+Binaryen's validator. It does not opt the .NET runtime into pthreads. The
+strict native link uses product-owned scheduler shims with the advisory
+priority behavior from Emscripten 3.1.56. The final inspection verifies those
+two imports are resolved by generated Emscripten JavaScript and rejects shared
+memory, workers, missing shims, or an unexpected final module shape.
+
 ## Updating the manifest
 
 Update the manifest only as part of an intentional, reviewed toolchain change:

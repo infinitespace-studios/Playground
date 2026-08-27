@@ -64,6 +64,25 @@ interface ManagedLoadProof {
   portablePdbStamp: number;
 }
 
+interface Issue22PipelineProof {
+  success: boolean;
+  gameTypeFullName: string | null;
+  constructedTypeFullName: string | null;
+  assignableToGame: boolean;
+  diagnostic: {
+    origin: "playground";
+    severity: "error";
+    id: string;
+    message: string;
+    file: string;
+    line: number;
+    column: number;
+  } | null;
+  error: { code: string; message: string } | null;
+  constructionAttempts: number;
+  retainedGame: boolean;
+}
+
 interface PostMutationTaintProof {
   assemblyLoadCrossed: boolean;
   wrongExpectedAssemblyName: string;
@@ -83,6 +102,16 @@ declare global {
     previewIssue21Proof?: ContextProof;
     previewIssue21RegisterExpectation?: (expectation: ProbeExpectation) => boolean;
     previewIssue21RemoveExpectation?: (correlationId: UuidV4) => boolean;
+    previewIssue22Proof?: {
+      enabled: boolean;
+      pipeline: Issue22PipelineProof | null;
+      repeatedPipeline: Issue22PipelineProof | null;
+      beforeLoad: Issue22PipelineProof | null;
+      repeatMatched: boolean | null;
+      teardown: unknown[];
+      errors: string[];
+    };
+    previewIssue22Teardown?: () => Promise<unknown>;
   }
 }
 
@@ -710,6 +739,7 @@ export async function runIssue021AutoProof(): Promise<void> {
   if (Object.values(acceptanceErrorArrays).some(errors => errors.length !== 0)) {
     throw new Error("Unexpected acceptance error channel is not empty.");
   }
+
   await invoke("issue021_emit_report", {
     report: JSON.stringify({
       schemaVersion: 2,
@@ -729,4 +759,177 @@ export async function runIssue021AutoProof(): Promise<void> {
       },
     }),
   });
+}
+
+export async function compileLoadConstructIssue22Case(input: {
+  caseId: string;
+  assemblyName: string;
+  sourcePath: string;
+  sourceText: string;
+}): Promise<Record<string, unknown>> {
+  await ensureIssue21Contexts();
+  const compileId = createUuid();
+  const compileCorrelationId = createUuid();
+  const compileRequest: CompileRequest = {
+    protocolVersion: PROTOCOL_VERSION,
+    correlationId: compileCorrelationId,
+    type: "compile.request",
+    payload: {
+      compileId,
+      assemblyName: input.assemblyName,
+      sources: [{ path: input.sourcePath, text: input.sourceText }],
+      primarySourcePath: input.sourcePath,
+      timeoutMs: 30_000,
+      settings: {
+        languageVersion: "13.0",
+        nullable: "disable",
+        optimization: "debug",
+        allowUnsafe: false,
+        warningsAsErrors: false,
+      },
+    },
+  };
+  const compiled = await compilerClient.request(
+    compileRequest,
+    "compile.response",
+    value => validateCompileResponse(value, compileCorrelationId, compileId, {
+      assemblyName: input.assemblyName,
+      sourcePaths: [input.sourcePath],
+      primarySourcePath: input.sourcePath,
+    }),
+    [],
+    30_000,
+  ) as ReturnType<typeof validateCompileResponse>;
+  if (!compiled.message.result.success) {
+    throw new Error(`${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
+  }
+
+  const compiledData = compiled.message.result.data;
+  const assembly = standaloneBuffer(new Uint8Array(compiledData.assembly));
+  const pdb = standaloneBuffer(new Uint8Array(compiledData.pdb));
+  const frame = document.createElement("iframe");
+  frame.hidden = true;
+  frame.title = `Issue 022 ${input.caseId} preview`;
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, createUuid());
+  const isolatedPreviewId = createUuid();
+  const generation = createUuid();
+  const loaded = new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error(`Issue 022 ${input.caseId} preview load timed out.`)),
+      60_000,
+    );
+    frame.addEventListener("load", () => {
+      window.clearTimeout(timer);
+      const target = frame.contentWindow;
+      if (!target) return reject(new Error("Issue 022 preview contentWindow is unavailable."));
+      target.postMessage({
+        type: "protocol.bootstrap",
+        contextGeneration: generation,
+        previewId: isolatedPreviewId,
+        issue021Proof: false,
+        issue022Proof: true,
+      }, window.location.origin, [channel.port2]);
+      resolve();
+    }, { once: true });
+  });
+  frame.src = previewFrame.dataset.src ?? "/preview/index.html";
+  document.body.append(frame);
+
+  let outcome: Record<string, unknown> | undefined;
+  try {
+    await loaded;
+    const deadline = performance.now() + 180_000;
+    while (frame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1 &&
+           performance.now() < deadline) {
+      await new Promise(resolve => window.setTimeout(resolve, 100));
+    }
+    if (frame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1) {
+      throw new Error(`Issue 022 ${input.caseId} preview runtime did not start.`);
+    }
+
+    const previewCorrelationId = createUuid();
+    const request: PreviewLoadRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: previewCorrelationId,
+      type: "preview.load.request",
+      payload: {
+        previewId: isolatedPreviewId,
+        compileId,
+        assembly,
+        pdb,
+        binaryProof: compiledData.binaryProof,
+      },
+    };
+    const response = await client.request(
+      request,
+      "preview.load.response",
+      value => validatePreviewLoadResponse(
+        value, previewCorrelationId, isolatedPreviewId, compileId),
+      [assembly, pdb],
+    ) as ReturnType<typeof validatePreviewLoadResponse>;
+    const previewProof = frame.contentWindow?.previewIssue21Proof;
+    const pipeline = frame.contentWindow?.previewIssue22Proof?.pipeline;
+    if (!pipeline) {
+      throw new Error(
+        `Issue 022 ${input.caseId} produced no managed pipeline proof ` +
+        `(response=${JSON.stringify(response.message.result)}, state=${previewProof?.state}).`,
+      );
+    }
+    outcome = {
+      caseId: input.caseId,
+      compileId,
+      previewId: isolatedPreviewId,
+      response: response.message.result,
+      compilerDiagnostics: compiledData.diagnostics,
+      pipeline,
+      beforeLoad: frame.contentWindow?.previewIssue22Proof?.beforeLoad,
+      repeatedPipeline: frame.contentWindow?.previewIssue22Proof?.repeatedPipeline,
+      repeatMatched: frame.contentWindow?.previewIssue22Proof?.repeatMatched,
+      compilerRuntimeStarts: compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts,
+      transfer: {
+        assemblySenderDetached: assembly.byteLength === 0,
+        pdbSenderDetached: pdb.byteLength === 0,
+      },
+      runtime: {
+        runtimeStarts: previewProof?.runtimeStarts,
+        state: previewProof?.state,
+        terminalResponses: previewProof?.endpoint?.terminals.length,
+        managedLoad: previewProof?.load,
+        unexpectedErrors: [
+          ...(previewProof?.errors ?? []),
+          ...(frame.contentWindow?.previewIssue22Proof?.errors ?? []),
+        ],
+      },
+    };
+    return outcome;
+  } finally {
+    try {
+      const teardown = frame.contentWindow?.previewIssue22Teardown;
+      if (typeof teardown === "function") {
+        const callWithTimeout = async () => {
+          let timer = 0;
+          try {
+            return await Promise.race([
+              teardown(),
+              new Promise<never>((_, reject) => {
+                timer = window.setTimeout(
+                  () => reject(new Error(`Issue 022 ${input.caseId} teardown timed out.`)),
+                  5_000,
+                );
+              }),
+            ]);
+          } finally {
+            window.clearTimeout(timer);
+          }
+        };
+        const first = await callWithTimeout();
+        const second = await callWithTimeout();
+        if (outcome) outcome.teardown = { first, second };
+      }
+    } finally {
+      client.close(new Error("Issue 022 case preview teardown."));
+      frame.remove();
+    }
+  }
 }

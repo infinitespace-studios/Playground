@@ -9,6 +9,7 @@
     "stage:preview": "node scripts/stage-preview.mjs",
     "test:stage-preview-clean": "bash scripts/test-stage-preview-clean.sh",
     "test:stage-issue21-clean": "bash scripts/test-stage-issue21-clean.sh",
+    "test:preview-native-artifacts": "bash ../../scripts/test-preview-native-artifacts.sh",
     "test:protocol": "node --experimental-strip-types --test src/protocol.test.ts",
     "typecheck": "tsc --noEmit",
     "dev": "npm run stage:monogame && npm run stage:compiler && npm run stage:preview && vite",

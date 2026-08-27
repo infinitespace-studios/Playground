@@ -43,21 +43,34 @@ globalThis.previewIssue21Proof = {
   endpoint: { terminals: [], closes: [] },
   lastManagedFailure: null,
 };
+globalThis.previewIssue22Proof = {
+  enabled: false,
+  pipeline: null,
+  repeatedPipeline: null,
+  beforeLoad: null,
+  repeatMatched: null,
+  teardown: [],
+  errors: [],
+};
 
 let protocolPort = null;
 let expectedPreviewId = null;
 let protocolGeneration = null;
 let loadState = "stopped";
 let previewEndpoint = null;
+let constructAfterLoad = false;
 const bootstrapObservations = installPrivatePortBootstrap({
   expectedSource: parent,
   expectedOrigin: window.location.origin,
   validateData: data => isUuidV4(data.previewId) &&
-    Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean",
+    Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean" &&
+    (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean"),
   onPort: (port, data) => {
     if (protocolPort) return;
     protocolGeneration = data.contextGeneration;
     expectedPreviewId = data.previewId;
+    constructAfterLoad = data.issue022Proof === true;
+    globalThis.previewIssue22Proof.enabled = constructAfterLoad;
     protocolPort = port;
     const expectationRegistry = createProofExpectationRegistry({
       authorized: data.issue021Proof,
@@ -170,6 +183,11 @@ async function executeLoadRequest(message, observation) {
     }
     const exports = await exportsPromise;
     if (typeof exports.LoadUserAssembly !== "function") throw new Error("INTERNAL_ERROR");
+    if (constructAfterLoad) {
+      if (typeof exports.DiscoverAndConstructGame !== "function") throw new Error("INTERNAL_ERROR");
+      globalThis.previewIssue22Proof.beforeLoad =
+        JSON.parse(exports.DiscoverAndConstructGame());
+    }
     loadState = "validating";
     const managed = JSON.parse(await exports.LoadUserAssembly(
       new Uint8Array(assembly),
@@ -205,8 +223,6 @@ async function executeLoadRequest(message, observation) {
         closeAfterResponse: true,
       };
     }
-    loadState = "loaded";
-    globalThis.previewIssue21Proof.state = loadState;
     globalThis.previewIssue21Proof.load = {
       ...load,
       compileId: message.payload.compileId,
@@ -220,6 +236,35 @@ async function executeLoadRequest(message, observation) {
       measuredRequestBytes: observation.measuredBytes,
       terminalResponses: 1,
     });
+    if (constructAfterLoad) {
+      if (typeof exports.DiscoverAndConstructGame !== "function") throw new Error("INTERNAL_ERROR");
+      loadState = "loaded";
+      globalThis.previewIssue21Proof.state = loadState;
+      const [pipeline, repeatedPipeline] = await Promise.all([
+        Promise.resolve().then(() => JSON.parse(exports.DiscoverAndConstructGame())),
+        Promise.resolve().then(() => JSON.parse(exports.DiscoverAndConstructGame())),
+      ]);
+      globalThis.previewIssue22Proof.pipeline = pipeline;
+      globalThis.previewIssue22Proof.repeatedPipeline = repeatedPipeline;
+      globalThis.previewIssue22Proof.repeatMatched =
+        JSON.stringify(pipeline) === JSON.stringify(repeatedPipeline);
+      if (!globalThis.previewIssue22Proof.repeatMatched) throw new Error("INTERNAL_ERROR");
+      if (!pipeline.success) {
+        loadState = "tainted";
+        globalThis.previewIssue21Proof.state = loadState;
+        const diagnostic = pipeline.diagnostic;
+        return {
+          result: { success: false, error: {
+            code: pipeline.error?.code ?? "PREVIEW_LOAD_FAILED",
+            message: pipeline.error?.message ?? "Game discovery or construction failed.",
+            ...(diagnostic ? { diagnostics: [diagnostic] } : {}),
+          } },
+          closeAfterResponse: true,
+        };
+      }
+    }
+    loadState = "loaded";
+    globalThis.previewIssue21Proof.state = loadState;
     return {
       result: { success: true, data: {
         previewId: expectedPreviewId,
@@ -232,7 +277,7 @@ async function executeLoadRequest(message, observation) {
       : "PREVIEW_LOAD_FAILED";
     if (["INVALID_STATE", "DUPLICATE_CORRELATION_ID", "MALFORMED_PAYLOAD"].includes(code)) {
       globalThis.previewIssue21Proof.rejections.push(code);
-    } else {
+    } else if (loadState !== "loaded" && loadState !== "tainted") {
       globalThis.previewIssue21Proof.errors.push(code);
     }
     if (loadState === "validating") {
@@ -243,11 +288,35 @@ async function executeLoadRequest(message, observation) {
         closeAfterResponse: true,
       };
     }
+    if (loadState === "loaded" || loadState === "tainted") {
+      loadState = "tainted";
+      globalThis.previewIssue21Proof.state = loadState;
+      globalThis.previewIssue21Proof.errors.push("INTERNAL_ERROR");
+      return {
+        result: {
+          success: false,
+          error: { code: "INTERNAL_ERROR", message: "Unexpected post-load preview runtime failure." },
+        },
+        closeAfterResponse: true,
+      };
+    }
     throw new Error(code);
   }
 }
 
 const exportsPromise = startRuntime();
+globalThis.previewIssue22Teardown = async () => {
+  const exports = await exportsPromise;
+  if (typeof exports.TeardownGame !== "function") throw new Error("INTERNAL_ERROR");
+  const result = JSON.parse(exports.TeardownGame());
+  globalThis.previewIssue22Proof.teardown.push(result);
+  loadState = "disposed";
+  globalThis.previewIssue21Proof.state = loadState;
+  return result;
+};
+window.addEventListener("pagehide", () => {
+  if (loadState !== "disposed") void globalThis.previewIssue22Teardown();
+}, { once: true });
 
 pingButton.addEventListener("click", async event => {
   pingButton.disabled = true;

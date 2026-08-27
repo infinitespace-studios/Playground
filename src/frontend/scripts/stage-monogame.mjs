@@ -20,7 +20,8 @@ if (inventory.buildConfiguration !== "Debug" || hashes.buildConfiguration !== "D
 }
 
 const hashByPath = new Map(hashes.files.map((entry) => [entry.path, entry.sha256]));
-const runtimeFiles = inventory.requiredFiles.filter((relativePath) => !productOwnedFiles.has(relativePath));
+const runtimeFiles = inventory.requiredFiles.filter((relativePath) =>
+  !productOwnedFiles.has(relativePath) && !relativePath.startsWith("native/"));
 
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });

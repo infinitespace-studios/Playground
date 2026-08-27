@@ -14,8 +14,10 @@ public static partial class PreviewExports
 {
     private const string MonoGameSourceSha256 = "9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836";
     private static readonly string RuntimeIdentity = Guid.NewGuid().ToString("D");
+    private static readonly object LifecycleGate = new();
     private static int _callCount;
     private static int _loadState;
+    private static GameRunner? _gameRunner;
 
     [JSExport]
     public static string Ping()
@@ -33,6 +35,7 @@ public static partial class PreviewExports
             NativeAot: false,
             RunAOTCompilation: false,
             WasmEnableThreads: false,
+            WasmBuildNative: true,
             ExecutionMode: "interpreter",
             MonoGameAssemblyName: monoGameIdentity.Name!,
             MonoGameAssemblyVersion: monoGameIdentity.Version!.ToString(),
@@ -96,7 +99,16 @@ public static partial class PreviewExports
             {
                 throw new BadImageFormatException("The loaded assembly identity does not match the binary proof.");
             }
-            Volatile.Write(ref _loadState, 2);
+            lock (LifecycleGate)
+            {
+                if (_loadState != 1)
+                {
+                    return SerializeLoadFailure(
+                        true, "INVALID_STATE", "The preview was torn down while assembly loading was in progress.");
+                }
+                _gameRunner = new GameRunner(assembly);
+                Volatile.Write(ref _loadState, 2);
+            }
             return JsonSerializer.Serialize(
                 new AssemblyLoadResult(
                     true,
@@ -119,12 +131,88 @@ public static partial class PreviewExports
                     null),
                 PreviewJsonContext.Default.AssemblyLoadResult);
         }
-        catch (Exception)
+        catch (Exception exception) when (IsExpectedAssemblyLoadFailure(exception))
         {
-            Volatile.Write(ref _loadState, 3);
+            Interlocked.CompareExchange(ref _loadState, 3, 1);
             return SerializeLoadFailure(true, "PREVIEW_LOAD_FAILED", "Assembly.Load failed after runtime mutation began.");
         }
     }
+
+    [JSExport]
+    public static string DiscoverAndConstructGame()
+    {
+        lock (LifecycleGate)
+        {
+            if (_loadState != 2 || _gameRunner is null)
+            {
+                return JsonSerializer.Serialize(
+                    new GamePipelineResult(
+                        false, null, null, false, null,
+                        new LoadError("INVALID_STATE", "A user assembly must be loaded before game discovery.")),
+                    PreviewJsonContext.Default.GamePipelineResult);
+            }
+
+            var discovery = _gameRunner.DiscoverGameType();
+            if (!discovery.Success)
+            {
+                return JsonSerializer.Serialize(
+                    new GamePipelineResult(
+                        false, null, null, false, discovery.Diagnostic,
+                        new LoadError("PREVIEW_LOAD_FAILED", "Game type validation failed.")),
+                    PreviewJsonContext.Default.GamePipelineResult);
+            }
+
+            var construction = _gameRunner.ConstructGame();
+            return JsonSerializer.Serialize(
+                new GamePipelineResult(
+                    construction.Success,
+                    discovery.GameTypeFullName,
+                    construction.ConstructedTypeFullName,
+                    construction.AssignableToGame,
+                    construction.Diagnostic,
+                    construction.Error is null
+                        ? null
+                        : new LoadError(construction.Error.Code, construction.Error.Message),
+                    construction.ConstructionAttempts,
+                    construction.RetainedGame),
+                PreviewJsonContext.Default.GamePipelineResult);
+        }
+    }
+
+    [JSExport]
+    public static string TeardownGame()
+    {
+        lock (LifecycleGate)
+        {
+            var runner = Interlocked.Exchange(ref _gameRunner, null);
+            var previousState = Interlocked.Exchange(ref _loadState, 4);
+            if (runner is null)
+            {
+                return JsonSerializer.Serialize(
+                    new GameTeardownResult(true, false, 0, false, null, previousState == 4),
+                    PreviewJsonContext.Default.GameTeardownResult);
+            }
+
+            var disposal = runner.Teardown();
+            return JsonSerializer.Serialize(
+                new GameTeardownResult(
+                    disposal.Success,
+                    disposal.HadGame,
+                    disposal.DisposeAttempts,
+                    disposal.RetainedGame,
+                    disposal.Error is null ? null : new LoadError(disposal.Error.Code, disposal.Error.Message),
+                    false),
+                PreviewJsonContext.Default.GameTeardownResult);
+        }
+    }
+
+    private static bool IsExpectedAssemblyLoadFailure(Exception exception) =>
+        exception is ArgumentException or
+            BadImageFormatException or
+            FileLoadException or
+            FileNotFoundException or
+            TypeLoadException or
+            NotSupportedException;
 
     private static ValidatedLoad ValidateLoad(
         byte[]? dllBytes,
@@ -272,6 +360,7 @@ public static partial class PreviewExports
         bool NativeAot,
         bool RunAOTCompilation,
         bool WasmEnableThreads,
+        bool WasmBuildNative,
         string ExecutionMode,
         string MonoGameAssemblyName,
         string MonoGameAssemblyVersion,
@@ -301,6 +390,22 @@ public static partial class PreviewExports
         LoadError? Error);
 
     internal sealed record LoadError(string Code, string Message);
+    internal sealed record GamePipelineResult(
+        bool Success,
+        string? GameTypeFullName,
+        string? ConstructedTypeFullName,
+        bool AssignableToGame,
+        GameRunner.PlaygroundDiagnostic? Diagnostic,
+        LoadError? Error,
+        int ConstructionAttempts = 0,
+        bool RetainedGame = false);
+    internal sealed record GameTeardownResult(
+        bool Success,
+        bool HadGame,
+        int DisposeAttempts,
+        bool RetainedGame,
+        LoadError? Error,
+        bool AlreadyTornDown);
     private sealed record ValidatedLoad(
         string AssemblySha256,
         string PdbSha256,
@@ -317,5 +422,7 @@ public static partial class PreviewExports
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
 [JsonSerializable(typeof(PreviewExports.PreviewContextProof))]
 [JsonSerializable(typeof(PreviewExports.AssemblyLoadResult))]
+[JsonSerializable(typeof(PreviewExports.GamePipelineResult))]
+[JsonSerializable(typeof(PreviewExports.GameTeardownResult))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class PreviewJsonContext : JsonSerializerContext;

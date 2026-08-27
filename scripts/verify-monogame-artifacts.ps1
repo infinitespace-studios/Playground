@@ -16,6 +16,11 @@ elseif (-not [System.IO.Path]::IsPathRooted($ArtifactsDirectory)) {
 $InventoryPath = Join-Path $RepoRoot "docs/monogame-artifacts.json"
 $ToolchainPath = Join-Path $RepoRoot "docs/toolchain-manifest.json"
 
+& node (Join-Path $PSScriptRoot "verify-preview-native-artifacts.mjs") --artifacts-dir $ArtifactsDirectory
+if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+}
+
 function Stop-Verification([string]$Message) {
     [Console]::Error.WriteLine($Message)
     exit 1

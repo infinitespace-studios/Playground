@@ -1,5 +1,6 @@
 import "./style.css";
 import { runIssue021AutoProof } from "./issue21";
+import { runIssue022AutoProof } from "./issue22";
 
 interface RuntimeBuild {
   buildConfiguration: string;
@@ -71,6 +72,7 @@ interface PreviewFrameProof {
     nativeAot: boolean;
     runAOTCompilation: boolean;
     wasmEnableThreads: boolean;
+    wasmBuildNative: boolean;
     executionMode: string;
   };
   runtimeAsset: {
@@ -1200,4 +1202,16 @@ void runIssue021AutoProof().catch((error: unknown) => {
     }),
   });
   console.error("Issue 021 proof instrumentation failed", error);
+});
+
+void runIssue022AutoProof().catch((error: unknown) => {
+  void window.__TAURI_INTERNALS__?.invoke("issue022_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: error instanceof Error ? error.message : String(error),
+      diagnostics,
+    }),
+  });
+  console.error("Issue 022 proof instrumentation failed", error);
 });

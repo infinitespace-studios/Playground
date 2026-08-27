@@ -7,6 +7,8 @@ SUBMODULE_DIR="$REPO_ROOT/external/MonoGame"
 STAGING_DIR="$REPO_ROOT/artifacts/monogame"
 WEB_OUTPUT="$SUBMODULE_DIR/Example/bin/Web/Debug/net9.0/wwwroot"
 WEB_STATIC="$SUBMODULE_DIR/Example/wwwroot"
+NATIVE_OUTPUT="$SUBMODULE_DIR/Artifacts/native/mgruntime/wasm/emscripten/Release"
+NATIVE_STAGING="$STAGING_DIR/native"
 ALLOW_DIRTY=false
 
 check_required_artifact_patterns() {
@@ -48,6 +50,7 @@ PRE_BUILD_STATUS_WITH_SENTINEL="$(git -C external/MonoGame status --short; print
 PRE_BUILD_STATUS="${PRE_BUILD_STATUS_WITH_SENTINEL%$'\034'}"
 COMMIT_SHA="$(git -C external/MonoGame rev-parse HEAD)"
 DOTNET_SDK_VERSION="$(dotnet --version)"
+MONOGAME_BUILD_DOTNET_SDK_VERSION="$(cd external/MonoGame && dotnet --version)"
 PRE_BUILD_STATUS_SHA256="$(
     printf '%s' "$PRE_BUILD_STATUS" |
         python3 -c 'import hashlib, sys; print(hashlib.sha256(sys.stdin.buffer.read()).hexdigest())'
@@ -80,14 +83,30 @@ for required_path in "${required_paths[@]}"; do
 done
 
 check_required_artifact_patterns "$WEB_OUTPUT/_framework"
+for archive in mgruntime.a libSDL2.a libFAudio.a; do
+    if [ ! -f "$NATIVE_OUTPUT/$archive" ]; then
+        echo "Required MonoGame Emscripten archive not found: $NATIVE_OUTPUT/$archive" >&2
+        exit 1
+    fi
+done
 
 rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 cp -R "$WEB_STATIC"/. "$STAGING_DIR"/
 cp -R "$WEB_OUTPUT"/. "$STAGING_DIR"/
+mkdir -p "$NATIVE_STAGING"
+cp "$NATIVE_OUTPUT"/mgruntime.a "$NATIVE_OUTPUT"/libSDL2.a "$NATIVE_OUTPUT"/libFAudio.a "$NATIVE_STAGING"/
+
+EMSCRIPTEN_VERSION="$(emcc --version | sed -En '1s/.*emcc \\([^)]*\\) ([0-9]+\\.[0-9]+\\.[0-9]+).*/\\1/p')"
+if [ "$EMSCRIPTEN_VERSION" != "3.1.56" ]; then
+    echo "Unexpected Emscripten compiler version: $EMSCRIPTEN_VERSION" >&2
+    exit 1
+fi
 
 COMMIT_SHA="$COMMIT_SHA" \
 DOTNET_SDK_VERSION="$DOTNET_SDK_VERSION" \
+MONOGAME_BUILD_DOTNET_SDK_VERSION="$MONOGAME_BUILD_DOTNET_SDK_VERSION" \
+EMSCRIPTEN_VERSION="$EMSCRIPTEN_VERSION" \
 ALLOW_DIRTY="$ALLOW_DIRTY" \
 PRE_BUILD_STATUS="$PRE_BUILD_STATUS" \
 PRE_BUILD_STATUS_SHA256="$PRE_BUILD_STATUS_SHA256" \
@@ -99,6 +118,9 @@ import sys
 provenance = {
     "commitSha": os.environ["COMMIT_SHA"],
     "dotnetSdkVersion": os.environ["DOTNET_SDK_VERSION"],
+    "monoGameBuildDotnetSdkVersion": os.environ["MONOGAME_BUILD_DOTNET_SDK_VERSION"],
+    "emscriptenVersion": os.environ["EMSCRIPTEN_VERSION"],
+    "nativeBuildConfiguration": "Release",
     "allowDirty": os.environ["ALLOW_DIRTY"] == "true",
     "preBuildStatus": os.environ["PRE_BUILD_STATUS"],
     "preBuildStatusSha256": os.environ["PRE_BUILD_STATUS_SHA256"],

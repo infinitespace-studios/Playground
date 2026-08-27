@@ -208,6 +208,9 @@
     "_framework/netstandard.d2l21p6due.wasm",
     "index.html",
     "main.js",
+    "native/libFAudio.a",
+    "native/libSDL2.a",
+    "native/mgruntime.a",
     "provenance.json"
   ]
 }

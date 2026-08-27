@@ -16,6 +16,8 @@ if [ "$#" -gt 0 ]; then
     fi
 fi
 
+node "$REPO_ROOT/scripts/verify-preview-native-artifacts.mjs" --artifacts-dir "$ARTIFACTS_DIR"
+
 python3 - \
     "$REPO_ROOT/docs/monogame-artifacts.json" \
     "$REPO_ROOT/docs/toolchain-manifest.json" \

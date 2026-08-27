@@ -75,6 +75,11 @@ if (monoGameAssets.length !== 1) {
 if (frameworkFiles.some(name => /aot|worker/i.test(name))) {
   throw new Error("Unexpected AOT/thread worker asset found in the preview publish output.");
 }
+execFileSync(
+  "node",
+  [path.join(repositoryRoot, "scripts/inspect-preview-wasm.mjs"), frameworkRoot],
+  { cwd: repositoryRoot, stdio: "inherit" },
+);
 
 const runtimeAssetRelative = `_framework/${monoGameAssets[0]}`;
 const runtimeAssetData = await readFile(path.join(publishRoot, runtimeAssetRelative));
@@ -89,6 +94,11 @@ const buildMetadata = {
     nativeAot: false,
     runAOTCompilation: false,
     wasmEnableThreads: false,
+    wasmBuildNative: true,
+    wasmAllowUndefinedSymbols: false,
+    wasmOptValidationFeatures: ["threads"],
+    finalMemoryShared: false,
+    workerAssets: false,
     executionMode: "interpreter",
   },
   monoGame: {

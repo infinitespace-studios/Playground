@@ -11,12 +11,17 @@
     <PublishAot>false</PublishAot>
     <RunAOTCompilation>false</RunAOTCompilation>
     <WasmEnableThreads>false</WasmEnableThreads>
-    <WasmBuildNative>false</WasmBuildNative>
+    <WasmBuildNative>true</WasmBuildNative>
+    <WasmAllowUndefinedSymbols>false</WasmAllowUndefinedSymbols>
+    <EmccFlags>-O2 -sINITIAL_MEMORY=128MB -sMAXIMUM_MEMORY=2048MB -sALLOW_MEMORY_GROWTH=1</EmccFlags>
     <ExpectedMonoGameAssemblyName>MonoGame.Framework</ExpectedMonoGameAssemblyName>
     <ExpectedMonoGameAssemblyVersion>3.8.3.1</ExpectedMonoGameAssemblyVersion>
     <ExpectedMonoGameAssemblySha256>9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836</ExpectedMonoGameAssemblySha256>
     <ExpectedMonoGameAssemblySha256Upper>9D2845D17767FFA295AED45F52D57BF9BC0F73B4E02CEE8AC3CBE7502A0BE836</ExpectedMonoGameAssemblySha256Upper>
     <MonoGameReferencePath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), '..', 'compiler', 'References', 'MonoGame.Framework.dll'))</MonoGameReferencePath>
+    <MonoGameNativeArtifactPath>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), '..', '..', 'artifacts', 'monogame', 'native'))</MonoGameNativeArtifactPath>
+    <SchedulerShimsPath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), 'native', 'scheduler-shims.js'))</SchedulerShimsPath>
+    <EmccExtraLDFlags>-sFULL_ES3 -sUSE_WEBGL2=1 -sTOTAL_STACK=5242880 --js-library=$(SchedulerShimsPath)</EmccExtraLDFlags>
   </PropertyGroup>
 
   <ItemGroup>
@@ -24,6 +29,10 @@
       <HintPath>$(MonoGameReferencePath)</HintPath>
       <Private>true</Private>
     </Reference>
+    <NativeFileReference Include="$(MonoGameNativeArtifactPath)mgruntime.a" />
+    <NativeFileReference Include="$(MonoGameNativeArtifactPath)libSDL2.a" />
+    <NativeFileReference Include="$(MonoGameNativeArtifactPath)libFAudio.a" />
+    <WasmOptConfigurationFlags Include="--enable-threads" />
     <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
     <WasmExtraFilesToDeploy Include="../shared/ProtocolRuntime.js" TargetPath="ProtocolRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/Issue21Endpoints.js" TargetPath="Issue21Endpoints.js" />
@@ -49,8 +58,18 @@
            Text="The preview must keep interpreter execution by setting RunAOTCompilation=false." />
     <Error Condition="'$(WasmEnableThreads)' != 'false'"
            Text="The preview must remain single-threaded by setting WasmEnableThreads=false." />
+    <Error Condition="'$(WasmBuildNative)' != 'true'"
+           Text="The preview must link the verified MonoGame browser native runtime." />
+    <Error Condition="'$(WasmAllowUndefinedSymbols)' != 'false'"
+           Text="The preview must reject unresolved native symbols." />
+    <Error Condition="!Exists('$(SchedulerShimsPath)')"
+           Text="The product-owned Emscripten scheduler shim is missing." />
     <Error Condition="!Exists('$(MonoGameReferencePath)')"
            Text="The committed product-owned MonoGame.Framework reference is missing." />
+    <Error Condition="!Exists('$(MonoGameNativeArtifactPath)mgruntime.a') OR !Exists('$(MonoGameNativeArtifactPath)libSDL2.a') OR !Exists('$(MonoGameNativeArtifactPath)libFAudio.a')"
+           Text="The verified MonoGame browser native artifacts are missing." />
+    <Exec Command="node &quot;$(MSBuildProjectDirectory)/../../scripts/verify-preview-native-artifacts.mjs&quot;"
+          WorkingDirectory="$(MSBuildProjectDirectory)" />
     <GetAssemblyIdentity AssemblyFiles="$(MonoGameReferencePath)">
       <Output TaskParameter="Assemblies" ItemName="_MonoGameIdentity" />
     </GetAssemblyIdentity>

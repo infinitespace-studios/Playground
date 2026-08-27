@@ -1,5 +1,5 @@
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "monogame": {
     "repository": "https://github.com/infinitespace-studios/MonoGame.git",
     "branch": "feature/openglnative",
@@ -29,8 +29,49 @@
     "publishTrimmed": false,
     "runAOTCompilation": false,
     "wasmEnableThreads": false,
+    "wasmBuildNative": true,
     "executionMode": "interpreter",
     "nativeAot": false,
+    "nativeBuild": {
+      "configuration": "Release",
+      "sourceProfile": "Emscripten",
+      "wasmBuildNative": true,
+      "wasmEnableThreads": false,
+      "wasmAllowUndefinedSymbols": false,
+      "wasmOptValidationFeatures": [
+        "threads"
+      ],
+      "threadSemantics": "The pinned archives contain atomic instructions, so wasm-opt must enable its threads validator feature. The final module exports unshared memory, creates no workers, and does not enable the .NET WebAssembly pthread runtime.",
+      "javascriptLibraries": [
+        {
+          "path": "src/preview/native/scheduler-shims.js",
+          "provenance": "Semantics mirror emsdk 3.1.56 system/lib/pthread/library_pthread.c for Web runtimes where scheduling priorities are advisory."
+        }
+      ],
+      "archives": [
+        {
+          "name": "libFAudio.a",
+          "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/libFAudio.a",
+          "stagedPath": "native/libFAudio.a",
+          "sha256": "81a32c56b632a6706c7c9cf57b6a278f2c352304559ab00a68ecc4e4e375f011",
+          "byteLength": 270500
+        },
+        {
+          "name": "libSDL2.a",
+          "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/libSDL2.a",
+          "stagedPath": "native/libSDL2.a",
+          "sha256": "cb5dacf35d0427844b3d1b0e910a6a30cb526b2b8078419a8114f3fad73a44b7",
+          "byteLength": 1233048
+        },
+        {
+          "name": "mgruntime.a",
+          "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/mgruntime.a",
+          "stagedPath": "native/mgruntime.a",
+          "sha256": "44725c2d0839c5c2571454d633caa20f52735054e535d603a2a355e627dc67a3",
+          "byteLength": 791532
+        }
+      ]
+    },
     "monoGameAssembly": {
       "simpleName": "MonoGame.Framework",
       "version": "3.8.3.1",

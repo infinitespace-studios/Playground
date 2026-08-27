@@ -10,6 +10,7 @@ $SubmoduleDirectory = Join-Path $RepoRoot "external/MonoGame"
 $StagingDirectory = Join-Path $RepoRoot "artifacts/monogame"
 $WebOutput = Join-Path $SubmoduleDirectory "Example/bin/Web/Debug/net9.0/wwwroot"
 $WebStatic = Join-Path $SubmoduleDirectory "Example/wwwroot"
+$NativeOutput = Join-Path $SubmoduleDirectory "Artifacts/native/mgruntime/wasm/emscripten/Release"
 
 function Invoke-CapturedGitStatus {
     $startInfo = [System.Diagnostics.ProcessStartInfo]::new()
@@ -49,6 +50,12 @@ if ($LASTEXITCODE -ne 0) {
 $DotnetSdkVersion = (& dotnet --version).Trim()
 if ($LASTEXITCODE -ne 0) {
     throw "Unable to read the active .NET SDK version."
+}
+Push-Location $SubmoduleDirectory
+$MonoGameBuildDotnetSdkVersion = (& dotnet --version).Trim()
+Pop-Location
+if ($LASTEXITCODE -ne 0) {
+    throw "Unable to read the MonoGame build .NET SDK version."
 }
 $StatusBytes = [System.Text.Encoding]::UTF8.GetBytes($PreBuildStatus)
 $PreBuildStatusSha256 = [Convert]::ToHexString(
@@ -105,6 +112,14 @@ foreach ($Pattern in $RequiredPatterns) {
     if (@(Get-ChildItem -LiteralPath $FrameworkDirectory -Filter $Pattern -File).Count -lt 1) {
         throw "MonoGame Web runtime output is incomplete; missing artifact pattern: $Pattern"
     }
+
+}
+$NativeArchives = @("mgruntime.a", "libSDL2.a", "libFAudio.a")
+foreach ($Archive in $NativeArchives) {
+    $ArchivePath = Join-Path $NativeOutput $Archive
+    if (-not (Test-Path -LiteralPath $ArchivePath -PathType Leaf)) {
+        throw "Required MonoGame Emscripten archive not found: $ArchivePath"
+    }
 }
 
 if (Test-Path -LiteralPath $StagingDirectory) {
@@ -113,10 +128,27 @@ if (Test-Path -LiteralPath $StagingDirectory) {
 New-Item -ItemType Directory -Path $StagingDirectory | Out-Null
 Copy-Item -Path (Join-Path $WebStatic "*") -Destination $StagingDirectory -Recurse
 Copy-Item -Path (Join-Path $WebOutput "*") -Destination $StagingDirectory -Recurse
+$NativeStaging = Join-Path $StagingDirectory "native"
+New-Item -ItemType Directory -Path $NativeStaging | Out-Null
+foreach ($Archive in $NativeArchives) {
+    Copy-Item -LiteralPath (Join-Path $NativeOutput $Archive) -Destination $NativeStaging
+}
+
+$EmccVersionLine = (& emcc --version | Select-Object -First 1)
+if ($LASTEXITCODE -ne 0 -or $EmccVersionLine -notmatch '\) ([0-9]+\.[0-9]+\.[0-9]+) ') {
+    throw "Unable to determine the Emscripten compiler version."
+}
+$EmscriptenVersion = $Matches[1]
+if ($EmscriptenVersion -cne "3.1.56") {
+    throw "Unexpected Emscripten compiler version: $EmscriptenVersion"
+}
 
 $Provenance = [ordered]@{
     commitSha = $CommitSha
     dotnetSdkVersion = $DotnetSdkVersion
+    monoGameBuildDotnetSdkVersion = $MonoGameBuildDotnetSdkVersion
+    emscriptenVersion = $EmscriptenVersion
+    nativeBuildConfiguration = "Release"
     allowDirty = [bool]$AllowDirty
     preBuildStatus = $PreBuildStatus
     preBuildStatusSha256 = $PreBuildStatusSha256
