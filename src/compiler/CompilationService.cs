@@ -73,7 +73,7 @@ public static class CompilationService
             assemblyStream,
             pdbStream,
             options: new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb));
-        var diagnostics = ToDiagnostics(emitResult.Diagnostics);
+        var diagnostics = ToDiagnostics(emitResult.Diagnostics, files);
 
         if (!emitResult.Success)
         {
@@ -122,14 +122,22 @@ public static class CompilationService
     }
 
     private static IReadOnlyList<CompilerDiagnostic> ToDiagnostics(
-        ImmutableArray<Diagnostic> diagnostics)
+        ImmutableArray<Diagnostic> diagnostics,
+        IReadOnlyList<CompilationSource> files)
     {
+        var logicalPaths = files
+            .Select(file => file.Path)
+            .ToHashSet(StringComparer.Ordinal);
+
         return diagnostics
             .Where(diagnostic => diagnostic.Severity != DiagnosticSeverity.Hidden)
             .Select(diagnostic =>
             {
                 var lineSpan = diagnostic.Location.GetMappedLineSpan();
-                var hasSource = diagnostic.Location.IsInSource;
+                var hasSource =
+                    diagnostic.Location.IsInSource &&
+                    lineSpan.IsValid &&
+                    logicalPaths.Contains(lineSpan.Path);
                 return new CompilerDiagnostic(
                     "compiler",
                     diagnostic.Severity switch
@@ -141,6 +149,7 @@ public static class CompilationService
                     diagnostic.Id,
                     diagnostic.GetMessage(),
                     hasSource ? lineSpan.Path : "",
+                    // Roslyn and Monaco both count UTF-16 code units; expose them as 1-based coordinates.
                     hasSource ? lineSpan.StartLinePosition.Line + 1 : 0,
                     hasSource ? lineSpan.StartLinePosition.Character + 1 : 0);
             })

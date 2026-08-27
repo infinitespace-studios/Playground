@@ -63,8 +63,13 @@
       <button id="compile" type="button" disabled aria-describedby="instructions">
         Compile valid source
       </button>
+      <button id="diagnostics" type="button" disabled aria-describedby="instructions">
+        Run diagnostic proof
+      </button>
     </div>
-    <p id="instructions">Use either control. Compile may be activated twice to prove unique assembly names.</p>
+    <p id="instructions">
+      Use any control. Compile may be activated twice; diagnostic proof runs five browser-WASM cases.
+    </p>
     <output aria-label="Compiler context proof results">
       <ol id="results" aria-live="polite"></ol>
     </output>

@@ -3,6 +3,7 @@ import { dotnet } from "./_framework/dotnet.js";
 const status = document.querySelector("#status");
 const pingButton = document.querySelector("#ping");
 const compileButton = document.querySelector("#compile");
+const diagnosticsButton = document.querySelector("#diagnostics");
 const results = document.querySelector("#results");
 const proofOutput = document.querySelector("#proof-state");
 
@@ -15,6 +16,7 @@ const proofState = {
   trustedClickCount: 0,
   pingCalls: [],
   compilations: [],
+  diagnosticProof: null,
   error: null,
 };
 
@@ -45,6 +47,7 @@ async function startRuntime() {
   status.textContent = "Ready: one .NET WebAssembly runtime is running.";
   pingButton.disabled = false;
   compileButton.disabled = false;
+  diagnosticsButton.disabled = false;
   renderState();
 
   return exports;
@@ -128,6 +131,164 @@ compileButton.addEventListener("click", async (event) => {
   }
 });
 
+diagnosticsButton.addEventListener("click", async (event) => {
+  if (!beginCall(event) || proofState.diagnosticProof) {
+    return;
+  }
+
+  status.textContent = "Compiling structured diagnostic proof cases in browser WebAssembly...";
+  try {
+    const exports = await exportsPromise;
+    proofState.diagnosticProof = runDiagnosticProof(exports);
+    proofState.diagnosticProof.trusted = event.isTrusted;
+    if (!Object.values(proofState.diagnosticProof.assertions).every(Boolean)) {
+      throw new Error("One or more structured diagnostic proof assertions failed.");
+    }
+
+    appendResult(
+      `diagnostics cases=${proofState.diagnosticProof.cases.length}; ` +
+      `all assertions passed; trusted=${event.isTrusted}`);
+    status.textContent = "Diagnostic proof complete: all structured cases passed.";
+  } catch (error) {
+    showError(error);
+  } finally {
+    endCall();
+  }
+});
+
+function runDiagnosticProof(exports) {
+  const settings = {
+    languageVersion: "13.0",
+    nullable: "disable",
+    optimization: "debug",
+    allowUnsafe: false,
+    warningsAsErrors: false,
+  };
+  const definitions = [
+    {
+      name: "missing-semicolon-line-one",
+      sources: [{
+        path: "Syntax/MissingSemicolon.cs",
+        text: "public class Foo { public int Bar() => 42 }",
+      }],
+      target: { id: "CS1002", severity: "error", file: "Syntax/MissingSemicolon.cs", line: 1, column: 43 },
+      succeeds: false,
+    },
+    {
+      name: "unbalanced-brace-at-eof",
+      sources: [{
+        path: "Syntax/UnbalancedBrace.cs",
+        text: "public class Foo { public int Bar() => 42;",
+      }],
+      target: { id: "CS1513", severity: "error", file: "Syntax/UnbalancedBrace.cs", line: 1, column: 43 },
+      succeeds: false,
+    },
+    {
+      name: "unknown-type",
+      sources: [{
+        path: "Types/UnknownType.cs",
+        text: "public class Foo { public MissingType Value; }",
+      }],
+      target: { id: "CS0246", severity: "error", file: "Types/UnknownType.cs", line: 1, column: 27 },
+      succeeds: false,
+    },
+    {
+      name: "two-files-crlf-utf16",
+      sources: [
+        { path: "Game/Game1.cs", text: "public class Game1 { public int Score => 1; }" },
+        {
+          path: "Game/Player.cs",
+          text: "public class Player {\r\n    public int Score => 1;\r\n    public string Label = \"\uD83D\uDE00\"; public MissingType Value;\r\n}",
+        },
+      ],
+      target: { id: "CS0246", severity: "error", file: "Game/Player.cs", line: 3, column: 40 },
+      succeeds: false,
+    },
+    {
+      name: "warning-only",
+      sources: [{
+        path: "Warnings/UnusedLocal.cs",
+        text: "public class Foo { public void Bar() { int unused = 1; } }",
+      }],
+      target: { id: "CS0219", severity: "warning", file: "Warnings/UnusedLocal.cs", line: 1, column: 44 },
+      succeeds: true,
+    },
+  ];
+
+  const cases = definitions.map(definition => {
+    const response = JSON.parse(exports.Compile(JSON.stringify({
+      protocolVersion: 1,
+      sources: definition.sources,
+      settings,
+    })));
+    const target = response.diagnostics.find(diagnostic =>
+      diagnostic.id === definition.target.id &&
+      diagnostic.file === definition.target.file &&
+      diagnostic.line === definition.target.line &&
+      diagnostic.column === definition.target.column);
+    return {
+      name: definition.name,
+      expected: { success: definition.succeeds, ...definition.target },
+      actual: {
+        success: response.success,
+        target: target ?? null,
+        diagnosticCount: response.diagnostics.length,
+        diagnostics: response.diagnostics,
+        hasAssembly: Boolean(response.assemblyBase64),
+        hasPdb: Boolean(response.pdbBase64),
+        assemblyByteLength: response.assemblyByteLength,
+        pdbByteLength: response.pdbByteLength,
+      },
+      targetFound: Boolean(target),
+      targetMessageNonempty: Boolean(target?.message),
+      targetOriginCompiler: target?.origin === "compiler",
+      targetSeverityMatches: target?.severity === definition.target.severity,
+      resultMatches: response.success === definition.succeeds,
+      binaryContractMatches: definition.succeeds
+        ? Boolean(response.assemblyBase64 && response.pdbBase64)
+        : !response.assemblyBase64 && !response.pdbBase64,
+      diagnosticsSorted: response.diagnostics.every((diagnostic, index, diagnostics) =>
+        index === 0 || compareDiagnostics(diagnostics[index - 1], diagnostic) <= 0),
+    };
+  });
+
+  return {
+    cases,
+    assertions: {
+      allTargetsFound: cases.every(item => item.targetFound),
+      allMessagesNonempty: cases.every(item => item.targetMessageNonempty),
+      allOriginsCompiler: cases.every(item => item.targetOriginCompiler),
+      allSeveritiesMatch: cases.every(item => item.targetSeverityMatches),
+      allResultsMatch: cases.every(item => item.resultMatches),
+      binaryContract: cases.every(item => item.binaryContractMatches),
+      deterministicSort: cases.every(item => item.diagnosticsSorted),
+      diagnosticContract: cases.every(item => item.actual.diagnostics.every(diagnostic =>
+        diagnostic.origin === "compiler" &&
+        ["error", "warning", "info"].includes(diagnostic.severity) &&
+        /^CS[0-9]+$/.test(diagnostic.id) &&
+        Boolean(diagnostic.message) &&
+        (diagnostic.file
+          ? diagnostic.line >= 1 && diagnostic.column >= 1
+          : diagnostic.line === 0 && diagnostic.column === 0))),
+      warningSucceededWithBinaries: cases.find(item => item.name === "warning-only").actual.success &&
+        cases.find(item => item.name === "warning-only").actual.hasAssembly &&
+        cases.find(item => item.name === "warning-only").actual.hasPdb,
+    },
+  };
+}
+
+function compareDiagnostics(left, right) {
+  return compareOrdinal(left.file, right.file) ||
+    left.line - right.line ||
+    left.column - right.column ||
+    compareOrdinal(left.severity, right.severity) ||
+    compareOrdinal(left.id, right.id);
+}
+
+function compareOrdinal(left, right) {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
 function beginCall(event) {
   if (!proofState.ready || proofState.callInProgress) {
     return false;
@@ -136,6 +297,7 @@ function beginCall(event) {
   proofState.callInProgress = true;
   pingButton.disabled = true;
   compileButton.disabled = true;
+  diagnosticsButton.disabled = true;
   if (event.isTrusted) {
     proofState.trustedClickCount += 1;
   }
@@ -147,6 +309,7 @@ function endCall() {
   if (proofState.ready) {
     pingButton.disabled = false;
     compileButton.disabled = proofState.compilations.length >= 2;
+    diagnosticsButton.disabled = Boolean(proofState.diagnosticProof);
   }
   renderState();
 }

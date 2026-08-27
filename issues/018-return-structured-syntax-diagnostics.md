@@ -1,7 +1,7 @@
 # Return structured syntax diagnostics
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [017-compile-valid-csharp-library-to-dll-pdb.md](017-compile-valid-csharp-library-to-dll-pdb.md)
 **PRD references:** 12.1, 14.2, 22.1
 **User stories:** US2
@@ -42,10 +42,10 @@ Feed intentionally invalid C# source (a syntax error, e.g. a missing semicolon o
 
 ## Acceptance criteria
 
-- [ ] A missing-semicolon error returns a diagnostic with `Severity="error"`, a real Roslyn `Id` (e.g. `CS1002`), and `Line`/`Column` matching the exact character position of the error in the source
-- [ ] An unknown-type error returns the correct `Id` (e.g. `CS0246`) and correct location
-- [ ] A two-file compile with an error only in the second file returns a diagnostic whose `File` field names the second file, not the first
-- [ ] A compile that produces only a warning still returns `Success = true` with the warning present in `Diagnostics`
+- [x] A missing-semicolon error returns a diagnostic with `Severity="error"`, a real Roslyn `Id` (e.g. `CS1002`), and `Line`/`Column` matching the exact character position of the error in the source
+- [x] An unknown-type error returns the correct `Id` (e.g. `CS0246`) and correct location
+- [x] A two-file compile with an error only in the second file returns a diagnostic whose `File` field names the second file, not the first
+- [x] A compile that produces only a warning still returns `Success = true` with the warning present in `Diagnostics`
 
 ## Verification
 
@@ -55,10 +55,10 @@ Run the throwaway harness from issue 17 (or an extended version of it) against e
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Issue 018 Verifier (`8f93f879-5e18-4a25-b71f-3a6da25dd0f6`)
+- **Date:** 2026-08-27
+- **Evidence:** Fresh Release browser-WASM build completed with zero warnings/errors. A trusted diagnostic-proof click reproduced `CS1002` at `Syntax/MissingSemicolon.cs:1:43`, `CS1513` at `Syntax/UnbalancedBrace.cs:1:43`, `CS0246` at `Types/UnknownType.cs:1:27`, and a two-file CRLF/astral-Unicode `CS0246` at the manually calculated UTF-16 location `Game/Player.cs:3:40`. Warning-only `CS0219` at `Warnings/UnusedLocal.cs:1:44` succeeded with a 2,560-byte DLL and 788-byte PDB. Errors returned `COMPILE_FAILED` with no binaries; every diagnostic had the required origin, severity, ID, message, and coordinates. Adversarial ordering, foreign `#line` suppression, logical PDB path/checksum, Ping, valid compilation, one runtime startup, and absence of browser/runtime/network errors all passed. Generated output remained ignored and `external/MonoGame` was unchanged.
 
 ## Commit gate
 
