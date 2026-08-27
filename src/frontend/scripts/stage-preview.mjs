@@ -61,11 +61,23 @@ await cp(
   path.join(publishRoot, "ProtocolRuntime.js"),
 );
 await cp(path.join(repositoryRoot, "src/shared/Issue21Endpoints.js"), path.join(publishRoot, "Issue21Endpoints.js"));
+await cp(
+  path.join(repositoryRoot, "src/shared/PreviewStartRuntime.js"),
+  path.join(publishRoot, "PreviewStartRuntime.js"),
+);
 
 const frameworkRoot = path.join(publishRoot, "_framework");
 const frameworkFiles = await readdir(frameworkRoot);
 const monoGameAssets = frameworkFiles.filter(name => /^MonoGame\.Framework\..*\.wasm$/.test(name));
-const requiredFiles = ["index.html", "preview.js", "ProtocolRuntime.js", "Issue21Endpoints.js", "_framework/dotnet.js", "_framework/blazor.boot.json"];
+const requiredFiles = [
+  "index.html",
+  "preview.js",
+  "ProtocolRuntime.js",
+  "Issue21Endpoints.js",
+  "PreviewStartRuntime.js",
+  "_framework/dotnet.js",
+  "_framework/blazor.boot.json",
+];
 for (const relativePath of requiredFiles) {
   await readFile(path.join(publishRoot, relativePath));
 }

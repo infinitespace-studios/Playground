@@ -1,4 +1,7 @@
-import { compileLoadConstructIssue22Case } from "./issue21";
+import {
+  compileLoadConstructIssue22Case,
+  preparePackagedProofRuntime,
+} from "./issue21";
 
 const cases = [
   {
@@ -291,6 +294,7 @@ function validateCase(
 export async function runIssue022AutoProof(): Promise<void> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (!invoke || !(await invoke<boolean>("issue022_is_proof_enabled"))) return;
+  const proofRuntimeReadiness = await preparePackagedProofRuntime();
 
   const outcomes: Record<string, unknown>[] = [];
   for (const definition of cases) {
@@ -318,6 +322,7 @@ export async function runIssue022AutoProof(): Promise<void> {
       schemaVersion: 1,
       generatedAt: new Date().toISOString(),
       proofMode: "MONOGAME_ISSUE022_PROOF=1",
+      proofRuntimeReadiness,
       cases: outcomes,
       compilerRuntimeStarts: outcomes[0]?.compilerRuntimeStarts,
       previewRuntimeStarts: outcomes.length,

@@ -180,6 +180,111 @@ public static partial class PreviewExports
     }
 
     [JSExport]
+    public static string RunLoadedGame()
+    {
+        GameRunner? runner;
+        lock (LifecycleGate)
+        {
+            runner = _loadState == 2 ? _gameRunner : null;
+        }
+
+        if (runner is null)
+            return SerializeStartFailure("INVALID_STATE", "A constructed game must be loaded before start.");
+
+        var start = runner.RunGame();
+        return JsonSerializer.Serialize(
+            new GameStartResult(
+                start.Success,
+                start.State,
+                start.RunAttempts,
+                start.RunReturned,
+                start.RunDurationMilliseconds,
+                start.RetainedGame,
+                start.Disposed,
+                start.DisposeAttempts,
+                start.Error is null ? null : new LoadError(start.Error.Code, start.Error.Message)),
+            PreviewJsonContext.Default.GameStartResult);
+    }
+
+    [JSExport]
+    public static string RunGameRunnerBehavioralSelfTest()
+    {
+        var game = new RunnerSelfTestGame();
+        GameRunner? runner = null;
+        GameRunner.StartResult? competing = null;
+        GameRunner.DisposalResult? racingTeardown = null;
+        var callbacks = 0;
+        runner = new GameRunner(game, _ =>
+        {
+            callbacks++;
+            competing = runner!.RunGame();
+            racingTeardown = runner.Teardown();
+        });
+        var admitted = runner.RunGame();
+        var repeatedTeardown = runner.Teardown();
+        var fatal = new Dictionary<string, bool>
+        {
+            [nameof(OutOfMemoryException)] = GameRunner.IsFatal(new OutOfMemoryException()),
+            [nameof(StackOverflowException)] = GameRunner.IsFatal(new StackOverflowException()),
+            [nameof(AccessViolationException)] = GameRunner.IsFatal(new AccessViolationException()),
+            [nameof(AppDomainUnloadedException)] = GameRunner.IsFatal(new AppDomainUnloadedException()),
+            [nameof(CannotUnloadAppDomainException)] = GameRunner.IsFatal(new CannotUnloadAppDomainException()),
+            [nameof(InvalidOperationException)] = GameRunner.IsFatal(new InvalidOperationException()),
+        };
+        return JsonSerializer.Serialize(
+            new RunnerBehavioralSelfTest(
+                callbacks,
+                admitted.RunAttempts,
+                admitted.RetainedGame,
+                admitted.Disposed,
+                competing?.Error?.Code,
+                racingTeardown?.DisposeAttempts ?? 0,
+                repeatedTeardown.HadGame,
+                game.DisposeCount,
+                fatal),
+            PreviewJsonContext.Default.RunnerBehavioralSelfTest);
+    }
+
+    [JSExport]
+    public static string QueryRunState(bool includeProofGameCounters)
+    {
+        GameRunner? runner;
+        lock (LifecycleGate)
+        {
+            runner = _gameRunner;
+        }
+        if (runner is null)
+        {
+            return JsonSerializer.Serialize(
+                new GameRunStateResult(
+                    "stopped", 0, 0, false, null, false, true, 0, null, null),
+                PreviewJsonContext.Default.GameRunStateResult);
+        }
+
+        var snapshot = runner.Snapshot();
+        int? frameCount = null;
+        int? proofDisposeCount = null;
+        if (includeProofGameCounters && snapshot.GameType is not null)
+        {
+            frameCount = ReadProofCounter(snapshot.GameType, "FrameCount");
+            proofDisposeCount = ReadProofCounter(snapshot.GameType, "DisposeCount");
+        }
+        return JsonSerializer.Serialize(
+            new GameRunStateResult(
+                snapshot.State,
+                snapshot.ConstructionAttempts,
+                snapshot.RunAttempts,
+                snapshot.RunReturned,
+                snapshot.RunDurationMilliseconds,
+                snapshot.RetainedGame,
+                snapshot.Disposed,
+                snapshot.DisposeAttempts,
+                frameCount,
+                proofDisposeCount),
+            PreviewJsonContext.Default.GameRunStateResult);
+    }
+
+    [JSExport]
     public static string TeardownGame()
     {
         lock (LifecycleGate)
@@ -213,6 +318,20 @@ public static partial class PreviewExports
             FileNotFoundException or
             TypeLoadException or
             NotSupportedException;
+
+    private static int? ReadProofCounter(Type type, string name)
+    {
+        try
+        {
+            var property = type.GetProperty(
+                name, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            return property?.PropertyType == typeof(int) ? (int?)property.GetValue(null) : null;
+        }
+        catch (Exception exception) when (!GameRunner.IsFatal(exception))
+        {
+            return null;
+        }
+    }
 
     private static ValidatedLoad ValidateLoad(
         byte[]? dllBytes,
@@ -349,6 +468,12 @@ public static partial class PreviewExports
             new AssemblyLoadResult(false, mutationStarted, null, new LoadError(code, message)),
             PreviewJsonContext.Default.AssemblyLoadResult);
 
+    private static string SerializeStartFailure(string code, string message) =>
+        JsonSerializer.Serialize(
+            new GameStartResult(false, "stopped", 0, false, null, false, false, 0,
+                new LoadError(code, message)),
+            PreviewJsonContext.Default.GameStartResult);
+
     internal sealed record PreviewContextProof(
         int ProtocolVersion,
         string Message,
@@ -406,6 +531,47 @@ public static partial class PreviewExports
         bool RetainedGame,
         LoadError? Error,
         bool AlreadyTornDown);
+    internal sealed record GameStartResult(
+        bool Success,
+        string State,
+        int RunAttempts,
+        bool RunReturned,
+        double? RunDurationMilliseconds,
+        bool RetainedGame,
+        bool Disposed,
+        int DisposeAttempts,
+        LoadError? Error);
+    internal sealed record GameRunStateResult(
+        string State,
+        int ConstructionAttempts,
+        int RunAttempts,
+        bool RunReturned,
+        double? RunDurationMilliseconds,
+        bool RetainedGame,
+        bool Disposed,
+        int DisposeAttempts,
+        int? FrameCount,
+        int? ProofDisposeCount);
+    internal sealed record RunnerBehavioralSelfTest(
+        int RunCallbacks,
+        int RunAttempts,
+        bool RetainedGame,
+        bool Disposed,
+        string? CompetingErrorCode,
+        int RacingDisposeAttempts,
+        bool RepeatedTeardownHadGame,
+        int GameDisposeCount,
+        Dictionary<string, bool> FatalClassifications);
+    private sealed class RunnerSelfTestGame : Game
+    {
+        public int DisposeCount { get; private set; }
+
+        protected override void Dispose(bool disposing)
+        {
+            if (disposing) DisposeCount++;
+            base.Dispose(disposing);
+        }
+    }
     private sealed record ValidatedLoad(
         string AssemblySha256,
         string PdbSha256,
@@ -424,5 +590,8 @@ public static partial class PreviewExports
 [JsonSerializable(typeof(PreviewExports.AssemblyLoadResult))]
 [JsonSerializable(typeof(PreviewExports.GamePipelineResult))]
 [JsonSerializable(typeof(PreviewExports.GameTeardownResult))]
+[JsonSerializable(typeof(PreviewExports.GameStartResult))]
+[JsonSerializable(typeof(PreviewExports.GameRunStateResult))]
+[JsonSerializable(typeof(PreviewExports.RunnerBehavioralSelfTest))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class PreviewJsonContext : JsonSerializerContext;

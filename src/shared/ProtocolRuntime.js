@@ -159,6 +159,11 @@ function requireOwn(value, fields, code = "MALFORMED_PAYLOAD") {
   }
 }
 
+function rejectUnexpected(value, fields, code = "MALFORMED_PAYLOAD") {
+  const allowed = new Set(fields);
+  if (Object.keys(value).some(field => !allowed.has(field))) throw new Error(code);
+}
+
 function ownOptional(value, field) {
   return Object.hasOwn(value, field) ? value[field] : undefined;
 }
@@ -426,6 +431,80 @@ export function validatePreviewLoadResponse(value, correlationId, previewId, com
   return { message, observation };
 }
 
+export function validatePreviewStartRequest(value, previewId) {
+  const { message, observation } = validateEnvelope(value, "preview.start.request");
+  rejectUnexpected(message, ["protocolVersion", "correlationId", "type", "payload"], "MALFORMED_ENVELOPE");
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["payload"], "MALFORMED_ENVELOPE");
+  const payload = requireObject(message.payload);
+  requireOwn(payload, ["previewId"]);
+  if (Object.keys(payload).some(key => key !== "previewId" && key !== "timeoutMs")) {
+    throw new Error("MALFORMED_PAYLOAD");
+  }
+  if (payload.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  validateTimeout(ownOptional(payload, "timeoutMs"), MAX_TIMEOUTS_MS["preview.start.request"]);
+  return { message, observation };
+}
+
+export function validatePreviewStartResponse(value, correlationId, previewId) {
+  const { message, observation } = validateEnvelope(value, "preview.start.response", correlationId);
+  rejectUnexpected(message, ["protocolVersion", "correlationId", "type", "result"], "MALFORMED_ENVELOPE");
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["result"], "MALFORMED_ENVELOPE");
+  const result = requireObject(message.result);
+  requireOwn(result, ["success"]);
+  if (typeof result.success !== "boolean") throw new Error("MALFORMED_PAYLOAD");
+  if (!result.success) {
+    requireOwn(result, ["error"]);
+    validateError(result.error);
+    return { message, observation };
+  }
+  requireOwn(result, ["data"]);
+  const data = requireObject(result.data);
+  requireOwn(data, ["previewId", "accepted"]);
+  if (Object.keys(data).some(key => key !== "previewId" && key !== "accepted")) {
+    throw new Error("MALFORMED_PAYLOAD");
+  }
+  if (data.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (data.accepted !== true) throw new Error("MALFORMED_PAYLOAD");
+  return { message, observation };
+}
+
+export function validatePreviewLifecycleEvent(value, previewId, expectedCorrelationId) {
+  const expectedType = value?.type;
+  if (!["preview.started", "preview.failed", "preview.stopped"].includes(expectedType)) {
+    throw new Error("MESSAGE_ROUTE_REJECTED");
+  }
+  const { message, observation } =
+    validateEnvelope(value, expectedType, expectedCorrelationId);
+  rejectUnexpected(message, ["protocolVersion", "correlationId", "type", "payload"], "MALFORMED_ENVELOPE");
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["payload"], "MALFORMED_ENVELOPE");
+  const payload = requireObject(message.payload);
+  if (expectedType === "preview.started") {
+    requireOwn(payload, ["previewId", "sequence"]);
+    rejectUnexpected(payload, ["previewId", "sequence"]);
+  } else if (expectedType === "preview.failed") {
+    requireOwn(payload, ["previewId", "sequence", "phase", "error"]);
+    rejectUnexpected(payload, ["previewId", "sequence", "phase", "error"]);
+    if (!["load", "start", "running", "stop"].includes(payload.phase)) {
+      throw new Error("MALFORMED_PAYLOAD");
+    }
+    validateError(payload.error);
+  } else {
+    requireOwn(payload, ["previewId", "sequence", "reason"]);
+    rejectUnexpected(payload, ["previewId", "sequence", "reason"]);
+    if (!["requested", "forced", "failed", "exited"].includes(payload.reason)) {
+      throw new Error("MALFORMED_PAYLOAD");
+    }
+  }
+  if (payload.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (!Number.isSafeInteger(payload.sequence) || payload.sequence < 1) {
+    throw new Error("MALFORMED_PAYLOAD");
+  }
+  return { message, observation };
+}
+
 export function standaloneBuffer(bytes) {
   if (!(bytes instanceof Uint8Array)) throw new Error("MALFORMED_PAYLOAD");
   const copy = new Uint8Array(bytes.byteLength);
@@ -451,7 +530,16 @@ export class ProtocolPortClient {
       terminalResponses: 0,
       closes: 0,
       senderDetachFailures: 0,
+      lifecycleEvents: 0,
+      discardedEventRegressions: 0,
+      protocolControls: 0,
     };
+    this.eventListeners = new Set();
+    this.controlEvents = [];
+    this.lifecycleEligible = new Set();
+    this.isClosed = false;
+    this.closeReason = null;
+    this.lastSequence = 0;
     port.addEventListener("message", event => this.#receive(event.data));
     port.start();
   }
@@ -486,6 +574,27 @@ export class ProtocolPortClient {
     try {
       inspectClone(value);
       if (!isUuidV4(value?.correlationId)) throw new Error("MALFORMED_ENVELOPE");
+      if (value.type === "protocol.error") {
+        this.observations.protocolControls += 1;
+        this.controlEvents.push(value);
+        return;
+      }
+      if (value.type === "preview.started" || value.type === "preview.failed" ||
+          value.type === "preview.stopped") {
+        if (!this.lifecycleEligible.has(value.correlationId)) {
+          this.observations.discardedUnknownOrLate += 1;
+          return;
+        }
+        const validated = validatePreviewLifecycleEvent(value, value.payload?.previewId);
+        if (validated.message.payload.sequence <= this.lastSequence) {
+          this.observations.discardedEventRegressions += 1;
+          return;
+        }
+        this.lastSequence = validated.message.payload.sequence;
+        this.observations.lifecycleEvents += 1;
+        for (const listener of this.eventListeners) listener(validated.message);
+        return;
+      }
       const pending = this.pending.get(value.correlationId);
       if (!pending) {
         this.observations.discardedUnknownOrLate += 1;
@@ -493,6 +602,9 @@ export class ProtocolPortClient {
       }
       if (value.type !== pending.responseType) throw new Error("Wrong terminal response type.");
       const validated = pending.validate(value);
+      if (value.type === "preview.start.response") {
+        this.lifecycleEligible.add(value.correlationId);
+      }
       globalThis.clearTimeout(pending.timer);
       this.pending.delete(value.correlationId);
       this.completed.add(value.correlationId);
@@ -503,7 +615,21 @@ export class ProtocolPortClient {
     }
   }
 
+  onLifecycleEvent(listener) {
+    if (typeof listener !== "function") throw new TypeError("listener must be a function");
+    this.eventListeners.add(listener);
+    return () => this.eventListeners.delete(listener);
+  }
+
+  retransmitForDuplicateCheck(message) {
+    inspectClone(message);
+    this.port.postMessage(message);
+  }
+
   close(reason) {
+    if (this.isClosed) return;
+    this.isClosed = true;
+    this.closeReason = reason instanceof Error ? reason.message : String(reason);
     this.observations.closes += 1;
     this.port.close();
     for (const pending of this.pending.values()) {

@@ -9,6 +9,7 @@ import {
   createPreviewEndpoint,
   createProofExpectationRegistry,
 } from "./Issue21Endpoints.js";
+import { createPreviewStartExecutor } from "./PreviewStartRuntime.js";
 
 const status = document.querySelector("#status");
 const pingButton = document.querySelector("#ping");
@@ -52,6 +53,13 @@ globalThis.previewIssue22Proof = {
   teardown: [],
   errors: [],
 };
+globalThis.previewIssue023Proof = {
+  enabled: false,
+  start: null,
+  events: [],
+  queries: [],
+  errors: [],
+};
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -59,18 +67,33 @@ let protocolGeneration = null;
 let loadState = "stopped";
 let previewEndpoint = null;
 let constructAfterLoad = false;
+let issue023ProofEnabled = false;
+let runGamePipeline = false;
+let lifecycleSequence = 0;
+let issue023Case = "normal";
+let startExecutor = null;
 const bootstrapObservations = installPrivatePortBootstrap({
   expectedSource: parent,
   expectedOrigin: window.location.origin,
   validateData: data => isUuidV4(data.previewId) &&
     Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean" &&
-    (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean"),
+    (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue023Proof") || typeof data.issue023Proof === "boolean") &&
+    (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
+    (!Object.hasOwn(data, "issue023Case") ||
+      typeof data.issue023Case === "string" &&
+      ["normal", "delay-run", "delay-run-late", "delay-run-long", "delay-event", "unexpected"]
+        .includes(data.issue023Case)),
   onPort: (port, data) => {
     if (protocolPort) return;
     protocolGeneration = data.contextGeneration;
     expectedPreviewId = data.previewId;
-    constructAfterLoad = data.issue022Proof === true;
-    globalThis.previewIssue22Proof.enabled = constructAfterLoad;
+    issue023ProofEnabled = data.issue023Proof === true;
+    issue023Case = issue023ProofEnabled ? data.issue023Case ?? "normal" : "normal";
+    runGamePipeline = data.runGamePipeline === true;
+    constructAfterLoad = data.issue022Proof === true || runGamePipeline;
+    globalThis.previewIssue22Proof.enabled = data.issue022Proof === true;
+    globalThis.previewIssue023Proof.enabled = issue023ProofEnabled;
     protocolPort = port;
     const expectationRegistry = createProofExpectationRegistry({
       authorized: data.issue021Proof,
@@ -90,12 +113,14 @@ const bootstrapObservations = installPrivatePortBootstrap({
       errors: globalThis.previewIssue21Proof.errors,
       terminals: globalThis.previewIssue21Proof.endpoint.terminals,
       closes: globalThis.previewIssue21Proof.endpoint.closes,
+      events: globalThis.previewIssue023Proof.events,
       duplicateControls: [],
     };
     previewEndpoint = createPreviewEndpoint({
       port,
       previewId: expectedPreviewId,
       execute: executeLoadRequest,
+      executeStart: executeStartRequest,
       expectations: data.issue021Proof ? expectationRegistry : undefined,
       contextGeneration: data.contextGeneration,
       portIdentity: bootstrapObservations.portIdentity,
@@ -304,7 +329,84 @@ async function executeLoadRequest(message, observation) {
   }
 }
 
+function executeStartRequest(message) {
+  startExecutor ??= createPreviewStartExecutor({
+    getState: () => loadState,
+    setState: state => {
+      loadState = state;
+      globalThis.previewIssue21Proof.state = state;
+    },
+    getExports: () => exportsPromise,
+    createLifecycleEvent: lifecycleEvent,
+    recordStart: start => { globalThis.previewIssue023Proof.start = start; },
+    recordFailureTeardown: teardown => {
+      globalThis.previewIssue023Proof.failureTeardown = teardown;
+    },
+    recordUnexpected: error => {
+      globalThis.previewIssue023Proof.expectedUnexpectedBoundary = error;
+    },
+    beforeRunDelayMs: issue023Case === "delay-run"
+      ? 150
+      : issue023Case === "delay-run-late"
+        ? 800
+        : issue023Case === "delay-run-long" ? 2_500 : 0,
+    startedEventDelayMs: issue023Case === "delay-event" ? 150 : 0,
+    throwUnexpectedBeforeExport: issue023Case === "unexpected",
+  });
+  return startExecutor(message);
+}
+
+function lifecycleEvent(type, correlationId, extra = {}) {
+  return {
+    protocolVersion: 1,
+    correlationId,
+    type,
+    payload: {
+      previewId: expectedPreviewId,
+      sequence: ++lifecycleSequence,
+      ...extra,
+    },
+  };
+}
+
 const exportsPromise = startRuntime();
+globalThis.previewIssue023Query = async () => {
+  if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
+  const exports = await exportsPromise;
+  if (typeof exports.QueryRunState !== "function") throw new Error("INTERNAL_ERROR");
+  const result = JSON.parse(exports.QueryRunState(true));
+  globalThis.previewIssue023Proof.queries.push(result);
+  return result;
+};
+globalThis.previewIssue023RunnerSelfTest = async () => {
+  if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
+  const exports = await exportsPromise;
+  if (typeof exports.RunGameRunnerBehavioralSelfTest !== "function") {
+    throw new Error("INTERNAL_ERROR");
+  }
+  return JSON.parse(exports.RunGameRunnerBehavioralSelfTest());
+};
+globalThis.previewIssue023EndpointSnapshot = () => {
+  if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
+  return Object.freeze({
+    closed: previewEndpoint?.closed === true,
+    closeReasons: Object.freeze([
+      ...globalThis.previewIssue21Proof.endpoint.closes,
+    ]),
+    terminals: Object.freeze([
+      ...globalThis.previewIssue21Proof.endpoint.terminals,
+    ]),
+    lifecycleEvents: Object.freeze([
+      ...globalThis.previewIssue023Proof.events,
+    ]),
+    expectedRejections: Object.freeze([
+      ...globalThis.previewIssue21Proof.expectedProbeRejections,
+    ]),
+    unexpectedErrors: Object.freeze([
+      ...globalThis.previewIssue21Proof.errors,
+    ]),
+  });
+};
 globalThis.previewIssue22Teardown = async () => {
   const exports = await exportsPromise;
   if (typeof exports.TeardownGame !== "function") throw new Error("INTERNAL_ERROR");

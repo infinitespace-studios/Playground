@@ -16,6 +16,9 @@ import {
   validateCompileRequest,
   validateCompileResponse,
   validatePreviewLoadRequest,
+  validatePreviewLifecycleEvent,
+  validatePreviewStartRequest,
+  validatePreviewStartResponse,
 } from "./protocol.ts";
 import { installPrivatePortBootstrap } from "../../shared/ProtocolRuntime.js";
 import {
@@ -25,9 +28,17 @@ import {
   initializeCompilerProofMode,
 } from "../../shared/Issue21Endpoints.js";
 import {
+  createPreviewStartExecutor,
+  UnexpectedStartBoundaryError,
+} from "../../shared/PreviewStartRuntime.js";
+import {
   createIssue21LoadController,
   verifyIssue21ProofOutcomes,
 } from "./issue21-controller.ts";
+import {
+  createIssue023RunController,
+  withForcedPreviewRetirement,
+} from "./issue23-controller.ts";
 
 const uuid = "00112233-4455-4677-8899-aabbccddeeff";
 const compileId = "12345678-1234-4abc-8def-123456789abc";
@@ -76,10 +87,55 @@ test("normal UI controller routes terminal failure to its error channel", async 
     setStatus: (state, text) => { statuses.push([state, text]); },
     reportError: error => { errors.push(error); },
   });
+
   await assert.rejects(controller.run(), /PREVIEW_LOAD_FAILED/);
   assert.equal(controller.state, "idle");
   assert.equal(errors.length, 1);
   assert.deepEqual(statuses.at(-1), ["error", "PREVIEW_LOAD_FAILED: rejected"]);
+});
+
+test("normal issue023 controller reaches one production start and reports success or failure", async () => {
+  const statuses: Array<[string, string]> = [];
+  const disabled: boolean[] = [];
+  const errors: unknown[] = [];
+  let productionStarts = 0;
+  const success = createIssue023RunController({
+    start: async () => {
+      productionStarts += 1;
+      return { runAttempts: 1, proofMode: false };
+    },
+    setDisabled: value => { disabled.push(value); },
+    setStatus: (state, text) => { statuses.push([state, text]); },
+    reportError: error => { errors.push(error); },
+  });
+  assert.deepEqual(await success.run(), { runAttempts: 1, proofMode: false });
+  assert.equal(productionStarts, 1);
+  assert.equal(success.state, "running");
+  assert.deepEqual(statuses.at(-1), ["ready", "Running clear-color Game in retained preview."]);
+  assert.deepEqual(disabled, [true]);
+  assert.deepEqual(errors, []);
+  await assert.rejects(success.run(), /already active/);
+  assert.equal(productionStarts, 1);
+
+  const failure = createIssue023RunController({
+    start: async () => { throw new Error("PREVIEW_START_FAILED: rejected"); },
+    setDisabled: value => { disabled.push(value); },
+    setStatus: (state, text) => { statuses.push([state, text]); },
+    reportError: error => { errors.push(error); },
+  });
+  await assert.rejects(failure.run(), /PREVIEW_START_FAILED/);
+  assert.equal(failure.state, "idle");
+  assert.deepEqual(statuses.at(-1), ["error", "PREVIEW_START_FAILED: rejected"]);
+  assert.equal(disabled.at(-1), false);
+  assert.equal(errors.length, 1);
+});
+
+test("requester timeout immediately retires its preview and discards delayed completion", async () => {
+  let retired = 0;
+  const delayed = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error("TIMEOUT")), 5));
+  await assert.rejects(withForcedPreviewRetirement(delayed, () => { retired += 1; }), /TIMEOUT/);
+  assert.equal(retired, 1);
 });
 
 test("proof outcome matching excludes the primary successful load", () => {
@@ -830,6 +886,328 @@ test("actual preview endpoint rejects aliased and detached binary requests befor
     assert.deepEqual(posted.map(message => message.result?.error?.code), ["MALFORMED_PAYLOAD", "MALFORMED_PAYLOAD"]);
 });
 
+function startRequest(correlationId = uuid, previewId = uuid, timeoutMs = 10_000) {
+  return {
+    protocolVersion: 1,
+    correlationId,
+    type: "preview.start.request",
+    payload: { previewId, timeoutMs },
+  };
+}
+
+test("start validators reject wrong version, type, source, payload, and timeout", () => {
+  assert.equal(validatePreviewStartRequest(startRequest(), uuid).message.type, "preview.start.request");
+  assert.throws(
+    () => validatePreviewStartRequest({ ...startRequest(), protocolVersion: 2 }, uuid),
+    /UNSUPPORTED_PROTOCOL_VERSION/,
+  );
+  assert.throws(
+    () => validatePreviewStartRequest({ ...startRequest(), type: "preview.stop.request" }, uuid),
+    /MESSAGE_ROUTE_REJECTED/,
+  );
+  assert.throws(
+    () => validatePreviewStartRequest(startRequest(uuid, compileId), uuid),
+    /MESSAGE_SOURCE_REJECTED/,
+  );
+  assert.throws(
+    () => validatePreviewStartRequest(startRequest(uuid, uuid, 99), uuid),
+    /MALFORMED_PAYLOAD/,
+  );
+  assert.throws(
+    () => validatePreviewStartRequest({
+      ...startRequest(),
+      payload: { ...startRequest().payload, extra: true },
+    }, uuid),
+    /MALFORMED_PAYLOAD/,
+  );
+});
+
+test("actual start endpoint rejects wrong version, type, and preview identity before work", async () => {
+  const cases = [
+    {
+      message: { ...startRequest(), protocolVersion: 2 },
+      responseType: "protocol.error",
+      code: "UNSUPPORTED_PROTOCOL_VERSION",
+    },
+    {
+      message: { ...startRequest(), type: "preview.stop.request" },
+      responseType: "protocol.error",
+      code: "MESSAGE_ROUTE_REJECTED",
+    },
+    {
+      message: startRequest(uuid, compileId),
+      responseType: "preview.start.response",
+      code: "MESSAGE_SOURCE_REJECTED",
+    },
+  ];
+  for (const item of cases) {
+    const posted: Array<Record<string, any>> = [];
+    let executions = 0;
+    const endpoint = createPreviewEndpoint({
+      port: {
+        postMessage(message: Record<string, any>) { posted.push(message); },
+        close() {},
+      },
+      previewId: uuid,
+      proof: { errors: [], terminals: [], closes: [], events: [] },
+      execute: async () => { executions += 1; throw new Error("INVALID_STATE"); },
+      executeStart: async () => { executions += 1; throw new Error("INVALID_STATE"); },
+    });
+    await endpoint.handle({ data: item.message });
+    assert.equal(executions, 0);
+    assert.equal(posted.length, 1);
+    assert.equal(posted[0].type, item.responseType);
+    assert.equal(
+      posted[0].result?.error?.code ?? posted[0].payload?.error?.code,
+      item.code,
+    );
+  }
+});
+
+test("actual preview endpoint enforces start state, one execution, and response-event order", async () => {
+  const posted: Array<Record<string, any>> = [];
+  const proof = { errors: [], terminals: [], closes: [], events: [] };
+  let loaded = false;
+  let running = false;
+  let starts = 0;
+  const endpoint = createPreviewEndpoint({
+    port: {
+      postMessage(message: Record<string, any>) { posted.push(message); },
+      close() {},
+    },
+    previewId: uuid,
+    proof,
+    execute: async () => {
+      loaded = true;
+      return { result: { success: true, data: { previewId: uuid, compileId } } };
+    },
+    executeStart: async (message: Record<string, any>) => {
+      if (!loaded || running) throw new Error("INVALID_STATE");
+      running = true;
+      starts += 1;
+      return {
+        result: { success: true, data: { previewId: uuid, accepted: true } },
+        events: [{
+          protocolVersion: 1,
+          correlationId: message.correlationId,
+          type: "preview.started",
+          payload: { previewId: uuid, sequence: 1 },
+        }],
+      };
+    },
+  });
+
+  await endpoint.handle({ data: startRequest() });
+  assert.equal(posted.at(-1)?.result.error.code, "INVALID_STATE");
+  const secondCorrelation = "11112233-4455-4677-8899-aabbccddeeff";
+  loaded = true;
+  await endpoint.handle({ data: startRequest(secondCorrelation) });
+  assert.deepEqual(posted.slice(-2).map(message => message.type),
+    ["preview.start.response", "preview.started"]);
+  assert.equal(starts, 1);
+  assert.equal(posted.at(-1)?.correlationId, secondCorrelation);
+  assert.equal(posted.at(-1)?.payload.sequence, 1);
+
+  const thirdCorrelation = "21112233-4455-4677-8899-aabbccddeeff";
+  await endpoint.handle({ data: startRequest(thirdCorrelation) });
+  assert.equal(posted.at(-1)?.result.error.code, "INVALID_STATE");
+  assert.equal(starts, 1);
+});
+
+test("concurrent duplicate start correlation executes once and receives one terminal", async () => {
+  const posted: Array<Record<string, any>> = [];
+  let starts = 0;
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const endpoint = createPreviewEndpoint({
+    port: {
+      postMessage(message: Record<string, any>) { posted.push(message); },
+      close() {},
+    },
+    previewId: uuid,
+    proof: { errors: [], terminals: [], closes: [], events: [], duplicateControls: [] },
+    execute: async () => { throw new Error("INVALID_STATE"); },
+    executeStart: async () => {
+      starts += 1;
+      await blocked;
+      return { result: { success: true, data: { previewId: uuid, accepted: true } } };
+    },
+  });
+  const first = endpoint.handle({ data: startRequest() });
+  const duplicate = endpoint.handle({ data: startRequest() });
+  await duplicate;
+  release();
+  await first;
+  assert.equal(starts, 1);
+  assert.equal(posted.filter(message => message.type === "preview.start.response").length, 1);
+  assert.equal(posted.filter(message =>
+    message.type === "protocol.error" &&
+    message.payload.error.code === "DUPLICATE_CORRELATION_ID").length, 1);
+});
+
+test("distinct concurrent starts admit one and reject the other without a second Run", async () => {
+  const posted: Array<Record<string, any>> = [];
+  let lifecycle = "loaded";
+  let runs = 0;
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  const endpoint = createPreviewEndpoint({
+    port: {
+      postMessage(message: Record<string, any>) { posted.push(message); },
+      close() {},
+    },
+    previewId: uuid,
+    proof: { errors: [], terminals: [], closes: [], events: [] },
+    execute: async () => { throw new Error("INVALID_STATE"); },
+    executeStart: async () => {
+      if (lifecycle !== "loaded") throw new Error("INVALID_STATE");
+      lifecycle = "starting";
+      runs += 1;
+      await blocked;
+      lifecycle = "running";
+      return { result: { success: true, data: { previewId: uuid, accepted: true } } };
+    },
+  });
+  const other = "31112233-4455-4677-8899-aabbccddeeff";
+  const first = endpoint.handle({ data: startRequest() });
+  await endpoint.handle({ data: startRequest(other) });
+  release();
+  await first;
+  assert.equal(runs, 1);
+  assert.equal(posted.find(message => message.correlationId === other)?.result.error.code,
+    "INVALID_STATE");
+});
+
+test("synchronous start failure orders response, failed, stopped and disposes once", async () => {
+  const posted: Array<Record<string, any>> = [];
+  let disposeAttempts = 0;
+  const endpoint = createPreviewEndpoint({
+    port: {
+      postMessage(message: Record<string, any>) { posted.push(message); },
+      close() {},
+    },
+    previewId: uuid,
+    proof: { errors: [], terminals: [], closes: [], events: [] },
+    execute: async () => { throw new Error("INVALID_STATE"); },
+    executeStart: async message => {
+      disposeAttempts += 1;
+      const error = { code: "PREVIEW_START_FAILED", message: "The game failed during preview startup." };
+      return {
+        result: { success: false, error },
+        events: [
+          {
+            protocolVersion: 1, correlationId: message.correlationId,
+            type: "preview.failed",
+            payload: { previewId: uuid, sequence: 1, phase: "start", error },
+          },
+          {
+            protocolVersion: 1, correlationId: message.correlationId,
+            type: "preview.stopped",
+            payload: { previewId: uuid, sequence: 2, reason: "failed" },
+          },
+        ],
+        closeAfterResponse: true,
+      };
+    },
+  });
+  await endpoint.handle({ data: startRequest() });
+  assert.deepEqual(posted.map(message => message.type),
+    ["preview.start.response", "preview.failed", "preview.stopped"]);
+  assert.deepEqual(posted.slice(1).map(message => message.payload.sequence), [1, 2]);
+  assert.equal(posted.every(message => message.correlationId === uuid), true);
+  assert.equal(posted.some(message => message.type === "preview.started"), false);
+  assert.equal(disposeAttempts, 1);
+});
+
+test("start client discards terminal and lifecycle traffic arriving after timeout", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+  channel.port2.onmessage = event => {
+    setTimeout(() => {
+      channel.port2.postMessage({
+        protocolVersion: 1,
+        correlationId: event.data.correlationId,
+        type: "preview.start.response",
+        result: { success: true, data: { previewId: uuid, accepted: true } },
+      });
+      channel.port2.postMessage({
+        protocolVersion: 1,
+        correlationId: event.data.correlationId,
+        type: "preview.started",
+        payload: { previewId: uuid, sequence: 1 },
+      });
+    }, 130);
+  };
+  await assert.rejects(client.request(
+    startRequest(),
+    "preview.start.response",
+    value => validatePreviewStartResponse(value, uuid, uuid),
+    [],
+    100,
+  ), /TIMEOUT/);
+  await new Promise(resolve => setTimeout(resolve, 60));
+  assert.equal(client.observations.discardedUnknownOrLate, 2);
+  assert.equal(client.observations.lifecycleEvents, 0);
+  client.close("test");
+  channel.port2.close();
+});
+
+test("start client accepts a delayed correlated event only after its terminal response", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+  const order: string[] = [];
+  const eventReceived = new Promise<void>(resolve => {
+    client.onLifecycleEvent(message => {
+      order.push(message.type);
+      resolve();
+    });
+  });
+  channel.port2.onmessage = event => {
+    channel.port2.postMessage({
+      protocolVersion: 1,
+      correlationId: event.data.correlationId,
+      type: "preview.start.response",
+      result: { success: true, data: { previewId: uuid, accepted: true } },
+    });
+    setTimeout(() => channel.port2.postMessage({
+      protocolVersion: 1,
+      correlationId: event.data.correlationId,
+      type: "preview.started",
+      payload: { previewId: uuid, sequence: 1 },
+    }), 20);
+  };
+  await client.request(
+    startRequest(),
+    "preview.start.response",
+    value => validatePreviewStartResponse(value, uuid, uuid),
+  );
+  order.push("preview.start.response");
+  await eventReceived;
+  assert.deepEqual(order, ["preview.start.response", "preview.started"]);
+  client.close("test");
+  channel.port2.close();
+});
+
+test("validates correlated monotonic start lifecycle event shape", () => {
+  const event = {
+    protocolVersion: 1,
+    correlationId: uuid,
+    type: "preview.started",
+    payload: { previewId: uuid, sequence: 1 },
+  };
+  assert.equal(validatePreviewLifecycleEvent(event, uuid, uuid).message, event);
+  assert.throws(
+    () => validatePreviewLifecycleEvent({
+      ...event, payload: { previewId: uuid, sequence: 0 },
+    }, uuid, uuid),
+    /MALFORMED_PAYLOAD/,
+  );
+  assert.throws(
+    () => validatePreviewLifecycleEvent(event, compileId, uuid),
+    /MESSAGE_SOURCE_REJECTED/,
+  );
+});
+
 test("invalid bootstrap does not consume valid bootstrap and parent traffic later closes port", () => {
   const originalWindow = globalThis.window;
   const fakeWindow = new EventTarget();
@@ -891,4 +1269,90 @@ test("correlated port settles once, discards late response, and closes on wrong 
   );
   assert.equal(badClient.observations.closes, 1);
   badChannel.port2.close();
+});
+
+test("production start executor retains a successful managed Game and emits started", async () => {
+  let state = "loaded";
+  let sequence = 0;
+  const execute = createPreviewStartExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => ({
+      RunLoadedGame: () => JSON.stringify({
+        success: true, runAttempts: 1, retainedGame: true, disposed: false,
+      }),
+    }),
+    createLifecycleEvent: (type, correlationId, extra = {}) => ({
+      protocolVersion: 1, correlationId, type,
+      payload: { previewId: uuid, sequence: ++sequence, ...extra },
+    }),
+    recordStart: () => {},
+    recordFailureTeardown: () => {},
+    recordUnexpected: () => {},
+  });
+  const outcome = await execute(startRequest(uuid, uuid));
+  assert.equal(state, "running");
+  assert.equal(outcome.result.success, true);
+  assert.deepEqual(outcome.events.map(event => event.type), ["preview.started"]);
+});
+
+test("production start executor performs exact structured failure lifecycle", async () => {
+  let state = "loaded";
+  let sequence = 0;
+  let teardownCalls = 0;
+  const execute = createPreviewStartExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => ({
+      RunLoadedGame: () => JSON.stringify({
+        success: false,
+        error: { code: "PREVIEW_START_FAILED", message: "Managed preview startup failed." },
+      }),
+      TeardownGame: () => {
+        teardownCalls++;
+        return JSON.stringify({ disposeAttempts: 1, retainedGame: false });
+      },
+    }),
+    createLifecycleEvent: (type, requestCorrelationId, extra = {}) => ({
+      protocolVersion: 1, correlationId: requestCorrelationId, type,
+      payload: { previewId: uuid, sequence: ++sequence, ...extra },
+    }),
+    recordStart: () => {},
+    recordFailureTeardown: () => {},
+    recordUnexpected: () => {},
+  });
+  const outcome = await execute(startRequest(uuid, uuid));
+  assert.equal(state, "disposed");
+  assert.equal(teardownCalls, 1);
+  assert.deepEqual(outcome.events.map(event => event.type), [
+    "preview.failed", "preview.stopped",
+  ]);
+  assert.deepEqual(outcome.events.map(event => event.payload.sequence), [1, 2]);
+});
+
+test("production start executor classifies escaped boundary errors as unexpected", async () => {
+  let state = "loaded";
+  let unexpected = null;
+  let teardownCalls = 0;
+  const execute = createPreviewStartExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => ({
+      RunLoadedGame: () => { throw new Error("raw detail"); },
+      TeardownGame: () => { teardownCalls++; return "{}"; },
+    }),
+    createLifecycleEvent: () => { throw new Error("must not emit lifecycle"); },
+    recordStart: () => {},
+    recordFailureTeardown: () => {},
+    recordUnexpected: value => { unexpected = value; },
+  });
+  await assert.rejects(
+    execute(startRequest(uuid, uuid)),
+    UnexpectedStartBoundaryError,
+  );
+  assert.equal(state, "tainted");
+  assert.equal(teardownCalls, 1);
+  assert.deepEqual(unexpected, {
+    category: "start-boundary", code: "INTERNAL_ERROR", name: "Error",
+  });
 });

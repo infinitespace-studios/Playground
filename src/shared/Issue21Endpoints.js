@@ -3,6 +3,7 @@ import {
   utf8Length,
   validateCompileRequest,
   validatePreviewLoadRequest,
+  validatePreviewStartRequest,
 } from "./ProtocolRuntime.js";
 
 const envelopeErrors = new Set([
@@ -134,6 +135,7 @@ function createEndpoint({
   expectations,
   contextGeneration,
   portIdentity,
+  resolveRoute,
 }) {
   const completed = new Set();
   const inFlight = new Set();
@@ -158,8 +160,16 @@ function createEndpoint({
     let acceptedCorrelation = null;
     let reserved = false;
     let terminalSent = false;
+    let activeRequestType = requestType;
+    let activeResponseType = responseType;
+    let activeFallbackCode = fallbackCode;
     try {
-      const validated = validate(raw);
+      const route = resolveRoute?.(raw) ??
+        { requestType, responseType, validate, execute, fallbackCode };
+      activeRequestType = route.requestType;
+      activeResponseType = route.responseType;
+      activeFallbackCode = route.fallbackCode;
+      const validated = route.validate(raw);
       const message = validated.message;
       acceptedCorrelation = message.correlationId;
       if (inFlight.has(acceptedCorrelation) || completed.has(acceptedCorrelation)) {
@@ -173,14 +183,14 @@ function createEndpoint({
       }
       inFlight.add(acceptedCorrelation);
       reserved = true;
-      const outcome = await execute(message, validated.observation);
+      const outcome = await route.execute(message, validated.observation);
       if (outcome.result?.success === false) {
         expectations?.consume({
           contextGeneration,
           portIdentity,
           correlationId: acceptedCorrelation,
-          requestType,
-          responseType,
+          requestType: activeRequestType,
+          responseType: activeResponseType,
           probePhase: outcome.probePhase ?? expectations.phaseFor(acceptedCorrelation),
           code: outcome.result.error?.code,
         });
@@ -188,16 +198,38 @@ function createEndpoint({
       const response = {
         protocolVersion: 1,
         correlationId: acceptedCorrelation,
-        type: responseType,
+        type: activeResponseType,
         result: outcome.result,
       };
       post(response, outcome.transfer ?? []);
       terminalSent = true;
       proof?.terminals?.push(acceptedCorrelation);
+      for (const lifecycleEvent of outcome.events ?? []) {
+        post(lifecycleEvent);
+        proof?.events?.push({
+          type: lifecycleEvent.type,
+          correlationId: lifecycleEvent.correlationId,
+          sequence: lifecycleEvent.payload?.sequence,
+        });
+      }
+      for (const delayed of outcome.delayedEvents ?? []) {
+        globalThis.setTimeout(() => {
+          try {
+            post(delayed.event);
+            proof?.events?.push({
+              type: delayed.event.type,
+              correlationId: delayed.event.correlationId,
+              sequence: delayed.event.payload?.sequence,
+            });
+          } catch {
+            close("delayed-event-post-failure");
+          }
+        }, delayed.delayMs);
+      }
       outcome.afterPost?.();
       if (outcome.closeAfterResponse) setTimeout(() => close("post-mutation-taint"), 25);
     } catch (error) {
-      const code = errorCode(error, fallbackCode);
+      const code = errorCode(error, activeFallbackCode);
       if (terminalSent) {
         close("post-terminal-failure");
         return;
@@ -207,8 +239,8 @@ function createEndpoint({
           contextGeneration,
           portIdentity,
           correlationId: acceptedCorrelation ?? identity.correlationId,
-          requestType,
-          responseType,
+          requestType: activeRequestType,
+          responseType: activeResponseType,
           probePhase: expectations.phaseFor(acceptedCorrelation ?? identity.correlationId),
           code,
         });
@@ -218,14 +250,19 @@ function createEndpoint({
       if (closed) return;
       try {
         if (acceptedCorrelation ||
-            (identity.correlationId && identity.type === requestType && !envelopeErrors.has(code))) {
+            (identity.correlationId && identity.type === activeRequestType && !envelopeErrors.has(code))) {
           const terminalCorrelation = acceptedCorrelation ?? identity.correlationId;
-          post(terminalFailure(responseType, terminalCorrelation, code,
-            responseType === "compile.response"
+          post(terminalFailure(activeResponseType, terminalCorrelation, code,
+            activeResponseType === "compile.response"
               ? "Compiler protocol request rejected."
-              : "Preview load request rejected."));
+              : activeResponseType === "preview.start.response"
+                ? "Preview start request rejected."
+                : "Preview load request rejected."));
           proof?.terminals?.push(terminalCorrelation);
           if (code === "MESSAGE_SOURCE_REJECTED") close("message-source-rejected");
+          if (code === "INTERNAL_ERROR" && activeRequestType === "preview.start.request") {
+            close("unexpected-start-boundary");
+          }
         } else {
           post(protocolError(code, "Protocol envelope rejected.", identity));
           if (code === "MESSAGE_SOURCE_REJECTED") close("message-source-rejected");
@@ -265,5 +302,20 @@ export function createPreviewEndpoint(options) {
     requestType: "preview.load.request",
     validate: value => validatePreviewLoadRequest(value, options.previewId),
     fallbackCode: "PREVIEW_LOAD_FAILED",
+    resolveRoute: raw => raw?.type === "preview.start.request"
+      ? {
+          requestType: "preview.start.request",
+          responseType: "preview.start.response",
+          validate: value => validatePreviewStartRequest(value, options.previewId),
+          execute: options.executeStart ?? (() => { throw new Error("INVALID_STATE"); }),
+          fallbackCode: "PREVIEW_START_FAILED",
+        }
+      : {
+          requestType: "preview.load.request",
+          responseType: "preview.load.response",
+          validate: value => validatePreviewLoadRequest(value, options.previewId),
+          execute: options.execute,
+          fallbackCode: "PREVIEW_LOAD_FAILED",
+        },
   });
 }

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Reflection;
 using System.Runtime.ExceptionServices;
 using System.Text;
@@ -9,6 +10,7 @@ internal sealed class GameRunner : IDisposable
 {
     private const int MaxDiagnosticMessageBytes = 4 * 1024;
     private readonly Assembly _userAssembly;
+    private readonly Action<Game> _runGame;
     private readonly object _gate = new();
     private DiscoveryResult? _discovery;
     private ConstructionResult? _construction;
@@ -16,10 +18,26 @@ internal sealed class GameRunner : IDisposable
     private bool _disposed;
     private int _constructionAttempts;
     private int _disposeAttempts;
+    private int _runAttempts;
+    private RunnerState _state = RunnerState.Loaded;
+    private bool _runReturned;
+    private double? _runDurationMilliseconds;
 
-    public GameRunner(Assembly userAssembly)
+    public GameRunner(Assembly userAssembly, Action<Game>? runGame = null)
     {
         _userAssembly = userAssembly ?? throw new ArgumentNullException(nameof(userAssembly));
+        _runGame = runGame ?? (static game => game.Run());
+    }
+
+    internal GameRunner(Game game, Action<Game> runGame)
+    {
+        _userAssembly = game.GetType().Assembly;
+        _runGame = runGame ?? throw new ArgumentNullException(nameof(runGame));
+        _game = game;
+        _discovery = new DiscoveryResult(true, game.GetType(), SafeTypeName(game.GetType()), null);
+        _construction = new ConstructionResult(
+            true, SafeTypeName(game.GetType()), true, null, null, 1, true);
+        _constructionAttempts = 1;
     }
 
     public DiscoveryResult DiscoverGameType()
@@ -78,6 +96,84 @@ internal sealed class GameRunner : IDisposable
         }
     }
 
+    public StartResult RunGame()
+    {
+        Game game;
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_disposed, this);
+            if (_construction is null || !_construction.Success || _game is null ||
+                _state != RunnerState.Loaded)
+            {
+                return StartFailure(
+                    "The preview is not in a startable loaded state.", "INVALID_STATE");
+            }
+
+            _state = RunnerState.Starting;
+            _runAttempts++;
+            game = _game;
+        }
+
+        var started = Stopwatch.GetTimestamp();
+        try
+        {
+            // Game.Run enters the Native/WebGL asynchronous loop and returns. The
+            // GameRunner instance owns the strong Game reference for iframe lifetime.
+            _runGame(game);
+            var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            lock (_gate)
+            {
+                _runReturned = true;
+                _runDurationMilliseconds = elapsed;
+                if (!_disposed && _state == RunnerState.Starting)
+                    _state = RunnerState.Running;
+                return new StartResult(
+                    _state == RunnerState.Running,
+                    _state.ToString().ToLowerInvariant(),
+                    _runAttempts,
+                    _runReturned,
+                    _runDurationMilliseconds,
+                    _game is not null,
+                    _disposed,
+                    _disposeAttempts,
+                    null);
+            }
+        }
+        catch (Exception exception) when (!IsFatal(exception))
+        {
+            StartResult failure;
+            lock (_gate)
+            {
+                _runDurationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+                _state = RunnerState.Failed;
+                failure = StartFailure("The game failed during preview startup.");
+            }
+            var disposal = Teardown();
+            return failure with {
+                RetainedGame = false,
+                Disposed = true,
+                DisposeAttempts = disposal.DisposeAttempts,
+            };
+        }
+    }
+
+    public RunnerSnapshot Snapshot()
+    {
+        lock (_gate)
+        {
+            return new RunnerSnapshot(
+                _state.ToString().ToLowerInvariant(),
+                _constructionAttempts,
+                _runAttempts,
+                _runReturned,
+                _runDurationMilliseconds,
+                _game is not null,
+                _disposed,
+                _disposeAttempts,
+                _game?.GetType());
+        }
+    }
+
     public DisposalResult Teardown()
     {
         lock (_gate)
@@ -88,6 +184,7 @@ internal sealed class GameRunner : IDisposable
             }
 
             _disposed = true;
+            _state = RunnerState.Disposed;
             var game = _game;
             _game = null;
             if (game is null)
@@ -201,6 +298,11 @@ internal sealed class GameRunner : IDisposable
     private ConstructionResult ConstructionFailure(string message) =>
         new(false, null, false, null, new RunnerError("PREVIEW_START_FAILED", message),
             _constructionAttempts, false);
+
+    private StartResult StartFailure(string message, string code = "PREVIEW_START_FAILED") =>
+        new(false, _state.ToString().ToLowerInvariant(), _runAttempts, _runReturned,
+            _runDurationMilliseconds, _game is not null, _disposed, _disposeAttempts,
+            new RunnerError(code, message));
 
     private static void DisposeUnexpectedObject(object? created)
     {
@@ -322,6 +424,28 @@ internal sealed class GameRunner : IDisposable
         bool RetainedGame,
         RunnerError? Error);
 
+    internal sealed record StartResult(
+        bool Success,
+        string State,
+        int RunAttempts,
+        bool RunReturned,
+        double? RunDurationMilliseconds,
+        bool RetainedGame,
+        bool Disposed,
+        int DisposeAttempts,
+        RunnerError? Error);
+
+    internal sealed record RunnerSnapshot(
+        string State,
+        int ConstructionAttempts,
+        int RunAttempts,
+        bool RunReturned,
+        double? RunDurationMilliseconds,
+        bool RetainedGame,
+        bool Disposed,
+        int DisposeAttempts,
+        Type? GameType);
+
     internal sealed record PlaygroundDiagnostic(
         string Origin,
         string Severity,
@@ -332,4 +456,13 @@ internal sealed class GameRunner : IDisposable
         int Column);
 
     internal sealed record RunnerError(string Code, string Message);
+
+    private enum RunnerState
+    {
+        Loaded,
+        Starting,
+        Running,
+        Failed,
+        Disposed,
+    }
 }

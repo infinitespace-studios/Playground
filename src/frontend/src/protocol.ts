@@ -16,4 +16,7 @@ export {
   validateCompileResponse,
   validatePreviewLoadRequest,
   validatePreviewLoadResponse,
+  validatePreviewStartRequest,
+  validatePreviewStartResponse,
+  validatePreviewLifecycleEvent,
 } from "../../shared/ProtocolRuntime.js";

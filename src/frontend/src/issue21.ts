@@ -3,6 +3,7 @@ import {
   type BinaryProof,
   type CompileRequest,
   type PreviewLoadRequest,
+  type PreviewStartRequest,
   type UuidV4,
 } from "../../shared/MessageContracts";
 import {
@@ -12,11 +13,14 @@ import {
   standaloneBuffer,
   validateCompileResponse,
   validatePreviewLoadResponse,
+  validatePreviewLifecycleEvent,
+  validatePreviewStartResponse,
 } from "./protocol";
 import {
   createIssue21LoadController,
   verifyIssue21ProofOutcomes,
 } from "./issue21-controller";
+import { withForcedPreviewRetirement } from "./issue23-controller";
 
 interface ContextProof {
   runtimeStarts: number;
@@ -38,8 +42,8 @@ interface ProbeExpectation {
   contextGeneration: UuidV4;
   portIdentity: string;
   correlationId: UuidV4;
-  requestType: "preview.load.request";
-  responseType: "preview.load.response";
+  requestType: "preview.load.request" | "preview.start.request";
+  responseType: "preview.load.response" | "preview.start.response";
   probePhase: string;
   expectedCode: string;
 }
@@ -112,7 +116,39 @@ declare global {
       errors: string[];
     };
     previewIssue22Teardown?: () => Promise<unknown>;
+    previewIssue023Proof?: {
+      enabled: boolean;
+      start: Record<string, unknown> | null;
+      events: Array<Record<string, unknown>>;
+      queries: Array<Record<string, unknown>>;
+      errors: string[];
+    };
+    previewIssue023Query?: () => Promise<Record<string, unknown>>;
+    previewIssue023RunnerSelfTest?: () => Promise<Record<string, unknown>>;
+    previewIssue023EndpointSnapshot?: () => Record<string, unknown>;
   }
+
+}
+
+export interface Issue23RunningPreview {
+  frame: HTMLIFrameElement;
+  compileId: UuidV4;
+  previewId: UuidV4;
+  compileCorrelationId: UuidV4;
+  loadCorrelationId: UuidV4;
+  startCorrelationId: UuidV4;
+  compileDiagnostics: readonly unknown[];
+  compilerRuntimeStarts: number;
+  previewRuntimeStarts: number;
+  loadResponse: unknown;
+  startResponse: unknown;
+  startedEvent: unknown;
+  transfer: { assemblySenderDetached: boolean; pdbSenderDetached: boolean };
+  wireOrder: string[];
+  probes: Record<string, unknown>;
+  client: ProtocolPortClient;
+  query(): Promise<Record<string, unknown>>;
+  teardown(): Promise<unknown>;
 }
 
 function requiredElement<T extends Element>(selector: string): T {
@@ -219,6 +255,79 @@ async function waitForTopRuntime() {
   }
 }
 
+export async function preparePackagedProofRuntime(): Promise<Record<string, unknown>> {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (!invoke) throw new Error("Tauri proof runtime is unavailable.");
+  const requestedAt = performance.now();
+  const framesBefore = window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved;
+  const native = await invoke<
+    [string, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, number, number]
+  >("prepare_packaged_proof_window");
+  const [
+    platform,
+    activationPolicyRegular,
+    unhideRequested,
+    runningActivationRequested,
+    applicationActive,
+    nativeWindowFocused,
+    visible,
+    focused,
+    minimized,
+    nativeAttempts,
+    nativeElapsedMilliseconds,
+  ] = native;
+  const nativeActivation = {
+    platform,
+    activationPolicyRegular,
+    unhideRequested,
+    runningActivationRequested,
+    applicationActive,
+    nativeWindowFocused,
+    visible,
+    focused,
+    minimized,
+    attempts: nativeAttempts,
+    elapsedMilliseconds: nativeElapsedMilliseconds,
+  };
+  const readinessDeadline = performance.now() + 10_000;
+  let animationFrameBefore: number | null = null;
+  let animationFrameAfter: number | null = null;
+  while (performance.now() < readinessDeadline) {
+    if (document.visibilityState === "visible" && visible && focused && !minimized) {
+      animationFrameBefore = await new Promise<number>(resolve =>
+        window.requestAnimationFrame(resolve));
+      animationFrameAfter = await new Promise<number>(resolve =>
+        window.requestAnimationFrame(resolve));
+      if (window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved > framesBefore) break;
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 50));
+  }
+  const framesAfter = window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved;
+  if (document.visibilityState !== "visible" || !visible || !focused || minimized ||
+      animationFrameBefore === null || animationFrameAfter === null ||
+      animationFrameAfter <= animationFrameBefore || framesAfter <= framesBefore) {
+    throw new Error(`Packaged proof readiness failed: ${JSON.stringify({
+      nativeActivation,
+      documentVisibility: document.visibilityState,
+      animationFrameBefore,
+      animationFrameAfter,
+      framesBefore,
+      framesAfter,
+      runtimeState: document.documentElement.dataset.runtime ?? null,
+    })}`);
+  }
+  return {
+    requestedAt,
+    readyAt: performance.now(),
+    nativeActivation,
+    visibilityState: document.visibilityState,
+    animationFrameProgressMilliseconds: animationFrameAfter - animationFrameBefore,
+    renderedFramesObserved: framesAfter,
+    frameIncrease: framesAfter - framesBefore,
+    runtimeState: document.documentElement.dataset.runtime,
+  };
+}
+
 async function startPreviewAfterTopRuntime() {
   await waitForTopRuntime();
   if (!previewFrame.getAttribute("src")) {
@@ -235,7 +344,7 @@ function previewStatusFallback(message: string) {
   if (status) status.textContent = message;
 }
 
-async function ensureIssue21Contexts(allowLockedSession = false) {
+async function ensureIssue21Contexts(allowLockedSession = false, compilerOnly = false) {
   if (!allowLockedSession) await waitForTopRuntime();
   if (!previewFrame.getAttribute("src")) {
     previewFrame.setAttribute("src", previewFrame.dataset.src ?? "/preview/index.html");
@@ -405,15 +514,15 @@ async function ensureIssue21Contexts(allowLockedSession = false) {
     compilerFrame.setAttribute("src", compilerFrame.dataset.src ?? "/compiler/index.html");
   }
   const deadline = performance.now() + 180_000;
-  while ((!compilerBootstrapped || !previewBootstrapped ||
+  while ((!compilerBootstrapped || (!compilerOnly && !previewBootstrapped) ||
           compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts !== 1 ||
-          previewFrame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1) &&
+          (!compilerOnly && previewFrame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1)) &&
          performance.now() < deadline) {
     await new Promise(resolve => window.setTimeout(resolve, 100));
   }
-  if (!compilerBootstrapped || !previewBootstrapped ||
+  if (!compilerBootstrapped || (!compilerOnly && !previewBootstrapped) ||
       compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts !== 1 ||
-      previewFrame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1) {
+      (!compilerOnly && previewFrame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1)) {
     throw new Error("Compiler or preview runtime did not become ready.");
   }
 }
@@ -723,9 +832,11 @@ loadButton.addEventListener("click", () => { void compileAndLoad().catch(() => {
 export async function runIssue021AutoProof(): Promise<void> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (!invoke || !(await invoke<boolean>("issue021_is_proof_enabled"))) return;
-  const lockedSession = await invoke<boolean>("issue021_is_locked_session_proof");
-  if (!lockedSession) await waitForTopRuntime();
+  // Authorization must be established before readiness can trigger iframe bootstrap.
   proofModeAuthorized = true;
+  const lockedSession = await invoke<boolean>("issue021_is_locked_session_proof");
+  const proofRuntimeReadiness =
+    lockedSession ? null : await preparePackagedProofRuntime();
   const report = await compileAndLoadInternal(true, lockedSession, proofInvocationToken);
   const externalResourceRequests = performance.getEntriesByType("resource")
     .map(entry => entry.name)
@@ -746,6 +857,7 @@ export async function runIssue021AutoProof(): Promise<void> {
       generatedAt: new Date().toISOString(),
       proofMode: "MONOGAME_ISSUE021_PROOF=1",
       lockedSessionInstrumentation: lockedSession,
+      proofRuntimeReadiness,
       proofWaitSeconds: 20,
       ...report,
       topLevelRuntime: {
@@ -932,4 +1044,392 @@ export async function compileLoadConstructIssue22Case(input: {
       frame.remove();
     }
   }
+}
+
+export async function compileLoadStartIssue23(input: {
+    assemblyName: string;
+    sourcePath: string;
+    sourceText: string;
+    proofMode: boolean;
+    runtimeCase?: "normal" | "delay-run" | "delay-run-late" | "delay-run-long" | "delay-event" | "unexpected";
+    startTimeoutMs?: number;
+    requesterTimeoutMs?: number;
+    startPattern?: "normal" | "same-concurrent" | "distinct-concurrent" | "repeated" | "before-load";
+    auxiliary?: boolean;
+    timeoutRetirementGraceMs?: number;
+    expectedStartCode?: "INTERNAL_ERROR";
+  }): Promise<Issue23RunningPreview> {
+    await ensureIssue21Contexts(false, true);
+    const compileId = createUuid();
+    const compileCorrelationId = createUuid();
+    const compileRequest: CompileRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: compileCorrelationId,
+      type: "compile.request",
+      payload: {
+        compileId,
+        assemblyName: input.assemblyName,
+        sources: [{ path: input.sourcePath, text: input.sourceText }],
+        primarySourcePath: input.sourcePath,
+        timeoutMs: 30_000,
+        settings: {
+          languageVersion: "13.0",
+          nullable: "disable",
+          optimization: "debug",
+          allowUnsafe: false,
+          warningsAsErrors: false,
+        },
+      },
+    };
+    const compiled = await compilerClient.request(
+      compileRequest,
+      "compile.response",
+      value => validateCompileResponse(value, compileCorrelationId, compileId, {
+        assemblyName: input.assemblyName,
+        sourcePaths: [input.sourcePath],
+        primarySourcePath: input.sourcePath,
+      }),
+      [],
+      30_000,
+    ) as ReturnType<typeof validateCompileResponse>;
+    if (!compiled.message.result.success) {
+      throw new Error(`${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
+    }
+
+    const data = compiled.message.result.data;
+    const assembly = standaloneBuffer(new Uint8Array(data.assembly));
+    const pdb = standaloneBuffer(new Uint8Array(data.pdb));
+    const frame = document.createElement("iframe");
+    frame.className = "issue23-run-frame";
+    frame.title = "Running clear-color Game preview";
+    const channel = new MessageChannel();
+    const client = new ProtocolPortClient(channel.port1, createUuid());
+    const isolatedPreviewId = createUuid();
+    const generation = createUuid();
+    const loaded = new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(
+        () => reject(new Error("Issue 023 preview document load timed out.")),
+        60_000,
+      );
+      frame.addEventListener("load", () => {
+        window.clearTimeout(timer);
+        const target = frame.contentWindow;
+        if (!target) return reject(new Error("Issue 023 preview contentWindow is unavailable."));
+        target.postMessage({
+          type: "protocol.bootstrap",
+          contextGeneration: generation,
+          previewId: isolatedPreviewId,
+          issue021Proof: input.expectedStartCode !== undefined,
+          issue022Proof: false,
+          issue023Proof: input.proofMode,
+          runGamePipeline: true,
+          issue023Case: input.runtimeCase ?? "normal",
+        }, window.location.origin, [channel.port2]);
+        resolve();
+      }, { once: true });
+    });
+    frame.src = previewFrame.dataset.src ?? "/preview/index.html";
+    const existingPreview = document.querySelector<HTMLIFrameElement>("#preview-frame");
+    if (input.auxiliary) {
+      frame.classList.add("issue23-runtime-test-frame");
+      frame.style.cssText = "position:fixed;left:-2000px;top:0;width:640px;height:360px";
+      document.body.append(frame);
+    } else if (existingPreview) {
+      existingPreview.replaceWith(frame);
+    } else {
+      const status = document.querySelector("#preview-context-status");
+      status?.parentElement?.insertBefore(frame, status);
+    }
+    if (!input.auxiliary) frame.id = "preview-frame";
+    await loaded;
+
+    const runtimeDeadline = performance.now() + 180_000;
+    while (frame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1 &&
+           performance.now() < runtimeDeadline) {
+      await new Promise(resolve => window.setTimeout(resolve, 100));
+    }
+    if (frame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1) {
+      throw new Error("Issue 023 preview runtime did not start.");
+    }
+
+    const loadCorrelationId = createUuid();
+    const probes: Record<string, unknown> = {};
+    if (input.startPattern === "before-load") {
+      const beforeCorrelation = createUuid();
+      const beforeRequest: PreviewStartRequest = {
+        protocolVersion: PROTOCOL_VERSION,
+        correlationId: beforeCorrelation,
+        type: "preview.start.request",
+        payload: { previewId: isolatedPreviewId, timeoutMs: 10_000 },
+      };
+      const before = await client.request(
+        beforeRequest,
+        "preview.start.response",
+        value => validatePreviewStartResponse(value, beforeCorrelation, isolatedPreviewId),
+      ) as ReturnType<typeof validatePreviewStartResponse>;
+      probes.beforeLoad = before.message;
+    }
+    const loadRequest: PreviewLoadRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: loadCorrelationId,
+      type: "preview.load.request",
+      payload: {
+        previewId: isolatedPreviewId,
+        compileId,
+        assembly,
+        pdb,
+        binaryProof: data.binaryProof,
+      },
+    };
+    const loadResponse = await client.request(
+      loadRequest,
+      "preview.load.response",
+      value => validatePreviewLoadResponse(value, loadCorrelationId, isolatedPreviewId, compileId),
+      [assembly, pdb],
+    ) as ReturnType<typeof validatePreviewLoadResponse>;
+    if (!loadResponse.message.result.success) {
+      client.close(new Error("Failed preview load retired."));
+      frame.remove();
+      throw new Error(`${loadResponse.message.result.error.code}: ${loadResponse.message.result.error.message}`);
+    }
+
+    const startCorrelationId = createUuid();
+    const wireOrder: string[] = [];
+    let removeListener = () => {};
+    let lifecycleTimer = 0;
+    let resolveStopped!: (message: unknown) => void;
+    const stoppedPromise = new Promise<unknown>(resolve => { resolveStopped = resolve; });
+    const startedPromise = new Promise<unknown>((resolve, reject) => {
+      lifecycleTimer =
+        window.setTimeout(() => reject(new Error("preview.started timed out.")), 10_000);
+      removeListener = client.onLifecycleEvent(message => {
+        if (message.correlationId !== startCorrelationId) return;
+        try {
+          const validated = validatePreviewLifecycleEvent(
+            message, isolatedPreviewId, startCorrelationId);
+          wireOrder.push(validated.message.type);
+          window.clearTimeout(lifecycleTimer);
+          if (validated.message.type === "preview.started") {
+            resolve(validated.message);
+          } else if (validated.message.type === "preview.stopped") {
+            resolveStopped(validated.message);
+          }
+        } catch (error) {
+          window.clearTimeout(lifecycleTimer);
+          reject(error);
+        }
+      });
+    });
+    const startRequest: PreviewStartRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: startCorrelationId,
+      type: "preview.start.request",
+      payload: { previewId: isolatedPreviewId, timeoutMs: input.startTimeoutMs ?? 10_000 },
+    };
+    let startResponse: ReturnType<typeof validatePreviewStartResponse>;
+    const startRequestAt = performance.now();
+    if (input.expectedStartCode) {
+      const register = frame.contentWindow?.previewIssue21RegisterExpectation;
+      const portIdentity = frame.contentWindow?.previewIssue21Proof?.bootstrap?.portIdentity;
+      if (typeof register !== "function" || typeof portIdentity !== "string") {
+        throw new Error("Expected start outcome registry is unavailable.");
+      }
+      register({
+        contextGeneration: generation,
+        portIdentity,
+        correlationId: startCorrelationId,
+        requestType: "preview.start.request",
+        responseType: "preview.start.response",
+        probePhase: "unexpected-start-boundary",
+        expectedCode: input.expectedStartCode,
+      });
+    }
+    try {
+      const firstStart = client.request(
+          startRequest,
+          "preview.start.response",
+          value => validatePreviewStartResponse(value, startCorrelationId, isolatedPreviewId),
+          [],
+          input.requesterTimeoutMs ?? 10_000,
+        ) as Promise<ReturnType<typeof validatePreviewStartResponse>>;
+      let competing: Promise<unknown> | null = null;
+      if (input.startPattern === "same-concurrent") {
+        client.retransmitForDuplicateCheck(startRequest);
+      } else if (input.startPattern === "distinct-concurrent") {
+        const competingCorrelation = createUuid();
+        const competingRequest: PreviewStartRequest = {
+          ...startRequest,
+          correlationId: competingCorrelation,
+        };
+        competing = client.request(
+          competingRequest,
+          "preview.start.response",
+          value => validatePreviewStartResponse(
+            value, competingCorrelation, isolatedPreviewId),
+        );
+      }
+      startResponse = await (input.timeoutRetirementGraceMs
+        ? firstStart
+        : withForcedPreviewRetirement(
+            firstStart,
+            error => {
+              removeListener();
+              client.close(error);
+              frame.remove();
+            },
+          ));
+      if (competing) {
+        probes.distinctConcurrent = (await competing as
+          ReturnType<typeof validatePreviewStartResponse>).message;
+      }
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error));
+      if (failure.message === "TIMEOUT" && input.timeoutRetirementGraceMs) {
+        const graceDeadline = performance.now() + input.timeoutRetirementGraceMs;
+        while (client.observations.discardedUnknownOrLate < 2 &&
+               performance.now() < graceDeadline) {
+          await new Promise(resolve => window.setTimeout(resolve, 10));
+        }
+      }
+      const endpointSnapshot = input.proofMode
+        ? frame.contentWindow?.previewIssue023EndpointSnapshot?.() ?? null
+        : null;
+      const beforeRetirement = {
+        iframeConnected: frame.isConnected,
+        portClosed: client.isClosed,
+      };
+      removeListener();
+      window.clearTimeout(lifecycleTimer);
+      client.close(failure);
+      frame.remove();
+      Object.assign(failure, {
+        failureProof: {
+          elapsedMilliseconds: performance.now() - startRequestAt,
+          iframeConnected: frame.isConnected,
+          portClosed: client.isClosed,
+          hostCloseReason: client.closeReason,
+          clientObservations: { ...client.observations },
+          wireOrder: [...wireOrder],
+          endpointSnapshot,
+          beforeRetirement,
+        },
+      });
+      throw failure;
+    }
+    wireOrder.push(startResponse.message.type);
+    if (!startResponse.message.result.success) {
+      window.clearTimeout(lifecycleTimer);
+      let stoppedEvent: unknown = null;
+      let subsequentRequestFailure: string | null = null;
+      try {
+        stoppedEvent = await Promise.race([
+          stoppedPromise,
+          new Promise<never>((_, reject) =>
+            window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+        ]);
+      } finally {
+        if (startResponse.message.result.error.code === "INTERNAL_ERROR") {
+          const subsequentCorrelation = createUuid();
+          try {
+            await client.request(
+              { ...startRequest, correlationId: subsequentCorrelation },
+              "preview.start.response",
+              value => validatePreviewStartResponse(
+                value, subsequentCorrelation, isolatedPreviewId),
+              [],
+              150,
+            );
+          } catch (error) {
+            subsequentRequestFailure =
+              error instanceof Error ? error.message : String(error);
+          }
+        }
+        const endpointSnapshot = input.proofMode
+          ? frame.contentWindow?.previewIssue023EndpointSnapshot?.() ?? null
+          : null;
+        const beforeRetirement = {
+          iframeConnected: frame.isConnected,
+          portClosed: client.isClosed,
+        };
+        const failureProof = {
+          wireOrder: [...wireOrder],
+          stoppedEvent,
+          preview: frame.contentWindow?.previewIssue023Proof,
+          endpointSnapshot,
+          subsequentRequestFailure,
+          beforeRetirement,
+        };
+        removeListener();
+        client.close(new Error("Failed preview retired."));
+        frame.remove();
+        Object.assign(failureProof, {
+          afterRetirement: {
+            iframeConnected: frame.isConnected,
+            portClosed: client.isClosed,
+            hostCloseReason: client.closeReason,
+          },
+        });
+        const failure = new Error(
+          `${startResponse.message.result.error.code}: ${startResponse.message.result.error.message}`);
+        Object.assign(failure, { failureProof });
+        throw failure;
+      }
+    }
+    const startedEvent = await startedPromise;
+    removeListener();
+    if (input.startPattern === "same-concurrent") {
+      const deadline = performance.now() + 1_000;
+      while (client.controlEvents.length === 0 && performance.now() < deadline) {
+        await new Promise(resolve => window.setTimeout(resolve, 10));
+      }
+      probes.sameCorrelationControls = [...client.controlEvents];
+    }
+    if (input.startPattern === "repeated") {
+      const repeatedCorrelation = createUuid();
+      const repeatedRequest: PreviewStartRequest = {
+        ...startRequest,
+        correlationId: repeatedCorrelation,
+      };
+      probes.repeated = (await client.request(
+        repeatedRequest,
+        "preview.start.response",
+        value => validatePreviewStartResponse(
+          value, repeatedCorrelation, isolatedPreviewId),
+      ) as ReturnType<typeof validatePreviewStartResponse>).message;
+    }
+
+    return {
+      frame,
+      compileId,
+      previewId: isolatedPreviewId,
+      compileCorrelationId,
+      loadCorrelationId,
+      startCorrelationId,
+      compileDiagnostics: data.diagnostics,
+      compilerRuntimeStarts: compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts ?? 0,
+      previewRuntimeStarts: frame.contentWindow?.previewIssue21Proof?.runtimeStarts ?? 0,
+      loadResponse: loadResponse.message,
+      startResponse: startResponse.message,
+      startedEvent,
+      transfer: {
+        assemblySenderDetached: assembly.byteLength === 0,
+        pdbSenderDetached: pdb.byteLength === 0,
+      },
+      wireOrder,
+      probes,
+      client,
+      async query() {
+        const query = frame.contentWindow?.previewIssue023Query;
+        if (typeof query !== "function") throw new Error("Issue 023 managed query is unavailable.");
+        return query();
+      },
+      async teardown() {
+        const teardown = frame.contentWindow?.previewIssue22Teardown;
+        if (typeof teardown !== "function") throw new Error("Issue 022 teardown is unavailable.");
+        const result = await teardown();
+        client.close(new Error("Issue 023 proof teardown."));
+        frame.remove();
+        return result;
+      },
+    };
 }
