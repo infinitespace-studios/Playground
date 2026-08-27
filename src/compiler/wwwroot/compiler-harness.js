@@ -1,4 +1,11 @@
 import { dotnet } from "./_framework/dotnet.js";
+import {
+  installPrivatePortBootstrap,
+  isUuidV4,
+  sha256,
+  validateCompileRequest,
+} from "./ProtocolRuntime.js";
+import { createCompilerEndpoint, initializeCompilerProofMode } from "./Issue21Endpoints.js";
 
 const status = document.querySelector("#status");
 const pingButton = document.querySelector("#ping");
@@ -22,6 +29,44 @@ const proofState = {
 };
 
 globalThis.compilerProof = proofState;
+globalThis.compilerIssue21Proof = {
+  runtimeStarts: 0,
+  transfer: null,
+  bootstrap: null,
+  requests: [],
+  errors: [],
+  expectedProbeRejections: [],
+};
+
+let protocolPort = null;
+let protocolGeneration = null;
+let compilerEndpoint = null;
+let resolveProofAuthorization;
+const proofAuthorization = new Promise(resolve => { resolveProofAuthorization = resolve; });
+const bootstrapObservations = installPrivatePortBootstrap({
+  expectedSource: parent,
+  expectedOrigin: window.location.origin,
+  validateData: data => Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean",
+  onPort: (port, data) => {
+    if (protocolPort) return;
+    protocolGeneration = data.contextGeneration;
+    protocolPort = port;
+    resolveProofAuthorization(data.issue021Proof);
+    compilerEndpoint = createCompilerEndpoint({
+      port,
+      execute: executeCompileRequest,
+      proof: {
+        errors: globalThis.compilerIssue21Proof.errors,
+        terminals: [],
+        closes: [],
+        duplicateControls: [],
+      },
+    });
+    protocolPort.addEventListener("message", compilerEndpoint.handle);
+    protocolPort.start();
+  },
+});
+globalThis.compilerIssue21Proof.bootstrap = bootstrapObservations;
 
 function renderState() {
   proofOutput.textContent = JSON.stringify(proofState, null, 2);
@@ -43,6 +88,19 @@ async function startRuntime() {
   await runtime.runMain();
   globalThis.compilerProofCompile = requestJson => JSON.parse(exports.Compile(requestJson));
   proofState.successfulRuntimeStarts += 1;
+  globalThis.compilerIssue21Proof.runtimeStarts += 1;
+  const proofAuthorized = await proofAuthorization;
+  globalThis.compilerIssue21Proof.retention = await initializeCompilerProofMode(
+    proofAuthorized,
+    async () => {
+      if (!exports.AuthorizeRetentionProof()) throw new Error("Retention proof authorization failed.");
+      try {
+        return await runRetentionBehaviorProof(exports);
+      } finally {
+        exports.CompleteRetentionProof();
+      }
+    },
+  );
   proofState.ready = true;
   status.dataset.state = "ready";
   status.textContent = "Ready: one .NET WebAssembly runtime is running.";
@@ -52,6 +110,152 @@ async function startRuntime() {
   renderState();
 
   return exports;
+}
+
+async function runRetentionBehaviorProof(exports) {
+  const request = JSON.stringify({
+    protocolVersion: 1,
+    sources: [{ path: "src/RetentionProof.cs", text: "public sealed class RetentionProof { }" }],
+    settings: {
+      languageVersion: "13.0", nullable: "disable", optimization: "debug",
+      allowUnsafe: false, warningsAsErrors: false,
+    },
+  });
+  const owner1 = { compileId: crypto.randomUUID(), correlationId: crypto.randomUUID() };
+  const owner2 = { compileId: crypto.randomUUID(), correlationId: crypto.randomUUID() };
+  const owner3 = { compileId: crypto.randomUUID(), correlationId: crypto.randomUUID() };
+  if (!exports.ConfigureNextRetentionTestLease(500)) throw new Error("Retention proof configuration failed.");
+  const first = JSON.parse(exports.CompileAndRetain(
+    owner1.compileId, owner1.correlationId, "RetentionProofOne", request));
+  const firstState = JSON.parse(exports.GetRetentionState());
+  const competing = JSON.parse(exports.CompileAndRetain(
+    owner2.compileId, owner2.correlationId, "RetentionProofTwo", request));
+  await exports.ConsumeAssembly(owner1.compileId, owner1.correlationId);
+  const partialState = JSON.parse(exports.GetRetentionState());
+  const firstAbort = exports.AbortRetained(owner1.compileId, owner1.correlationId);
+  const repeatedAbort = exports.AbortRetained(owner1.compileId, owner1.correlationId);
+  const abortedState = JSON.parse(exports.GetRetentionState());
+
+  if (!exports.ConfigureNextRetentionTestLease(150)) throw new Error("Retention expiry proof configuration failed.");
+  const expiring = JSON.parse(exports.CompileAndRetain(
+    owner2.compileId, owner2.correlationId, "RetentionProofExpiry", request));
+  await new Promise(resolve => window.setTimeout(resolve, 400));
+  const expiredState = JSON.parse(exports.GetRetentionState());
+
+  if (!exports.ConfigureNextRetentionTestLease(500)) throw new Error("Retention reuse proof configuration failed.");
+  const subsequent = JSON.parse(exports.CompileAndRetain(
+    owner3.compileId, owner3.correlationId, "RetentionProofReuse", request));
+  const subsequentAbort = exports.AbortRetained(owner3.compileId, owner3.correlationId);
+  const finalState = JSON.parse(exports.GetRetentionState());
+  const passed = first.success && firstState.retainedCount === 1 && firstState.retainedBytes > 0 &&
+    !competing.success && competing.error?.code === "INVALID_STATE" &&
+    partialState.retainedCount === 1 && partialState.retainedBytes > 0 &&
+    firstAbort && repeatedAbort && abortedState.retainedCount === 0 && abortedState.retainedBytes === 0 &&
+    expiring.success && expiredState.retainedCount === 0 && expiredState.retainedBytes === 0 &&
+    subsequent.success && subsequentAbort && finalState.retainedCount === 0 && finalState.retainedBytes === 0;
+  if (!passed) throw new Error("Behavioral retention proof failed.");
+  return {
+    firstLeaseObserved: true,
+    competingRejectedBeforeCompile: true,
+    partialConsumptionAbortZeroized: true,
+    repeatedAbortIdempotent: true,
+    timerExpiredWithoutExportCleanup: true,
+    subsequentLeaseSucceeded: true,
+    finalRetainedCount: finalState.retainedCount,
+    finalRetainedBytes: finalState.retainedBytes,
+  };
+}
+
+async function executeCompileRequest(message, observation) {
+  const leaseOwner = { compileId: message.payload.compileId, correlationId: message.correlationId };
+  try {
+    const exports = await exportsPromise;
+    const metadata = JSON.parse(exports.CompileAndRetain(
+      message.payload.compileId,
+      message.correlationId,
+      message.payload.assemblyName,
+      JSON.stringify({
+        protocolVersion: 1,
+        sources: message.payload.sources,
+        settings: Object.hasOwn(message.payload, "settings")
+          ? message.payload.settings
+          : undefined,
+      }),
+    ));
+    if (!metadata.success) {
+      return {
+        result: {
+          success: false,
+          error: {
+            code: metadata.error?.code ?? "COMPILE_FAILED",
+            message: metadata.error?.message ?? "Compilation failed.",
+          },
+        },
+      };
+    }
+    const assemblyBytes = await exports.ConsumeAssembly(message.payload.compileId, message.correlationId);
+    const pdbBytes = await exports.ConsumePdb(message.payload.compileId, message.correlationId);
+    if (!(assemblyBytes instanceof Uint8Array) || !(pdbBytes instanceof Uint8Array)) {
+      throw new Error("INTERNAL_ERROR");
+    }
+    const assembly = new Uint8Array(assemblyBytes).buffer;
+    const pdb = new Uint8Array(pdbBytes).buffer;
+    if (assembly.byteLength !== metadata.assemblyByteLength ||
+        pdb.byteLength !== metadata.pdbByteLength ||
+        assembly === pdb) {
+      throw new Error("INTERNAL_ERROR");
+    }
+    const assemblySha256 = await sha256(assembly);
+    const pdbSha256 = await sha256(pdb);
+    const transfer = {
+      compileId: message.payload.compileId,
+      correlationId: message.correlationId,
+      assemblyPre: assembly.byteLength,
+      pdbPre: pdb.byteLength,
+      assemblyPost: -1,
+      pdbPost: -1,
+      assemblySha256,
+      pdbSha256,
+    };
+    return {
+      result: {
+        success: true,
+        data: {
+          compileId: message.payload.compileId,
+          assembly,
+          pdb,
+          diagnostics: metadata.diagnostics,
+          binaryProof: {
+            assemblySha256,
+            pdbSha256,
+            assemblyByteLength: metadata.assemblyByteLength,
+            pdbByteLength: metadata.pdbByteLength,
+            assemblyName: message.payload.assemblyName,
+            sourcePaths: message.payload.sources.map(source => source.path),
+            primarySourcePath: message.payload.primarySourcePath,
+          },
+        },
+      },
+      transfer: [assembly, pdb],
+      afterPost: () => {
+        transfer.assemblyPost = assembly.byteLength;
+        transfer.pdbPost = pdb.byteLength;
+        globalThis.compilerIssue21Proof.transfer = transfer;
+        globalThis.compilerIssue21Proof.requests.push({
+          compileId: message.payload.compileId,
+          correlationId: message.correlationId,
+          measuredRequestBytes: observation.measuredBytes,
+          terminalResponses: 1,
+        });
+      },
+    };
+  } finally {
+    const exports = await exportsPromise;
+    globalThis.compilerIssue21Proof.lastAbort = {
+      ...leaseOwner,
+      cleared: exports.AbortRetained(leaseOwner.compileId, leaseOwner.correlationId),
+    };
+  }
 }
 
 const exportsPromise = startRuntime();

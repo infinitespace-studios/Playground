@@ -122,6 +122,7 @@ export interface CompileRequestPayload extends RequestOptions {
   readonly compileId: CompileId;
   readonly assemblyName: string;
   readonly sources: readonly SourceFile[];
+  readonly primarySourcePath: string;
   readonly settings?: CompilationSettings;
 }
 
@@ -130,6 +131,18 @@ export interface CompileResponseData {
   readonly assembly: ArrayBuffer;
   readonly pdb: ArrayBuffer;
   readonly diagnostics: readonly Diagnostic[];
+  readonly binaryProof: BinaryProof;
+}
+
+/** Immutable identity and byte-continuity proof for one emitted DLL/PDB pair. */
+export interface BinaryProof {
+  readonly assemblySha256: string;
+  readonly pdbSha256: string;
+  readonly assemblyByteLength: number;
+  readonly pdbByteLength: number;
+  readonly assemblyName: string;
+  readonly sourcePaths: readonly string[];
+  readonly primarySourcePath: string;
 }
 
 export interface CompileCancelRequestPayload extends RequestOptions {
@@ -166,6 +179,7 @@ export interface PreviewLoadRequestPayload extends RequestOptions {
   readonly compileId: CompileId;
   readonly assembly: ArrayBuffer;
   readonly pdb: ArrayBuffer;
+  readonly binaryProof: BinaryProof;
 }
 
 export interface PreviewLoadResponseData {

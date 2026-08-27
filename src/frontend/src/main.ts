@@ -1,4 +1,5 @@
 import "./style.css";
+import { runIssue021AutoProof } from "./issue21";
 
 interface RuntimeBuild {
   buildConfiguration: string;
@@ -1182,4 +1183,21 @@ const runIssue020Proof = async () => {
 
 void runIssue020Proof().catch((error: unknown) => {
   console.error("Issue 020 proof instrumentation failed", error);
+});
+
+void runIssue021AutoProof().catch((error: unknown) => {
+  const message = error instanceof Error ? error.stack ?? error.message : String(error);
+  void window.__TAURI_INTERNALS__?.invoke("issue021_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: {
+        name: error instanceof Error ? error.name : "Error",
+        message: error instanceof Error ? error.message : String(error),
+        stack: message,
+      },
+      diagnostics,
+    }),
+  });
+  console.error("Issue 021 proof instrumentation failed", error);
 });

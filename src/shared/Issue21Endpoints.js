@@ -1,0 +1,269 @@
+import {
+  isUuidV4,
+  utf8Length,
+  validateCompileRequest,
+  validatePreviewLoadRequest,
+} from "./ProtocolRuntime.js";
+
+const envelopeErrors = new Set([
+  "MISSING_PROTOCOL_VERSION", "MALFORMED_ENVELOPE",
+  "UNSUPPORTED_PROTOCOL_VERSION", "MESSAGE_ROUTE_REJECTED",
+]);
+
+function errorCode(error, fallback) {
+  return error instanceof Error && /^[A-Z_]+$/.test(error.message)
+    ? error.message
+    : fallback;
+}
+
+function rejectedIdentity(raw) {
+  const value = raw !== null && typeof raw === "object" ? raw : null;
+  let type = null;
+  try {
+    if (value && Object.hasOwn(value, "type") &&
+        typeof value.type === "string" && utf8Length(value.type) <= 128) type = value.type;
+  } catch {
+    type = null;
+  }
+  return {
+    correlationId: value && Object.hasOwn(value, "correlationId") &&
+      isUuidV4(value.correlationId) ? value.correlationId : null,
+    type,
+  };
+}
+
+function protocolError(code, text, identity) {
+  return {
+    protocolVersion: 1,
+    correlationId: crypto.randomUUID(),
+    type: "protocol.error",
+    payload: {
+      error: { code, message: text },
+      ...(identity.correlationId ? { rejectedCorrelationId: identity.correlationId } : {}),
+      ...(identity.type ? { rejectedType: identity.type } : {}),
+    },
+  };
+}
+
+function terminalFailure(type, correlationId, code, text) {
+  return {
+    protocolVersion: 1,
+    correlationId,
+    type,
+    result: { success: false, error: { code, message: text } },
+  };
+}
+
+export function createProofExpectationRegistry({
+  authorized,
+  contextGeneration,
+  portIdentity,
+  expectedRejections = [],
+  unexpectedErrors = [],
+  expiredExpectations = [],
+}) {
+  const entries = new Map();
+  const register = (expectation, timeoutMs = 10000) => {
+    if (authorized !== true ||
+        expectation?.contextGeneration !== contextGeneration ||
+        expectation?.portIdentity !== portIdentity ||
+        !isUuidV4(expectation?.correlationId) ||
+        typeof expectation?.requestType !== "string" ||
+        typeof expectation?.responseType !== "string" ||
+        typeof expectation?.probePhase !== "string" ||
+        typeof expectation?.expectedCode !== "string" ||
+        !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 10000 ||
+        entries.has(expectation.correlationId)) {
+      return false;
+    }
+    const entry = Object.freeze({ ...expectation });
+    const timer = setTimeout(() => {
+      if (entries.get(entry.correlationId)?.entry === entry) {
+        entries.delete(entry.correlationId);
+        expiredExpectations.push(entry);
+      }
+    }, timeoutMs);
+    entries.set(entry.correlationId, { entry, timer });
+    return true;
+  };
+  const consume = observed => {
+    const retained = entries.get(observed.correlationId);
+    if (!retained ||
+        retained.entry.contextGeneration !== observed.contextGeneration ||
+        retained.entry.portIdentity !== observed.portIdentity ||
+        retained.entry.requestType !== observed.requestType ||
+        retained.entry.responseType !== observed.responseType ||
+        retained.entry.probePhase !== observed.probePhase ||
+        retained.entry.expectedCode !== observed.code) {
+      unexpectedErrors.push(observed.code);
+      return false;
+    }
+    clearTimeout(retained.timer);
+    entries.delete(observed.correlationId);
+    expectedRejections.push(Object.freeze({
+      ...retained.entry,
+      observedCode: observed.code,
+    }));
+    return true;
+  };
+  const phaseFor = correlationId => entries.get(correlationId)?.entry.probePhase;
+  const remove = correlationId => {
+    const retained = entries.get(correlationId);
+    if (!retained) return false;
+    clearTimeout(retained.timer);
+    entries.delete(correlationId);
+    return true;
+  };
+  return Object.freeze({
+    register,
+    consume,
+    phaseFor,
+    remove,
+    get size() { return entries.size; },
+  });
+}
+
+function createEndpoint({
+  port,
+  responseType,
+  requestType,
+  validate,
+  execute,
+  fallbackCode,
+  proof,
+  expectations,
+  contextGeneration,
+  portIdentity,
+}) {
+  const completed = new Set();
+  const inFlight = new Set();
+  let closed = false;
+  const close = reason => {
+    if (closed) return;
+    closed = true;
+    proof?.closes?.push(reason);
+    port.close();
+  };
+  const post = (message, transfer = []) => {
+    if (closed) throw new Error("MESSAGE_SOURCE_REJECTED");
+    port.postMessage(message, transfer);
+    if (transfer.some(buffer => buffer.byteLength !== 0)) {
+      close("sender-detach-failure");
+      throw new Error("MESSAGE_SOURCE_REJECTED");
+    }
+  };
+  const handle = async event => {
+    const raw = event?.data;
+    const identity = rejectedIdentity(raw);
+    let acceptedCorrelation = null;
+    let reserved = false;
+    let terminalSent = false;
+    try {
+      const validated = validate(raw);
+      const message = validated.message;
+      acceptedCorrelation = message.correlationId;
+      if (inFlight.has(acceptedCorrelation) || completed.has(acceptedCorrelation)) {
+        post(protocolError(
+          "DUPLICATE_CORRELATION_ID",
+          "Request correlation ID was already observed.",
+          { correlationId: acceptedCorrelation, type: message.type },
+        ));
+        proof?.duplicateControls?.push(acceptedCorrelation);
+        return;
+      }
+      inFlight.add(acceptedCorrelation);
+      reserved = true;
+      const outcome = await execute(message, validated.observation);
+      if (outcome.result?.success === false) {
+        expectations?.consume({
+          contextGeneration,
+          portIdentity,
+          correlationId: acceptedCorrelation,
+          requestType,
+          responseType,
+          probePhase: outcome.probePhase ?? expectations.phaseFor(acceptedCorrelation),
+          code: outcome.result.error?.code,
+        });
+      }
+      const response = {
+        protocolVersion: 1,
+        correlationId: acceptedCorrelation,
+        type: responseType,
+        result: outcome.result,
+      };
+      post(response, outcome.transfer ?? []);
+      terminalSent = true;
+      proof?.terminals?.push(acceptedCorrelation);
+      outcome.afterPost?.();
+      if (outcome.closeAfterResponse) setTimeout(() => close("post-mutation-taint"), 25);
+    } catch (error) {
+      const code = errorCode(error, fallbackCode);
+      if (terminalSent) {
+        close("post-terminal-failure");
+        return;
+      }
+      if (expectations) {
+        expectations.consume({
+          contextGeneration,
+          portIdentity,
+          correlationId: acceptedCorrelation ?? identity.correlationId,
+          requestType,
+          responseType,
+          probePhase: expectations.phaseFor(acceptedCorrelation ?? identity.correlationId),
+          code,
+        });
+      } else {
+        proof?.errors?.push(code);
+      }
+      if (closed) return;
+      try {
+        if (acceptedCorrelation ||
+            (identity.correlationId && identity.type === requestType && !envelopeErrors.has(code))) {
+          const terminalCorrelation = acceptedCorrelation ?? identity.correlationId;
+          post(terminalFailure(responseType, terminalCorrelation, code,
+            responseType === "compile.response"
+              ? "Compiler protocol request rejected."
+              : "Preview load request rejected."));
+          proof?.terminals?.push(terminalCorrelation);
+          if (code === "MESSAGE_SOURCE_REJECTED") close("message-source-rejected");
+        } else {
+          post(protocolError(code, "Protocol envelope rejected.", identity));
+          if (code === "MESSAGE_SOURCE_REJECTED") close("message-source-rejected");
+        }
+      } catch {
+        close("rejection-post-failure");
+      }
+    } finally {
+      if (reserved) {
+        inFlight.delete(acceptedCorrelation);
+        completed.add(acceptedCorrelation);
+      }
+    }
+  };
+  return { handle, close, completed, inFlight, get closed() { return closed; } };
+}
+
+export async function initializeCompilerProofMode(proofAuthorized, runProof) {
+  if (proofAuthorized !== true) return Object.freeze({ enabled: false });
+  return Object.freeze({ enabled: true, ...(await runProof()) });
+}
+
+export function createCompilerEndpoint(options) {
+  return createEndpoint({
+    ...options,
+    responseType: "compile.response",
+    requestType: "compile.request",
+    validate: validateCompileRequest,
+    fallbackCode: "INTERNAL_ERROR",
+  });
+}
+
+export function createPreviewEndpoint(options) {
+  return createEndpoint({
+    ...options,
+    responseType: "preview.load.response",
+    requestType: "preview.load.request",
+    validate: value => validatePreviewLoadRequest(value, options.previewId),
+    fallbackCode: "PREVIEW_LOAD_FAILED",
+  });
+}

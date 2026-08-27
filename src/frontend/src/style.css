@@ -158,11 +158,29 @@ h2 {
 }
 
 #preview-context-status,
+#compile-load-status,
 .preview-security-note {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
 }
+
+#compile-load {
+  border: 1px solid var(--acid);
+  color: var(--ink);
+  background: var(--acid);
+  padding: 8px 10px;
+  font: 700 11px "SFMono-Regular", Consolas, monospace;
+  cursor: pointer;
+}
+
+#compile-load:disabled {
+  cursor: wait;
+  opacity: 0.5;
+}
+
+#compile-load-status[data-state="ready"] { color: var(--acid); }
+#compile-load-status[data-state="error"] { color: #ff735f; }
 
 #preview-context-diagnostics {
   max-height: 135px;

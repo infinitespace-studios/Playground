@@ -12,6 +12,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
+    <WasmExtraFilesToDeploy Include="../shared/ProtocolRuntime.js" TargetPath="ProtocolRuntime.js" />
+    <WasmExtraFilesToDeploy Include="../shared/Issue21Endpoints.js" TargetPath="Issue21Endpoints.js" />
     <EmbeddedResource Include="References/*.dll">
       <LogicalName>Playground.Compiler.References.%(Filename)%(Extension)</LogicalName>
     </EmbeddedResource>

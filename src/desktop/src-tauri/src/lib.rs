@@ -119,6 +119,33 @@ fn issue020_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+fn issue021_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE021_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue021_is_proof_enabled() -> bool {
+    issue021_proof_enabled()
+}
+
+#[tauri::command]
+fn issue021_is_locked_session_proof() -> bool {
+    std::env::var_os("MONOGAME_ISSUE021_LOCKED_SESSION").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue021_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue021_proof_enabled() {
+        return Err("issue 021 proof instrumentation is disabled".into());
+    }
+    println!("ISSUE021_REPORT={report}");
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_secs(20));
+        app.exit(0);
+    });
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -133,7 +160,10 @@ pub fn run() {
             issue010_emit_report,
             issue020_is_proof_enabled,
             issue020_emit_checkpoint,
-            issue020_emit_report
+            issue020_emit_report,
+            issue021_is_proof_enabled,
+            issue021_is_locked_session_proof,
+            issue021_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

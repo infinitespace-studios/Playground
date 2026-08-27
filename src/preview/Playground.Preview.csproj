@@ -25,6 +25,8 @@
       <Private>true</Private>
     </Reference>
     <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
+    <WasmExtraFilesToDeploy Include="../shared/ProtocolRuntime.js" TargetPath="ProtocolRuntime.js" />
+    <WasmExtraFilesToDeploy Include="../shared/Issue21Endpoints.js" TargetPath="Issue21Endpoints.js" />
   </ItemGroup>
 
   <Target Name="ConfigurePreviewAppBundle" BeforeTargets="PrepareInputsForWasmBuild">

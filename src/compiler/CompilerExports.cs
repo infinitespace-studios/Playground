@@ -21,12 +21,19 @@ public static partial class CompilerExports
     private const int MaxAssemblyBytes = 8 * 1024 * 1024;
     private const int MaxPdbBytes = 8 * 1024 * 1024;
     private const int MaxBinaryBytes = 12 * 1024 * 1024;
+    private static readonly TimeSpan RetentionLease = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan CompilationLease = TimeSpan.FromSeconds(35);
     private const string ExpectedRoslynPackageVersion = "4.12.0";
     private static readonly UTF8Encoding StrictUtf8 = new(
         encoderShouldEmitUTF8Identifier: false,
         throwOnInvalidBytes: true);
     private static readonly string RuntimeIdentity = Guid.NewGuid().ToString("D");
+    private static readonly object RetainedLock = new();
     private static int _callCount;
+    private static RetainedCompilation? _retained;
+    private static (string CompileId, string CorrelationId)? _lastFinalizedOwner;
+    private static TimeSpan? _nextRetentionTestLease;
+    private static bool _retentionProofAuthorized;
 
     [JSExport]
     public static string Ping()
@@ -158,6 +165,317 @@ public static partial class CompilerExports
 
         return JsonSerializer.Serialize(response, CompilerJsonContext.Default.CompileResponse);
     }
+
+    [JSExport]
+    public static string CompileAndRetain(
+        string? compileId,
+        string? correlationId,
+        string? assemblyName,
+        string? requestJson)
+    {
+        if (!Guid.TryParseExact(compileId, "D", out var parsedCompileId) ||
+            parsedCompileId.ToString("D") != compileId ||
+            parsedCompileId.Version != 4)
+        {
+            return SerializeBinaryError("MALFORMED_PAYLOAD", "compileId must be a canonical lowercase UUIDv4.");
+        }
+        if (!Guid.TryParseExact(correlationId, "D", out var parsedCorrelationId) ||
+            parsedCorrelationId.ToString("D") != correlationId ||
+            parsedCorrelationId.Version != 4)
+        {
+            return SerializeBinaryError("MALFORMED_PAYLOAD", "correlationId must be a canonical lowercase UUIDv4.");
+        }
+
+        if (string.IsNullOrEmpty(assemblyName) ||
+            assemblyName.Length > 128 ||
+            (!char.IsAsciiLetter(assemblyName[0]) && assemblyName[0] != '_') ||
+            assemblyName.Any(character =>
+                !char.IsAsciiLetterOrDigit(character) && character is not ('_' or '.' or '-')))
+        {
+            return SerializeBinaryError("MALFORMED_PAYLOAD", "assemblyName is invalid.");
+        }
+
+        var validation = DeserializeAndValidateRequest(requestJson, out var request);
+        if (validation is not null)
+        {
+            return SerializeBinaryError(validation.Code, validation.Message);
+        }
+
+        lock (RetainedLock)
+        {
+            CleanupExpiredRetention();
+            if (_retained is not null)
+            {
+                return SerializeBinaryError("INVALID_STATE", "A compilation lease is already active.");
+            }
+            _retained = CreateLease(
+                compileId,
+                correlationId,
+                Array.Empty<byte>(),
+                Array.Empty<byte>(),
+                ready: false,
+                CompilationLease);
+        }
+
+        CompilationResult result;
+        try
+        {
+            result = CompilationService.Compile(
+                request!.Sources!,
+                BrowserMetadataReferences.Allowlisted,
+                assemblyName);
+        }
+        catch (PlatformNotSupportedException exception)
+        {
+            AbortRetained(compileId, correlationId);
+            return SerializeBinaryError(
+                "INTERNAL_ERROR",
+                $"Compilation used an unsupported browser runtime operation: {exception.Message}");
+        }
+        catch
+        {
+            AbortRetained(compileId, correlationId);
+            throw;
+        }
+
+        if (!result.Success)
+        {
+            AbortRetained(compileId, correlationId);
+            return JsonSerializer.Serialize(
+                new BinaryCompileResponse(
+                    false, compileId, result.AssemblyName, 0, 0,
+                    result.Diagnostics, result.Validity,
+                    new CompileError("COMPILE_FAILED", "Compilation failed; no binaries were retained.")),
+                CompilerJsonContext.Default.BinaryCompileResponse);
+        }
+
+        var sizeError = ValidateBinarySizes(result);
+        if (sizeError is not null)
+        {
+            AbortRetained(compileId, correlationId);
+            return SerializeBinaryError(sizeError.Code, sizeError.Message);
+        }
+
+        lock (RetainedLock)
+        {
+            CleanupExpiredRetention();
+            if (_retained is null ||
+                _retained.CompileId != compileId ||
+                _retained.CorrelationId != correlationId ||
+                _retained.Ready)
+            {
+                return SerializeBinaryError("INVALID_STATE", "The compilation lease expired or changed.");
+            }
+            _retained.Timer.Dispose();
+            var retentionLease = _nextRetentionTestLease ?? RetentionLease;
+            _nextRetentionTestLease = null;
+            _retained = CreateLease(
+                compileId, correlationId, result.Assembly!, result.Pdb!, true, retentionLease);
+        }
+
+        return JsonSerializer.Serialize(
+            new BinaryCompileResponse(
+                true, compileId, result.AssemblyName,
+                result.Assembly!.Length, result.Pdb!.Length,
+                result.Diagnostics, result.Validity, null),
+            CompilerJsonContext.Default.BinaryCompileResponse);
+    }
+
+    [JSExport]
+    public static byte[] ConsumeAssembly(string? compileId, string? correlationId) =>
+        ConsumeRetained(compileId, correlationId, assembly: true);
+
+    [JSExport]
+    public static byte[] ConsumePdb(string? compileId, string? correlationId) =>
+        ConsumeRetained(compileId, correlationId, assembly: false);
+
+    [JSExport]
+    public static bool AbortRetained(string? compileId, string? correlationId)
+    {
+        lock (RetainedLock)
+        {
+            if (_retained is null ||
+                _retained.CompileId != compileId ||
+                _retained.CorrelationId != correlationId)
+            {
+                return _lastFinalizedOwner is { } owner &&
+                    owner.CompileId == compileId && owner.CorrelationId == correlationId;
+            }
+            ClearRetentionLocked();
+            return true;
+        }
+    }
+
+    private static byte[] ConsumeRetained(
+        string? compileId,
+        string? correlationId,
+        bool assembly)
+    {
+        lock (RetainedLock)
+        {
+            CleanupExpiredRetention();
+            if (_retained is null ||
+                _retained.CompileId != compileId ||
+                _retained.CorrelationId != correlationId ||
+                !_retained.Ready)
+            {
+                throw new InvalidOperationException("No ready compilation lease matches the owner.");
+            }
+            if (assembly ? _retained.AssemblyConsumed : _retained.PdbConsumed)
+            {
+                throw new InvalidOperationException("The retained binary was already consumed.");
+            }
+
+            var bytes = assembly ? _retained.Assembly : _retained.Pdb;
+            if (assembly)
+            {
+                _retained.Assembly = Array.Empty<byte>();
+                _retained.AssemblyConsumed = true;
+            }
+            else
+            {
+                _retained.Pdb = Array.Empty<byte>();
+                _retained.PdbConsumed = true;
+            }
+            if (_retained.AssemblyConsumed && _retained.PdbConsumed)
+                ClearRetentionLocked(zeroArrays: false);
+            return bytes;
+        }
+    }
+
+    [JSExport]
+    public static bool AuthorizeRetentionProof()
+    {
+        lock (RetainedLock)
+        {
+            if (_retained is not null || _retentionProofAuthorized) return false;
+            _retentionProofAuthorized = true;
+            return true;
+        }
+    }
+
+    [JSExport]
+    public static void CompleteRetentionProof()
+    {
+        lock (RetainedLock)
+        {
+            _nextRetentionTestLease = null;
+            _retentionProofAuthorized = false;
+        }
+    }
+
+    [JSExport]
+    public static bool ConfigureNextRetentionTestLease(int milliseconds)
+    {
+        lock (RetainedLock)
+        {
+            if (!_retentionProofAuthorized || _retained is not null ||
+                _nextRetentionTestLease is not null ||
+                milliseconds is < 100 or > 1000) return false;
+            _nextRetentionTestLease = TimeSpan.FromMilliseconds(milliseconds);
+            return true;
+        }
+    }
+
+    [JSExport]
+    public static string GetRetentionState()
+    {
+        lock (RetainedLock)
+        {
+            return JsonSerializer.Serialize(
+                new RetentionState(
+                    _retained is null ? 0 : 1,
+                    _retained is null ? 0 : _retained.Assembly.Length + _retained.Pdb.Length,
+                    _retained?.CompileId,
+                    _retained?.CorrelationId),
+                CompilerJsonContext.Default.RetentionState);
+        }
+    }
+
+    private static RetainedCompilation CreateLease(
+        string compileId, string correlationId, byte[] assembly, byte[] pdb,
+        bool ready, TimeSpan lease)
+    {
+        var timer = new Timer(_ =>
+        {
+            lock (RetainedLock)
+            {
+                if (_retained?.CompileId == compileId &&
+                    _retained.CorrelationId == correlationId)
+                    ClearRetentionLocked();
+            }
+        }, null, lease, Timeout.InfiniteTimeSpan);
+        return new RetainedCompilation(
+            compileId, correlationId, assembly, pdb, ready, false, false,
+            DateTime.UtcNow + lease, timer);
+    }
+
+    private static void ClearRetentionLocked(bool zeroArrays = true)
+    {
+        if (_retained is null) return;
+        _retained.Timer.Dispose();
+        if (zeroArrays)
+        {
+            CryptographicOperations.ZeroMemory(_retained.Assembly);
+            CryptographicOperations.ZeroMemory(_retained.Pdb);
+        }
+        _lastFinalizedOwner = (_retained.CompileId, _retained.CorrelationId);
+        _retained.Assembly = Array.Empty<byte>();
+        _retained.Pdb = Array.Empty<byte>();
+        _retained = null;
+    }
+
+    private static void CleanupExpiredRetention()
+    {
+        if (_retained is not null && _retained.ExpiresAtUtc <= DateTime.UtcNow)
+            ClearRetentionLocked();
+    }
+
+    private static ValidationFailure? DeserializeAndValidateRequest(
+        string? requestJson,
+        out CompileRequest? request)
+    {
+        request = null;
+        if (requestJson is null)
+        {
+            return new("MALFORMED_PAYLOAD", "The compilation request must not be null.");
+        }
+        try
+        {
+            if (StrictUtf8.GetByteCount(requestJson) > MaxRequestJsonBytes)
+            {
+                return new("MESSAGE_TOO_LARGE", "The compilation request exceeds the 32 MiB JSON limit.");
+            }
+            request = JsonSerializer.Deserialize(requestJson, CompilerJsonContext.Default.CompileRequest);
+        }
+        catch (JsonException)
+        {
+            return new("MALFORMED_PAYLOAD", "The compilation request JSON is malformed.");
+        }
+        catch (EncoderFallbackException)
+        {
+            return new("MALFORMED_PAYLOAD", "The compilation request contains invalid Unicode.");
+        }
+        return ValidateRequest(request);
+    }
+
+    private static ValidationFailure? ValidateBinarySizes(CompilationResult result)
+    {
+        if (result.Assembly!.Length > MaxAssemblyBytes)
+            return new("ASSEMBLY_TOO_LARGE", "The emitted assembly exceeds the 8 MiB limit.");
+        if (result.Pdb!.Length > MaxPdbBytes)
+            return new("PDB_TOO_LARGE", "The emitted portable PDB exceeds the 8 MiB limit.");
+        if (checked(result.Assembly.Length + result.Pdb.Length) > MaxBinaryBytes)
+            return new("BINARY_PAYLOAD_TOO_LARGE", "The emitted binaries exceed the 12 MiB aggregate limit.");
+        return null;
+    }
+
+    private static string SerializeBinaryError(string code, string message) =>
+        JsonSerializer.Serialize(
+            new BinaryCompileResponse(
+                false, "", "", 0, 0, Array.Empty<CompilerDiagnostic>(), null,
+                new CompileError(code, message)),
+            CompilerJsonContext.Default.BinaryCompileResponse);
 
     private static ValidationFailure? ValidateRequest(CompileRequest? request)
     {
@@ -391,6 +709,33 @@ public static partial class CompilerExports
         CompilationValidity? Validity,
         CompilationSettingsProof Settings,
         CompileError? Error);
+
+    internal sealed record BinaryCompileResponse(
+        bool Success,
+        string CompileId,
+        string AssemblyName,
+        int AssemblyByteLength,
+        int PdbByteLength,
+        IReadOnlyList<CompilerDiagnostic> Diagnostics,
+        CompilationValidity? Validity,
+        CompileError? Error);
+    internal sealed record RetentionState(
+        int RetainedCount, int RetainedBytes, string? CompileId, string? CorrelationId);
+
+    private sealed class RetainedCompilation(
+        string compileId, string correlationId, byte[] assembly, byte[] pdb,
+        bool ready, bool assemblyConsumed, bool pdbConsumed, DateTime expiresAtUtc, Timer timer)
+    {
+        public string CompileId { get; } = compileId;
+        public string CorrelationId { get; } = correlationId;
+        public byte[] Assembly { get; set; } = assembly;
+        public byte[] Pdb { get; set; } = pdb;
+        public bool Ready { get; } = ready;
+        public bool AssemblyConsumed { get; set; } = assemblyConsumed;
+        public bool PdbConsumed { get; set; } = pdbConsumed;
+        public DateTime ExpiresAtUtc { get; } = expiresAtUtc;
+        public Timer Timer { get; } = timer;
+    }
 }
 
 [JsonSourceGenerationOptions(
@@ -399,6 +744,8 @@ public static partial class CompilerExports
 [JsonSerializable(typeof(CompilerExports.CompilerContextProof))]
 [JsonSerializable(typeof(CompilerExports.CompileRequest))]
 [JsonSerializable(typeof(CompilerExports.CompileResponse))]
+[JsonSerializable(typeof(CompilerExports.BinaryCompileResponse))]
+[JsonSerializable(typeof(CompilerExports.RetentionState))]
 internal sealed partial class CompilerJsonContext : JsonSerializerContext;
 
 internal static class BrowserMetadataReferences

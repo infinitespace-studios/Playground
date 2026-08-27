@@ -43,7 +43,8 @@ public static class CompilationService
 
     public static CompilationResult Compile(
         IReadOnlyList<CompilationSource> files,
-        IReadOnlyList<MetadataReference> references)
+        IReadOnlyList<MetadataReference> references,
+        string? requestedAssemblyName = null)
     {
         var trees = files
             .Select(file => CSharpSyntaxTree.ParseText(
@@ -52,7 +53,7 @@ public static class CompilationService
                 path: ""))
             .ToImmutableArray();
 
-        var assemblyName = $"UserGame_{Guid.NewGuid():N}";
+        var assemblyName = requestedAssemblyName ?? $"UserGame_{Guid.NewGuid():N}";
         var compilation = CSharpCompilation.Create(
             assemblyName,
             trees,

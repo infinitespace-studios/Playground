@@ -50,16 +50,22 @@ if (
   throw new Error("Committed MonoGame.Framework PE identity does not match the allowlist.");
 }
 
+await rm(path.join(previewRoot, "bin/Release/net9.0/publish"), { recursive: true, force: true });
 execFileSync(
   "dotnet",
   ["publish", "Playground.Preview.csproj", "--configuration", "Release"],
   { cwd: previewRoot, stdio: "inherit" },
 );
+await cp(
+  path.join(repositoryRoot, "src/shared/ProtocolRuntime.js"),
+  path.join(publishRoot, "ProtocolRuntime.js"),
+);
+await cp(path.join(repositoryRoot, "src/shared/Issue21Endpoints.js"), path.join(publishRoot, "Issue21Endpoints.js"));
 
 const frameworkRoot = path.join(publishRoot, "_framework");
 const frameworkFiles = await readdir(frameworkRoot);
 const monoGameAssets = frameworkFiles.filter(name => /^MonoGame\.Framework\..*\.wasm$/.test(name));
-const requiredFiles = ["index.html", "preview.js", "_framework/dotnet.js", "_framework/blazor.boot.json"];
+const requiredFiles = ["index.html", "preview.js", "ProtocolRuntime.js", "Issue21Endpoints.js", "_framework/dotnet.js", "_framework/blazor.boot.json"];
 for (const relativePath of requiredFiles) {
   await readFile(path.join(publishRoot, relativePath));
 }

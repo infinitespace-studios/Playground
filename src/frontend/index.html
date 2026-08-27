@@ -56,11 +56,19 @@
           <iframe
             id="preview-frame"
             title="Release preview runtime proof"
-            src="/preview/index.html"
+            data-src="/preview/index.html"
           ></iframe>
           <p id="preview-context-status" role="status" aria-live="polite">
             Waiting for the nested preview runtime...
           </p>
+          <button id="compile-load" type="button">Compile + load Foo</button>
+          <p id="compile-load-status" role="status" aria-live="polite">Binary pipeline readying…</p>
+          <iframe
+            id="compiler-frame"
+            title="Persistent compiler runtime"
+            data-src="/compiler/index.html"
+            hidden
+          ></iframe>
           <pre id="preview-context-diagnostics" aria-label="Preview context diagnostics"></pre>
           <p class="preview-security-note">
             Separate lifecycle and JS/.NET globals only. Security boundary hardening is issue 33.

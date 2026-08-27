@@ -93,7 +93,12 @@ matching response type:
 | `preview.stop.request` | `preview.stop.response` |
 
 The receiver retains completed correlation IDs for the life of the port.
-Reusing an ID receives `DUPLICATE_CORRELATION_ID` and performs no work.
+The receiver atomically reserves a validated request ID before any awaited
+work and moves it from in-flight to completed on every terminal path. Reusing
+an in-flight or completed ID performs no work and receives one fresh-ID
+`protocol.error` control event with `DUPLICATE_CORRELATION_ID`,
+`rejectedCorrelationId`, and `rejectedType`; it never produces a second
+terminal response with the reused ID.
 Requesters retain pending and completed IDs for the life of the port. The first
 matching terminal response settles a request. A duplicate or response for an
 unknown/completed ID is logged and discarded without changing state. A
@@ -183,7 +188,8 @@ Stable v1 codes:
 
 It is used only when no normal response type can safely be selected, including
 a missing/unsupported version, invalid correlation ID, unknown type, or route
-rejection. Its envelope always uses version 1 and a fresh, valid correlation
+rejection, and an in-flight/completed duplicate correlation. Its envelope
+always uses version 1 and a fresh, valid correlation
 UUID. `rejectedCorrelationId` is included only when the rejected value was
 itself a valid UUID; `rejectedType` is included only when the rejected value
 was a string within its 128-byte UTF-8 limit. It does not settle a pending
@@ -336,6 +342,7 @@ semantics.
   compileId: UUIDv4,
   assemblyName: string,
   sources: [{ path: string, text: string }, ...],
+  primarySourcePath: string,
   settings?: {
     languageVersion: "13.0",
     nullable: "disable",
@@ -349,16 +356,41 @@ semantics.
 
 Omitted settings select the pinned v1 values represented above, including C#
 13.0, DLL output, and portable PDB emission. No other language version or
-setting value is valid. `compile.response` success data:
+setting value is valid. `primarySourcePath` must exactly equal one `sources`
+path and identifies the document that the preview must bind to visible
+sequence points. `compile.response` success data:
 
 ```text
 {
   compileId: UUIDv4,
   assembly: ArrayBuffer,
   pdb: ArrayBuffer,
-  diagnostics: Diagnostic[]
+  diagnostics: Diagnostic[],
+  binaryProof: BinaryProof
 }
 ```
+
+`BinaryProof` is a required immutable v1 object:
+
+```text
+{
+  assemblySha256: 64 lowercase hexadecimal SHA-256 characters,
+  pdbSha256: 64 lowercase hexadecimal SHA-256 characters,
+  assemblyByteLength: integer,
+  pdbByteLength: integer,
+  assemblyName: string,
+  sourcePaths: canonical logical source paths in compile-request order,
+  primarySourcePath: one exact member of sourcePaths
+}
+```
+
+The lengths must exactly equal the two standalone buffers. `assemblyName` and
+`sourcePaths` must exactly equal the accepted compile request. The compiler
+chooses `primarySourcePath` from that request; for issue 021 it is
+`src/Foo.cs`. Every receiver recomputes both digests before using the bytes.
+The host forwards the same proof unchanged in `preview.load.request`; neither
+unknown fields nor locally reconstructed identity may drive a production
+decision.
 
 Warnings/info may accompany success. Any error diagnostic prevents binary
 success and returns `COMPILE_FAILED` with diagnostics on the error; partial
@@ -445,7 +477,7 @@ mounted canonical path. Any collision rejects the whole request with
 `ASSET_PATH_ALREADY_MOUNTED`; byte equality does not make it idempotent.
 
 `preview.load.request` payload is
-`{ previewId, compileId, assembly, pdb, timeoutMs? }`. Its success data is
+`{ previewId, compileId, assembly, pdb, binaryProof, timeoutMs? }`. Its success data is
 `{ previewId, compileId }`. It loads exactly one emitted DLL and its matching
 portable PDB plus only pinned runtime dependencies.
 

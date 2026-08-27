@@ -1,4 +1,14 @@
 import { dotnet } from "./_framework/dotnet.js";
+import {
+  installPrivatePortBootstrap,
+  isUuidV4,
+  sha256 as sha256Buffer,
+  validatePreviewLoadRequest,
+} from "./ProtocolRuntime.js";
+import {
+  createPreviewEndpoint,
+  createProofExpectationRegistry,
+} from "./Issue21Endpoints.js";
 
 const status = document.querySelector("#status");
 const pingButton = document.querySelector("#ping");
@@ -20,12 +30,75 @@ const proofState = {
 };
 
 globalThis.previewProof = proofState;
+globalThis.previewIssue21Proof = {
+  runtimeStarts: 0,
+  load: null,
+  bootstrap: null,
+  requests: [],
+  state: "stopped",
+  rejections: [],
+  errors: [],
+  expectedProbeRejections: [],
+  expiredProbeExpectations: [],
+  endpoint: { terminals: [], closes: [] },
+  lastManagedFailure: null,
+};
+
+let protocolPort = null;
+let expectedPreviewId = null;
+let protocolGeneration = null;
+let loadState = "stopped";
+let previewEndpoint = null;
+const bootstrapObservations = installPrivatePortBootstrap({
+  expectedSource: parent,
+  expectedOrigin: window.location.origin,
+  validateData: data => isUuidV4(data.previewId) &&
+    Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean",
+  onPort: (port, data) => {
+    if (protocolPort) return;
+    protocolGeneration = data.contextGeneration;
+    expectedPreviewId = data.previewId;
+    protocolPort = port;
+    const expectationRegistry = createProofExpectationRegistry({
+      authorized: data.issue021Proof,
+      contextGeneration: data.contextGeneration,
+      portIdentity: bootstrapObservations.portIdentity,
+      expectedRejections: globalThis.previewIssue21Proof.expectedProbeRejections,
+      unexpectedErrors: globalThis.previewIssue21Proof.errors,
+      expiredExpectations: globalThis.previewIssue21Proof.expiredProbeExpectations,
+    });
+    globalThis.previewIssue21RegisterExpectation = data.issue021Proof
+      ? expectation => expectationRegistry.register(expectation)
+      : undefined;
+    globalThis.previewIssue21RemoveExpectation = data.issue021Proof
+      ? correlationId => expectationRegistry.remove(correlationId)
+      : undefined;
+    const endpointProof = {
+      errors: globalThis.previewIssue21Proof.errors,
+      terminals: globalThis.previewIssue21Proof.endpoint.terminals,
+      closes: globalThis.previewIssue21Proof.endpoint.closes,
+      duplicateControls: [],
+    };
+    previewEndpoint = createPreviewEndpoint({
+      port,
+      previewId: expectedPreviewId,
+      execute: executeLoadRequest,
+      expectations: data.issue021Proof ? expectationRegistry : undefined,
+      contextGeneration: data.contextGeneration,
+      portIdentity: bootstrapObservations.portIdentity,
+      proof: endpointProof,
+    });
+    protocolPort.addEventListener("message", previewEndpoint.handle);
+    protocolPort.start();
+  },
+});
+globalThis.previewIssue21Proof.bootstrap = bootstrapObservations;
 
 function render() {
   output.textContent = JSON.stringify(proofState, null, 2);
 }
 
-async function sha256(response) {
+async function sha256Response(response) {
   const bytes = await response.arrayBuffer();
   const digest = await crypto.subtle.digest("SHA-256", bytes);
   return [...new Uint8Array(digest)].map(value => value.toString(16).padStart(2, "0")).join("");
@@ -41,7 +114,7 @@ async function verifyRuntimeAsset() {
   if (!assetResponse.ok) {
     throw new Error(`MonoGame runtime asset returned HTTP ${assetResponse.status}.`);
   }
-  const runtimeAssetSha256 = await sha256(assetResponse);
+  const runtimeAssetSha256 = await sha256Response(assetResponse);
   if (runtimeAssetSha256 !== metadata.monoGame.runtimeAssetSha256) {
     throw new Error("Staged MonoGame runtime asset hash does not match preview-build.json.");
   }
@@ -67,6 +140,7 @@ async function startRuntime() {
   }
   await runtime.runMain();
   proofState.successfulRuntimeStarts += 1;
+  globalThis.previewIssue21Proof.runtimeStarts += 1;
   proofState.ready = true;
   proofState.configuration = metadata.configuration;
   proofState.runtimeSettings = metadata.runtimeSettings;
@@ -81,6 +155,96 @@ async function startRuntime() {
   pingButton.disabled = false;
   render();
   return exports;
+}
+
+async function executeLoadRequest(message, observation) {
+  if (loadState !== "stopped") throw new Error("INVALID_STATE");
+  try {
+    const assembly = message.payload?.assembly;
+    const pdb = message.payload?.pdb;
+    const assemblySha256 = await sha256Buffer(assembly);
+    const pdbSha256 = await sha256Buffer(pdb);
+    if (assemblySha256 !== message.payload.binaryProof.assemblySha256 ||
+        pdbSha256 !== message.payload.binaryProof.pdbSha256) {
+      throw new Error("MALFORMED_PAYLOAD");
+    }
+    const exports = await exportsPromise;
+    if (typeof exports.LoadUserAssembly !== "function") throw new Error("INTERNAL_ERROR");
+    loadState = "validating";
+    const managed = JSON.parse(await exports.LoadUserAssembly(
+      new Uint8Array(assembly),
+      new Uint8Array(pdb),
+      assemblySha256,
+      pdbSha256,
+      message.payload.binaryProof.assemblyName,
+      JSON.stringify(message.payload.binaryProof.sourcePaths),
+      message.payload.binaryProof.primarySourcePath,
+    ));
+    if (!managed.success) {
+      globalThis.previewIssue21Proof.lastManagedFailure = {
+        mutationStarted: managed.mutationStarted === true,
+        code: managed.error?.code ?? "PREVIEW_LOAD_FAILED",
+      };
+      loadState = managed.mutationStarted ? "tainted" : "stopped";
+      globalThis.previewIssue21Proof.state = loadState;
+      return {
+        result: { success: false, error: {
+          code: managed.error?.code ?? "PREVIEW_LOAD_FAILED",
+          message: managed.error?.message ?? "Managed load validation failed.",
+        } },
+        closeAfterResponse: managed.mutationStarted,
+      };
+    }
+    const load = managed.proof;
+    if (load.assemblySha256 !== assemblySha256 || load.pdbSha256 !== pdbSha256 ||
+        load.assemblyByteLength !== assembly.byteLength || load.pdbByteLength !== pdb.byteLength) {
+      loadState = "tainted";
+      globalThis.previewIssue21Proof.state = loadState;
+      return {
+        result: { success: false, error: { code: "PREVIEW_LOAD_FAILED", message: "Managed byte proof mismatched." } },
+        closeAfterResponse: true,
+      };
+    }
+    loadState = "loaded";
+    globalThis.previewIssue21Proof.state = loadState;
+    globalThis.previewIssue21Proof.load = {
+      ...load,
+      compileId: message.payload.compileId,
+      correlationId: message.correlationId,
+      receiptAssemblySha256: assemblySha256,
+      receiptPdbSha256: pdbSha256,
+    };
+    globalThis.previewIssue21Proof.requests.push({
+      compileId: message.payload.compileId,
+      correlationId: message.correlationId,
+      measuredRequestBytes: observation.measuredBytes,
+      terminalResponses: 1,
+    });
+    return {
+      result: { success: true, data: {
+        previewId: expectedPreviewId,
+        compileId: message.payload.compileId,
+      } },
+    };
+  } catch (error) {
+    const code = error instanceof Error && /^[A-Z_]+$/.test(error.message)
+      ? error.message
+      : "PREVIEW_LOAD_FAILED";
+    if (["INVALID_STATE", "DUPLICATE_CORRELATION_ID", "MALFORMED_PAYLOAD"].includes(code)) {
+      globalThis.previewIssue21Proof.rejections.push(code);
+    } else {
+      globalThis.previewIssue21Proof.errors.push(code);
+    }
+    if (loadState === "validating") {
+      loadState = "tainted";
+      globalThis.previewIssue21Proof.state = loadState;
+      return {
+        result: { success: false, error: { code: "PREVIEW_LOAD_FAILED", message: "Managed load failed after mutation may have begun." } },
+        closeAfterResponse: true,
+      };
+    }
+    throw new Error(code);
+  }
 }
 
 const exportsPromise = startRuntime();
