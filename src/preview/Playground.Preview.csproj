@@ -1,0 +1,63 @@
+<Project Sdk="Microsoft.NET.Sdk.WebAssembly">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <RuntimeIdentifier>browser-wasm</RuntimeIdentifier>
+    <OutputType>Exe</OutputType>
+    <WasmMainJSPath>wwwroot/preview.js</WasmMainJSPath>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishAot>false</PublishAot>
+    <RunAOTCompilation>false</RunAOTCompilation>
+    <WasmEnableThreads>false</WasmEnableThreads>
+    <WasmBuildNative>false</WasmBuildNative>
+    <ExpectedMonoGameAssemblyName>MonoGame.Framework</ExpectedMonoGameAssemblyName>
+    <ExpectedMonoGameAssemblyVersion>3.8.3.1</ExpectedMonoGameAssemblyVersion>
+    <ExpectedMonoGameAssemblySha256>9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836</ExpectedMonoGameAssemblySha256>
+    <ExpectedMonoGameAssemblySha256Upper>9D2845D17767FFA295AED45F52D57BF9BC0F73B4E02CEE8AC3CBE7502A0BE836</ExpectedMonoGameAssemblySha256Upper>
+    <MonoGameReferencePath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), '..', 'compiler', 'References', 'MonoGame.Framework.dll'))</MonoGameReferencePath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="MonoGame.Framework">
+      <HintPath>$(MonoGameReferencePath)</HintPath>
+      <Private>true</Private>
+    </Reference>
+    <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
+  </ItemGroup>
+
+  <Target Name="ConfigurePreviewAppBundle" BeforeTargets="PrepareInputsForWasmBuild">
+    <PropertyGroup>
+      <WasmGenerateAppBundle>true</WasmGenerateAppBundle>
+      <WasmAppDir>$([MSBuild]::NormalizeDirectory($(OutputPath), 'browser-wasm', 'AppBundle'))</WasmAppDir>
+    </PropertyGroup>
+  </Target>
+
+  <Target Name="VerifyPreviewRuntimeContract" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(NETCoreSdkVersion)' != '9.0.315'"
+           Text="The preview requires .NET SDK 9.0.315. Run dotnet from src/preview so its global.json is honored." />
+    <Error Condition="'$(Configuration)' != 'Release'"
+           Text="The preview is a Release-only runtime proof. Build or publish with --configuration Release." />
+    <Error Condition="'$(PublishTrimmed)' != 'false'"
+           Text="The preview must preserve dynamic IL by setting PublishTrimmed=false." />
+    <Error Condition="'$(PublishAot)' != 'false'"
+           Text="The browser preview must not use NativeAOT." />
+    <Error Condition="'$(RunAOTCompilation)' != 'false'"
+           Text="The preview must keep interpreter execution by setting RunAOTCompilation=false." />
+    <Error Condition="'$(WasmEnableThreads)' != 'false'"
+           Text="The preview must remain single-threaded by setting WasmEnableThreads=false." />
+    <Error Condition="!Exists('$(MonoGameReferencePath)')"
+           Text="The committed product-owned MonoGame.Framework reference is missing." />
+    <GetAssemblyIdentity AssemblyFiles="$(MonoGameReferencePath)">
+      <Output TaskParameter="Assemblies" ItemName="_MonoGameIdentity" />
+    </GetAssemblyIdentity>
+    <GetFileHash Files="$(MonoGameReferencePath)" Algorithm="SHA256">
+      <Output TaskParameter="Items" ItemName="_MonoGameHash" />
+    </GetFileHash>
+    <Error Condition="'%(_MonoGameIdentity.Name)' != '$(ExpectedMonoGameAssemblyName)' OR '%(_MonoGameIdentity.Version)' != '$(ExpectedMonoGameAssemblyVersion)'"
+           Text="MonoGame runtime identity drifted from docs/reference-allowlist.json: %(_MonoGameIdentity.Name) %(_MonoGameIdentity.Version)." />
+    <Error Condition="'%(_MonoGameHash.FileHash)' != '$(ExpectedMonoGameAssemblySha256Upper)'"
+           Text="MonoGame runtime hash drifted from docs/reference-allowlist.json: %(_MonoGameHash.FileHash)." />
+  </Target>
+</Project>

@@ -5,8 +5,10 @@
   "type": "module",
   "scripts": {
     "stage:monogame": "bash ../../scripts/verify-monogame-artifacts.sh && node scripts/stage-monogame.mjs",
-    "dev": "npm run stage:monogame && vite",
-    "build": "npm run stage:monogame && vite build"
+    "stage:preview": "node scripts/stage-preview.mjs",
+    "test:stage-preview-clean": "bash scripts/test-stage-preview-clean.sh",
+    "dev": "npm run stage:monogame && npm run stage:preview && vite",
+    "build": "npm run stage:monogame && npm run stage:preview && vite build"
   },
   "devDependencies": {
     "typescript": "5.9.2",

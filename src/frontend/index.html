@@ -48,6 +48,24 @@
             <div class="corner corner-se" aria-hidden="true"></div>
           </div>
         </section>
+        <aside class="preview-proof" aria-labelledby="preview-proof-title">
+          <div class="preview-proof-heading">
+            <p class="eyebrow">Distinct iframe / Release runtime</p>
+            <h2 id="preview-proof-title">Preview context</h2>
+          </div>
+          <iframe
+            id="preview-frame"
+            title="Release preview runtime proof"
+            src="/preview/index.html"
+          ></iframe>
+          <p id="preview-context-status" role="status" aria-live="polite">
+            Waiting for the nested preview runtime...
+          </p>
+          <pre id="preview-context-diagnostics" aria-label="Preview context diagnostics"></pre>
+          <p class="preview-security-note">
+            Separate lifecycle and JS/.NET globals only. Security boundary hardening is issue 33.
+          </p>
+        </aside>
       </main>
 
       <footer class="runtime-footer">

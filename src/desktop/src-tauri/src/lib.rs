@@ -89,6 +89,36 @@ fn issue010_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+fn issue020_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE020_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue020_is_proof_enabled() -> bool {
+    issue020_proof_enabled()
+}
+
+#[tauri::command]
+fn issue020_emit_checkpoint(report: String) -> Result<(), String> {
+    if !issue020_proof_enabled() {
+        return Err("issue 020 proof instrumentation is disabled".into());
+    }
+
+    println!("ISSUE020_CHECKPOINT={report}");
+    Ok(())
+}
+
+#[tauri::command]
+fn issue020_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue020_proof_enabled() {
+        return Err("issue 020 proof instrumentation is disabled".into());
+    }
+
+    println!("ISSUE020_REPORT={report}");
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -100,7 +130,10 @@ pub fn run() {
             issue011_outer_bounds,
             issue011_emit_report,
             issue010_is_proof_enabled,
-            issue010_emit_report
+            issue010_emit_report,
+            issue020_is_proof_enabled,
+            issue020_emit_checkpoint,
+            issue020_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

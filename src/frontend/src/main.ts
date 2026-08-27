@@ -56,6 +56,33 @@ interface Issue009SpriteSample {
   bottom: number | null;
 }
 
+interface PreviewFrameProof {
+  protocolVersion: number;
+  ready: boolean;
+  startupAttempts: number;
+  successfulRuntimeStarts: number;
+  trustedClickCount: number;
+  realmToken: string;
+  parentWindowDistinct: boolean;
+  configuration?: string;
+  runtimeSettings?: {
+    publishTrimmed: boolean;
+    nativeAot: boolean;
+    runAOTCompilation: boolean;
+    wasmEnableThreads: boolean;
+    executionMode: string;
+  };
+  runtimeAsset: {
+    path: string;
+    sha256: string;
+    sourceAssemblySha256: string;
+    verified: boolean;
+  } | null;
+  autoReadyPing: Record<string, unknown> | null;
+  ping: Record<string, unknown> | null;
+  errors: string[];
+}
+
 declare global {
   interface Window {
     __MONOGAME_DIAGNOSTICS__: RuntimeDiagnostics;
@@ -69,10 +96,70 @@ const status = document.querySelector<HTMLElement>("#runtime-status");
 const build = document.querySelector<HTMLElement>("#runtime-build");
 const wasmStatus = document.querySelector<HTMLElement>("#wasm-diagnostic");
 const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+const previewFrame = document.querySelector<HTMLIFrameElement>("#preview-frame");
+const previewStatus = document.querySelector<HTMLElement>("#preview-context-status");
+const previewDiagnostics = document.querySelector<HTMLElement>("#preview-context-diagnostics");
 
-if (!status || !build || !wasmStatus || !canvas) {
+if (
+  !status ||
+  !build ||
+  !wasmStatus ||
+  !canvas ||
+  !previewFrame ||
+  !previewStatus ||
+  !previewDiagnostics
+) {
   throw new Error("MonoGame runtime shell elements are missing");
 }
+
+const parentRealmToken = crypto.randomUUID();
+let issue020ReportSent = false;
+let issue020ReadyCheckpointSent = false;
+let issue020RenderingCheckpointSent = false;
+
+const readPreviewProof = (): PreviewFrameProof | null => {
+  const child = previewFrame.contentWindow as (Window & { previewProof?: PreviewFrameProof }) | null;
+  return child?.previewProof ?? null;
+};
+
+const previewDiagnosticsSnapshot = () => {
+  const child = previewFrame.contentWindow;
+  const childProof = readPreviewProof();
+  const assetUrl = child ? new URL("/preview/index.html", child.location.href) : null;
+  return {
+    protocolVersion: 1,
+    iframeWindowDistinct: child !== null && child !== window,
+    parentRealmToken,
+    childRealmToken: childProof?.realmToken ?? null,
+    realmTokensDistinct: Boolean(childProof?.realmToken && childProof.realmToken !== parentRealmToken),
+    nestedRuntimeStarts: childProof?.successfulRuntimeStarts ?? 0,
+    iframeAssetScheme: assetUrl?.protocol.replace(/:$/, "") ?? null,
+    iframeAssetUrl: assetUrl?.href ?? null,
+    childProof,
+  };
+};
+
+const updatePreviewDiagnostics = () => {
+  try {
+    const snapshot = previewDiagnosticsSnapshot();
+    previewDiagnostics.textContent = JSON.stringify(snapshot, null, 2);
+    if (snapshot.childProof?.errors.length) {
+      previewStatus.textContent = `Preview startup error: ${snapshot.childProof.errors.at(-1)}`;
+    } else if (snapshot.childProof?.ping) {
+      previewStatus.textContent =
+        `Ping=${String(snapshot.childProof.ping.message)}; one nested runtime; ` +
+        `trusted=${String(snapshot.childProof.ping.trusted)}`;
+    } else if (snapshot.childProof?.ready) {
+      previewStatus.textContent = "Nested Release runtime ready; use its proof button.";
+    }
+  } catch (error: unknown) {
+    previewStatus.textContent =
+      `Preview context diagnostics unavailable: ${error instanceof Error ? error.message : String(error)}`;
+  }
+};
+
+previewFrame.addEventListener("load", updatePreviewDiagnostics);
+window.setInterval(updatePreviewDiagnostics, 250);
 
 const diagnostics: RuntimeDiagnostics = {
   consoleErrors: [],
@@ -730,7 +817,6 @@ const runIssue011Proof = async () => {
       },
     });
   }
-
   await invoke("issue011_set_outer_size", { width: 1280, height: 800 });
   const report = {
     schemaVersion: 1,
@@ -1008,4 +1094,92 @@ void runIssue010Proof().catch((error: unknown) => {
     }),
   });
   console.error("Issue 010 proof instrumentation failed", error);
+});
+
+const runIssue020Proof = async () => {
+  const invoke = window.__TAURI_INTERNALS__?.invoke;
+  if (!invoke || !(await invoke<boolean>("issue020_is_proof_enabled"))) {
+    return;
+  }
+
+  const deadline = performance.now() + 60_000;
+  while (performance.now() < deadline) {
+    const snapshot = previewDiagnosticsSnapshot();
+    if (
+      snapshot.childProof?.ready &&
+      snapshot.childProof.autoReadyPing?.message === "preview-context-alive" &&
+      !issue020ReadyCheckpointSent
+    ) {
+      issue020ReadyCheckpointSent = true;
+      await invoke("issue020_emit_checkpoint", {
+        report: JSON.stringify({
+          schemaVersion: 1,
+          stage: "auto-ready",
+          parentLocation: window.location.href,
+          preview: snapshot,
+          topLevelRuntimeState: document.documentElement.dataset.runtime ?? null,
+          topLevelRenderedFrames: diagnostics.renderedFramesObserved,
+          errors: {
+            topLevelConsole: diagnostics.consoleErrors,
+            topLevelUnhandled: diagnostics.unhandledErrors,
+            preview: snapshot.childProof.errors,
+          },
+        }),
+      });
+    }
+    if (
+      snapshot.childProof?.ready &&
+      document.documentElement.dataset.runtime === "rendering" &&
+      !issue020RenderingCheckpointSent
+    ) {
+      issue020RenderingCheckpointSent = true;
+      await invoke("issue020_emit_checkpoint", {
+        report: JSON.stringify({
+          schemaVersion: 1,
+          stage: "top-level-rendering-regression",
+          parentLocation: window.location.href,
+          topLevelRenderedFrames: diagnostics.renderedFramesObserved,
+          previewRuntimeStarts: snapshot.nestedRuntimeStarts,
+          previewErrors: snapshot.childProof.errors,
+          topLevelErrors: {
+            console: diagnostics.consoleErrors,
+            unhandled: diagnostics.unhandledErrors,
+          },
+        }),
+      });
+    }
+    const ping = snapshot.childProof?.ping;
+    if (ping?.trusted === true && !issue020ReportSent) {
+      issue020ReportSent = true;
+      const resourceUrls = performance.getEntriesByType("resource")
+        .map(entry => entry.name)
+        .filter(name => /^https?:/i.test(name));
+      const report = {
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        proofMode: "MONOGAME_ISSUE020_PROOF=1",
+        parent: {
+          location: window.location.href,
+          realmToken: parentRealmToken,
+          topLevelRuntimeState: document.documentElement.dataset.runtime ?? null,
+          topLevelRenderedFrames: diagnostics.renderedFramesObserved,
+        },
+        preview: snapshot,
+        diagnostics: {
+          topLevelConsoleErrors: diagnostics.consoleErrors,
+          topLevelUnhandledErrors: diagnostics.unhandledErrors,
+          previewErrors: snapshot.childProof?.errors ?? [],
+          externalNetworkRequests: resourceUrls,
+        },
+      };
+      await invoke("issue020_emit_report", { report: JSON.stringify(report) });
+      return;
+    }
+    await new Promise(resolve => window.setTimeout(resolve, 100));
+  }
+  throw new Error("Issue 020 proof timed out waiting for a trusted iframe Ping.");
+};
+
+void runIssue020Proof().catch((error: unknown) => {
+  console.error("Issue 020 proof instrumentation failed", error);
 });

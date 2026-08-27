@@ -123,8 +123,9 @@ h2 {
 .runtime {
   display: grid;
   min-height: 0;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: clamp(14px, 2vw, 28px);
   align-items: stretch;
-  justify-items: center;
   padding: clamp(20px, 3vh, 34px) clamp(22px, 5vw, 70px);
 }
 
@@ -133,6 +134,48 @@ h2 {
   width: min(100%, 1040px);
   min-height: 0;
   grid-template-rows: auto minmax(0, 1fr);
+}
+
+.preview-proof {
+  display: grid;
+  min-height: 0;
+  align-content: start;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: #080b0b;
+  padding: 14px;
+}
+
+.preview-proof-heading h2 {
+  font-size: 23px;
+}
+
+#preview-frame {
+  width: 100%;
+  height: 225px;
+  border: 1px solid var(--line);
+  background: #0b100e;
+}
+
+#preview-context-status,
+.preview-security-note {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+#preview-context-diagnostics {
+  max-height: 135px;
+  margin: 0;
+  overflow: auto;
+  color: #bdc8c3;
+  font: 9px/1.35 "SFMono-Regular", Consolas, monospace;
+  white-space: pre-wrap;
+}
+
+.preview-security-note {
+  border-top: 1px solid var(--line);
+  padding-top: 9px;
 }
 
 .viewport-heading {
@@ -276,6 +319,11 @@ html[data-runtime="error"] .runtime-state-light {
 
   .canvas-frame {
     padding: 16px;
+  }
+
+  .runtime {
+    grid-template-columns: 1fr;
+    overflow: auto;
   }
 }
 

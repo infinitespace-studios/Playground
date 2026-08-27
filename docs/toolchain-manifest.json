@@ -21,6 +21,26 @@
       "version": "9.0.19"
     }
   },
+  "preview": {
+    "sdkVersion": "9.0.315",
+    "targetFramework": "net9.0",
+    "runtimeIdentifier": "browser-wasm",
+    "configuration": "Release",
+    "publishTrimmed": false,
+    "runAOTCompilation": false,
+    "wasmEnableThreads": false,
+    "executionMode": "interpreter",
+    "nativeAot": false,
+    "monoGameAssembly": {
+      "simpleName": "MonoGame.Framework",
+      "version": "3.8.3.1",
+      "sha256": "9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836",
+      "source": "src/compiler/References/MonoGame.Framework.dll",
+      "sourceProject": "MonoGame.Framework/MonoGame.Framework.Native.csproj",
+      "sourceProfile": "Native",
+      "sourceCommitSha": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116"
+    }
+  },
   "emscripten": {
     "expectedPath": "../emsdk",
     "version": "3.1.56"
