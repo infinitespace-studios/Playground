@@ -1,0 +1,202 @@
+{
+  "schemaVersion": 1,
+  "monogameCommitSha": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+  "target": {
+    "framework": "net9.0",
+    "runtimeIdentifier": "browser-wasm",
+    "referencePack": {
+      "name": "Microsoft.NETCore.App.Ref",
+      "version": "9.0.19",
+      "referenceFramework": "net9.0"
+    }
+  },
+  "assemblies": [
+    {
+      "simpleName": "System.Runtime",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "9e9b871f3704fa9d56b1dc9751c1aba96b10791e6ab6838d3641a16ba837352f",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Runtime.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "core-runtime-types",
+        "System.Runtime"
+      ]
+    },
+    {
+      "simpleName": "System.Console",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "f5170ddaacb1d5501de0e23fbb0584c855c4ed7af60f9b17beec0d0e6bdbf59d",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Console.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Console"
+      ]
+    },
+    {
+      "simpleName": "System.Collections",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "383948a8bad7484fa971a99f5406256a92a265d7905e6bb15c909551e1b16a19",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Collections.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Collections"
+      ]
+    },
+    {
+      "simpleName": "System.Linq",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "071b67f15968f377669a944f34d95dc4ec366630f9fa015af7f3b939cea1cd86",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Linq.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Linq"
+      ]
+    },
+    {
+      "simpleName": "System.Numerics",
+      "version": "4.0.0.0",
+      "publicKeyToken": "b77a5c561934e089",
+      "sha256": "ea498a15e6b7881d720d915724e952ce0ae6e4f43e874a00238b4b51118773ac",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Numerics.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Numerics"
+      ]
+    },
+    {
+      "simpleName": "System.Numerics.Vectors",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "5d80a947e32a78b25695a32d6538d0fe05ea52b1fb006b9b0888aa634d1efc1e",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Numerics.Vectors.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Numerics.Vectors"
+      ]
+    },
+    {
+      "simpleName": "System.Threading",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "e8c7911c4219ec57cf5c3f9fd5def85824e415f8a9bc28a3fd142f403e65123d",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Threading.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Threading"
+      ]
+    },
+    {
+      "simpleName": "System.Threading.Tasks",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "fa1e5656807d1e67f63b1bf303fdf244cab0e971a51f9936ba759e52bbecc73e",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Threading.Tasks.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Threading.Tasks"
+      ]
+    },
+    {
+      "simpleName": "System.Runtime.InteropServices",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "704b134eb9ba99aa52fb1dce4add424594e130829bdd7628a4eb5f89a666c811",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Runtime.InteropServices.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Runtime.InteropServices"
+      ]
+    },
+    {
+      "simpleName": "System.Memory",
+      "version": "9.0.0.0",
+      "publicKeyToken": "cc7b13ffcd2ddd51",
+      "sha256": "15a1994cba9a54bfa1b11fbe523870576fd8ae7dc3b7acc3b6548a0473fd6c08",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Memory.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Memory"
+      ]
+    },
+    {
+      "simpleName": "System.Diagnostics.Debug",
+      "version": "9.0.0.0",
+      "publicKeyToken": "b03f5f7f11d50a3a",
+      "sha256": "b20586232222237199795a61d4f39bf90389a47b8d1f59c7e539818067c7fb2d",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "System.Diagnostics.Debug.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "System.Diagnostics.Debug"
+      ]
+    },
+    {
+      "simpleName": "netstandard",
+      "version": "2.1.0.0",
+      "publicKeyToken": "cc7b13ffcd2ddd51",
+      "sha256": "947898632a3c8ca9dbe9600916208b09f93778df165175eae25cd9e789bfe76d",
+      "source": {
+        "kind": "dotnet-reference-pack",
+        "path": "netstandard.dll",
+        "version": "9.0.19"
+      },
+      "capabilities": [
+        "netstandard"
+      ]
+    },
+    {
+      "simpleName": "MonoGame.Framework",
+      "version": "3.8.3.1",
+      "publicKeyToken": null,
+      "sha256": "9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836",
+      "source": {
+        "kind": "monogame-submodule-build-output",
+        "path": "external/MonoGame/Artifacts/MonoGame.Framework/Native/Release/MonoGame.Framework.dll",
+        "version": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+        "informationalVersion": "3.8.3.1+eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+        "project": "MonoGame.Framework/MonoGame.Framework.Native.csproj",
+        "profile": "Native",
+        "configuration": "Release"
+      },
+      "capabilities": [
+        "MonoGame.Framework.Native"
+      ]
+    }
+  ]
+}

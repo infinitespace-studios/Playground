@@ -12,6 +12,13 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
+    <EmbeddedResource Include="References/*.dll">
+      <LogicalName>Playground.Compiler.References.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="../../docs/reference-allowlist.json">
+      <Link>ReferenceAllowlist/reference-allowlist.json</Link>
+      <LogicalName>Playground.Compiler.ReferenceAllowlist.json</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <Target Name="ConfigureCompilerAppBundle" BeforeTargets="PrepareInputsForWasmBuild">
@@ -21,19 +28,12 @@
     </PropertyGroup>
   </Target>
 
-  <Target Name="EmbedTemporaryCompilerReference"
-          BeforeTargets="CoreCompile"
-          DependsOnTargets="ResolveAssemblyReferences">
-    <ItemGroup>
-      <_TemporaryCompilerReference Include="@(ReferencePath)"
-                                   Condition="'%(ReferencePath.Filename)' == 'System.Runtime'" />
-      <_CoreCompileResourceInputs Include="@(_TemporaryCompilerReference)"
-                                  LogicalName="Playground.Compiler.References.System.Runtime.dll"
-                                  ManifestResourceName="Playground.Compiler.References.System.Runtime.dll"
-                                  WithCulture="false"
-                                  Type="Non-Resx" />
-    </ItemGroup>
-    <Error Condition="'@(_TemporaryCompilerReference)' == ''"
-           Text="The temporary System.Runtime compiler reference could not be resolved." />
+  <Target Name="VerifyCompilerReferences" BeforeTargets="PrepareForBuild">
+    <Error Condition="'$(NETCoreSdkVersion)' != '9.0.315'"
+           Text="The browser compiler requires .NET SDK 9.0.315. Run: cd src/compiler &amp;&amp; dotnet build --configuration Release" />
+    <Exec Condition="'$(OS)' != 'Windows_NT'"
+          Command="bash &quot;$(MSBuildProjectDirectory)/../../scripts/collect-compiler-references.sh&quot; --verify" />
+    <Exec Condition="'$(OS)' == 'Windows_NT'"
+          Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)/../../scripts/collect-compiler-references.ps1&quot; -Verify" />
   </Target>
 </Project>

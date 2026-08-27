@@ -15,6 +15,7 @@ have these roles:
 | --- | --- |
 | `monogame` | Repository, branch, immutable commit SHA, and protected ref that must contain the commit |
 | `dotnet` | Required .NET SDK and WebAssembly workload identifier |
+| `compiler` | Compiler-only SDK, target, Roslyn, WebAssembly SDK pack, and reference-pack pins |
 | `emscripten` | Repository-relative sibling path and expected Emscripten SDK tag |
 | `shell` | Desktop-shell selection and its tool versions |
 | `frontend` | Node.js, package-manager, and lockfile identity |
@@ -32,6 +33,48 @@ SDK `9.0.112` before building; do not replace the manifest pin with the
 incompatible installed SDK. The `wasm-tools` workload is present in the current
 SDK installation, but build validation must verify or restore it for the pinned
 SDK.
+
+The existing browser compiler is a deliberately scoped exception: its restore,
+reference collection, and AppBundle build use `compiler.sdkVersion` `9.0.315`,
+`Microsoft.NET.Sdk.WebAssembly.Pack` `9.0.19`, and
+`Microsoft.NETCore.App.Ref` `9.0.19`. This does not repin MonoGame or the global
+playground toolchain. The collector resolves that exact reference pack from
+`src/compiler/obj/project.assets.json` and rejects any SDK or pack drift.
+`src/compiler/global.json` pins that SDK with roll-forward disabled. Run compiler
+SDK commands with `src/compiler` as the working directory so .NET discovers the
+scoped pin:
+
+```bash
+cd src/compiler
+dotnet build --configuration Release
+```
+
+The project also rejects a mismatched `NETCoreSdkVersion`, so a build launched
+from another working directory cannot silently use a different installed SDK.
+
+## Committed compiler references
+
+`src/compiler/References/` contains the raw reference DLLs identified by
+[`docs/reference-allowlist.json`](reference-allowlist.json). They are committed
+build inputs rather than an ignored cache so a clean clone can build the
+compiler without rebuilding MonoGame. Run
+`scripts/collect-compiler-references.sh` (or its PowerShell counterpart) only
+when intentionally refreshing them from the exact restored compiler reference
+pack and the pinned existing MonoGame Native Release output. Normal compiler
+builds run the collector in verification mode and fail on missing, extra, or
+hash-drifted inputs; they never rebuild MonoGame.
+Verification independently reads each destination PE identity and compares its
+simple name, assembly version, public key token, hash, and MonoGame
+informational version where applicable.
+
+The collector's `--manifest` and `--references-dir` overrides are restricted to
+non-destructive verification fixtures. On Windows the PowerShell wrapper tries,
+in order, Python 3 as `python3`, `py -3`, and `python`, verifies the interpreter
+major version, and otherwise reports the Python 3 prerequisite.
+
+`scripts/ReferenceIdentity/bin/` and `scripts/ReferenceIdentity/obj/` are normal
+generated .NET build outputs and remain excluded by the repository's existing
+case-insensitive `bin`/`obj` ignore rules.
 
 ## Emscripten environment
 

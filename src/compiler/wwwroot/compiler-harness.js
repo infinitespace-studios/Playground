@@ -16,6 +16,7 @@ const proofState = {
   trustedClickCount: 0,
   pingCalls: [],
   compilations: [],
+  referenceProof: null,
   diagnosticProof: null,
   error: null,
 };
@@ -77,59 +78,98 @@ pingButton.addEventListener("click", async (event) => {
 });
 
 compileButton.addEventListener("click", async (event) => {
-  if (!beginCall(event) || proofState.compilations.length >= 2) {
+  if (!beginCall(event) || proofState.referenceProof) {
     return;
   }
 
   status.textContent = "Compiling deterministic valid source in browser WebAssembly...";
   try {
     const exports = await exportsPromise;
-    const request = {
-      protocolVersion: 1,
-      sources: [{ path: "Foo.cs", text: "public class Foo { public int Bar() => 42; }" }],
-      settings: {
-        languageVersion: "13.0",
-        nullable: "disable",
-        optimization: "debug",
-        allowUnsafe: false,
-        warningsAsErrors: false,
+    const definitions = [
+      {
+        name: "trivial",
+        path: "Foo.cs",
+        text: "public class Foo { public int Bar() => 42; }",
+      },
+      {
+        name: "monogame-native",
+        path: "Game1.cs",
+        text: "using Microsoft.Xna.Framework; public class Foo : Game { }",
+      },
+    ];
+    const proofs = definitions.map(definition =>
+      compileProof(exports, definition, event.isTrusted));
+    proofState.compilations.push(...proofs);
+    proofState.referenceProof = {
+      trusted: event.isTrusted,
+      samples: proofs.map(proof => ({
+        name: proof.name,
+        success: proof.success,
+        diagnosticCount: proof.diagnostics.length,
+        assemblyByteLength: proof.assemblyByteLength,
+        pdbByteLength: proof.pdbByteLength,
+      })),
+      assertions: {
+        bothSucceeded: proofs.every(proof => proof.success),
+        noDiagnostics: proofs.every(proof => proof.diagnostics.length === 0),
+        binariesReturned: proofs.every(proof =>
+          proof.decodedAssemblyByteLength > 0 && proof.decodedPdbByteLength > 0),
+        uniqueAssemblies: new Set(proofs.map(proof => proof.assemblyName)).size === proofs.length,
       },
     };
-    const response = JSON.parse(exports.Compile(JSON.stringify(request)));
-    const assemblyBytes = response.assemblyBase64
-      ? Uint8Array.from(atob(response.assemblyBase64), character => character.charCodeAt(0))
-      : new Uint8Array();
-    const pdbBytes = response.pdbBase64
-      ? Uint8Array.from(atob(response.pdbBase64), character => character.charCodeAt(0))
-      : new Uint8Array();
-    const proof = {
-      trusted: event.isTrusted,
-      ...response,
-      assemblyBase64: response.assemblyBase64 ? "[nonempty]" : null,
-      pdbBase64: response.pdbBase64 ? "[nonempty]" : null,
-      decodedAssemblyByteLength: assemblyBytes.byteLength,
-      decodedPdbByteLength: pdbBytes.byteLength,
-    };
-    proofState.compilations.push(proof);
-
-    if (!response.success) {
-      throw new Error(`${response.error?.code ?? "COMPILE_FAILED"}: ${response.error?.message ?? "unknown error"}`);
+    if (!Object.values(proofState.referenceProof.assertions).every(Boolean)) {
+      throw new Error("Compiler reference proof assertions failed.");
     }
 
     appendResult(
-      `compile assembly=${response.assemblyName}; DLL=${assemblyBytes.byteLength}; ` +
-      `PDB=${pdbBytes.byteLength}; PE/CLI=${response.validity.hasCliHeader}; ` +
-      `Foo.Bar=${response.validity.containsExpectedType && response.validity.containsExpectedMethod}; ` +
+      `references trivial=${proofs[0].success}; MonoGame.Game=${proofs[1].success}; ` +
+      `DLLs=${proofs.map(proof => proof.decodedAssemblyByteLength).join("/")}; ` +
+      `PDBs=${proofs.map(proof => proof.decodedPdbByteLength).join("/")}; ` +
       `trusted=${event.isTrusted}`);
-    status.textContent = proofState.compilations.length < 2
-      ? "Compile complete. Activate compile again to prove a unique assembly name."
-      : "Compile proof complete: two unique assemblies emitted from one runtime.";
+    status.textContent = "Reference proof complete: trivial and MonoGame Game samples compiled.";
   } catch (error) {
     showError(error);
   } finally {
     endCall();
   }
 });
+
+function compileProof(exports, definition, trusted) {
+  const response = JSON.parse(exports.Compile(JSON.stringify({
+    protocolVersion: 1,
+    sources: [{ path: definition.path, text: definition.text }],
+    settings: {
+      languageVersion: "13.0",
+      nullable: "disable",
+      optimization: "debug",
+      allowUnsafe: false,
+      warningsAsErrors: false,
+    },
+  })));
+  const assemblyBytes = response.assemblyBase64
+    ? Uint8Array.from(atob(response.assemblyBase64), character => character.charCodeAt(0))
+    : new Uint8Array();
+  const pdbBytes = response.pdbBase64
+    ? Uint8Array.from(atob(response.pdbBase64), character => character.charCodeAt(0))
+    : new Uint8Array();
+  if (!response.success) {
+    const diagnostics = response.diagnostics
+      .map(diagnostic => `${diagnostic.id}: ${diagnostic.message}`)
+      .join("; ");
+    throw new Error(
+      `${definition.name}: ${response.error?.code ?? "COMPILE_FAILED"}: ` +
+      `${response.error?.message ?? "unknown error"}; ${diagnostics}`);
+  }
+  return {
+    name: definition.name,
+    trusted,
+    ...response,
+    assemblyBase64: response.assemblyBase64 ? "[nonempty]" : null,
+    pdbBase64: response.pdbBase64 ? "[nonempty]" : null,
+    decodedAssemblyByteLength: assemblyBytes.byteLength,
+    decodedPdbByteLength: pdbBytes.byteLength,
+  };
+}
 
 diagnosticsButton.addEventListener("click", async (event) => {
   if (!beginCall(event) || proofState.diagnosticProof) {
@@ -308,7 +348,7 @@ function endCall() {
   proofState.callInProgress = false;
   if (proofState.ready) {
     pingButton.disabled = false;
-    compileButton.disabled = proofState.compilations.length >= 2;
+    compileButton.disabled = Boolean(proofState.referenceProof);
     diagnosticsButton.disabled = Boolean(proofState.diagnosticProof);
   }
   renderState();

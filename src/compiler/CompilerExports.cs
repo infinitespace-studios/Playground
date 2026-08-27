@@ -1,4 +1,8 @@
+using System.Collections.Immutable;
+using System.Reflection.Metadata;
+using System.Reflection.PortableExecutable;
 using System.Runtime.InteropServices.JavaScript;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -92,7 +96,7 @@ public static partial class CompilerExports
         CompilationResult result;
         try
         {
-            result = CompilationService.Compile(request!.Sources!, BrowserMetadataReferences.Minimal);
+            result = CompilationService.Compile(request!.Sources!, BrowserMetadataReferences.Allowlisted);
         }
         catch (PlatformNotSupportedException exception)
         {
@@ -399,18 +403,117 @@ internal sealed partial class CompilerJsonContext : JsonSerializerContext;
 
 internal static class BrowserMetadataReferences
 {
-    private const string SystemRuntimeResource =
-        "Playground.Compiler.References.System.Runtime.dll";
+    private const string ManifestResource = "Playground.Compiler.ReferenceAllowlist.json";
+    private const string ReferencePrefix = "Playground.Compiler.References.";
 
-    // Temporary issue-017 reference set. Issue 019 replaces this with the versioned allowlist.
-    internal static IReadOnlyList<MetadataReference> Minimal { get; } = CreateMinimal();
+    internal static IReadOnlyList<MetadataReference> Allowlisted { get; } = CreateAllowlisted();
 
-    private static IReadOnlyList<MetadataReference> CreateMinimal()
+    private static IReadOnlyList<MetadataReference> CreateAllowlisted()
     {
-        using var stream = typeof(BrowserMetadataReferences).Assembly
-            .GetManifestResourceStream(SystemRuntimeResource)
+        var hostAssembly = typeof(BrowserMetadataReferences).Assembly;
+        using var manifestStream = hostAssembly.GetManifestResourceStream(ManifestResource)
             ?? throw new InvalidOperationException(
-                "The bundled System.Runtime compiler reference was not found.");
-        return [MetadataReference.CreateFromStream(stream, filePath: "System.Runtime.dll")];
+                "The bundled compiler reference allowlist was not found.");
+        using var manifest = JsonDocument.Parse(manifestStream);
+        var entries = manifest.RootElement.GetProperty("assemblies").EnumerateArray().ToArray();
+        var expectedResources = entries
+            .Select(entry => ReferencePrefix + entry.GetProperty("simpleName").GetString() + ".dll")
+            .ToHashSet(StringComparer.Ordinal);
+        var actualResources = hostAssembly.GetManifestResourceNames()
+            .Where(name => name.StartsWith(ReferencePrefix, StringComparison.Ordinal))
+            .ToArray();
+
+        if (actualResources.Length != expectedResources.Count ||
+            actualResources.Distinct(StringComparer.Ordinal).Count() != actualResources.Length ||
+            !actualResources.ToHashSet(StringComparer.Ordinal).SetEquals(expectedResources))
+        {
+            throw new InvalidOperationException(
+                "Bundled compiler reference resources do not exactly match the allowlist.");
+        }
+
+        var references = new List<MetadataReference>(entries.Length);
+        var identities = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            var simpleName = entry.GetProperty("simpleName").GetString()
+                ?? throw new InvalidOperationException("An allowlisted assembly has no simple name.");
+            var resourceName = ReferencePrefix + simpleName + ".dll";
+            using var stream = hostAssembly.GetManifestResourceStream(resourceName)
+                ?? throw new InvalidOperationException(
+                    $"Bundled compiler reference resource is missing: {resourceName}.");
+            using var bytesStream = new MemoryStream();
+            stream.CopyTo(bytesStream);
+            var bytes = bytesStream.ToArray();
+            ValidateIdentityAndHash(entry, bytes, identities);
+            references.Add(MetadataReference.CreateFromImage(
+                ImmutableArray.CreateRange(bytes),
+                filePath: simpleName + ".dll"));
+        }
+
+        return references;
+    }
+
+    private static void ValidateIdentityAndHash(
+        JsonElement entry,
+        byte[] bytes,
+        HashSet<string> identities)
+    {
+        using var peReader = new PEReader(new MemoryStream(bytes, writable: false));
+        if (!peReader.HasMetadata)
+        {
+            throw new InvalidOperationException("An allowlisted compiler reference has no metadata.");
+        }
+
+        var reader = peReader.GetMetadataReader();
+        if (!reader.IsAssembly)
+        {
+            throw new InvalidOperationException("An allowlisted compiler reference is not an assembly.");
+        }
+
+        var definition = reader.GetAssemblyDefinition();
+        var simpleName = reader.GetString(definition.Name);
+        var version = definition.Version.ToString();
+        var token = GetPublicKeyToken(reader, definition);
+        var expectedToken = entry.GetProperty("publicKeyToken").ValueKind == JsonValueKind.Null
+            ? null
+            : entry.GetProperty("publicKeyToken").GetString();
+        var digest = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+
+        if (simpleName != entry.GetProperty("simpleName").GetString() ||
+            version != entry.GetProperty("version").GetString() ||
+            token != expectedToken ||
+            digest != entry.GetProperty("sha256").GetString())
+        {
+            throw new InvalidOperationException(
+                $"Bundled compiler reference identity or hash mismatch: {simpleName}.");
+        }
+
+        var identity = $"{simpleName}, Version={version}, PublicKeyToken={token ?? "null"}";
+        if (!identities.Add(identity))
+        {
+            throw new InvalidOperationException(
+                $"Duplicate bundled compiler reference identity: {identity}.");
+        }
+    }
+
+    private static string? GetPublicKeyToken(
+        MetadataReader reader,
+        AssemblyDefinition definition)
+    {
+        if (definition.PublicKey.IsNil)
+        {
+            return null;
+        }
+
+        var publicKey = reader.GetBlobBytes(definition.PublicKey);
+        if (publicKey.Length == 0)
+        {
+            return null;
+        }
+
+        var hash = SHA1.HashData(publicKey);
+        var token = hash[^8..];
+        Array.Reverse(token);
+        return Convert.ToHexString(token).ToLowerInvariant();
     }
 }
