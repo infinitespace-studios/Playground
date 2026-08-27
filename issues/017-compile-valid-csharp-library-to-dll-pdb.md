@@ -1,7 +1,7 @@
 # Compile one valid C# library to DLL/PDB
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [016-boot-persistent-roslyn-wasm-compiler-context.md](016-boot-persistent-roslyn-wasm-compiler-context.md)
 **PRD references:** 12.1, 12.2, 20.2
 **User stories:** US1
@@ -88,11 +88,11 @@ public static class CompilationService
 
 ## Acceptance criteria
 
-- [ ] `CompilationService.Compile` returns `Success = true` for a trivial valid C# class using the browser-wasm reference set
-- [ ] The emitted assembly bytes parse as a valid PE/CLI image (confirmed via `PEReader` or equivalent inspection)
-- [ ] The emitted PDB bytes are a valid portable PDB (confirmed via a portable PDB reader or magic-number check)
-- [ ] Every PRD 12.2 setting is explicitly set in code (DLL output kind, Debug optimization, unsafe disabled, nullable disabled, deterministic, a fixed `LanguageVersion`, unique assembly name per compile)
-- [ ] The `[JSExport] Compile(string requestJson)` entry point round-trips a JSON request/response containing Base64 assembly and PDB bytes
+- [x] `CompilationService.Compile` returns `Success = true` for a trivial valid C# class using the browser-wasm reference set
+- [x] The emitted assembly bytes parse as a valid PE/CLI image (confirmed via `PEReader` or equivalent inspection)
+- [x] The emitted PDB bytes are a valid portable PDB (confirmed via a portable PDB reader or magic-number check)
+- [x] Every PRD 12.2 setting is explicitly set in code (DLL output kind, Debug optimization, unsafe disabled, nullable disabled, deterministic, a fixed `LanguageVersion`, unique assembly name per compile)
+- [x] The `[JSExport] Compile(string requestJson)` entry point round-trips a JSON request/response containing Base64 assembly and PDB bytes
 
 ## Verification
 
@@ -102,10 +102,19 @@ Write and run a small throwaway verification harness (e.g. `dotnet-script` or a 
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+### Attempt 1
+
+- **Verdict:** FAIL
+- **Verifier:** Issue 017 Verifier (`4fe9e6e3-b521-47a1-bdcb-e13b27d50434`)
+- **Date:** 2026-08-27
+- **Evidence:** Valid browser-WASM compilation, PE/CLI metadata, portable PDB, trusted calls, unique assembly names, and the single embedded `System.Runtime` reference all passed. Protocol bounds failed because 513-byte paths and 65-source requests were accepted.
+
+### Attempt 2
+
+- **Verdict:** PASS
+- **Verifier:** Issue 017 Verifier (`4fe9e6e3-b521-47a1-bdcb-e13b27d50434`)
+- **Date:** 2026-08-27
+- **Evidence:** Fresh Release build completed with zero warnings/errors. One runtime handled trusted Ping and two trusted Compile calls, emitting unique assemblies with 2,560-byte DLLs and 716-byte PDBs. Independent PE/PDB parsing confirmed managed PE/CLI metadata, `Foo.Bar`, `Foo.cs`, source checksum, and line mapping. Browser boundary tests accepted 64 sources, a 512-byte NFC path, one 1 MiB source, and 4 MiB aggregate source while rejecting the next unit above each limit with the protocol error and no binaries. Duplicate, traversal, noncanonical, invalid-scalar, version, and settings cases were rejected before Roslyn. All PRD settings and 8/8/12 MiB output ceilings matched protocol v1. No runtime, console, request, or external-network errors occurred; generated output stayed ignored and `external/MonoGame` remained unchanged.
 
 ## Commit gate
 

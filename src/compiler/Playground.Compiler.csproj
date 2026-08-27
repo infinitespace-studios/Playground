@@ -20,4 +20,20 @@
       <WasmAppDir>$([MSBuild]::NormalizeDirectory($(OutputPath), 'browser-wasm', 'AppBundle'))</WasmAppDir>
     </PropertyGroup>
   </Target>
+
+  <Target Name="EmbedTemporaryCompilerReference"
+          BeforeTargets="CoreCompile"
+          DependsOnTargets="ResolveAssemblyReferences">
+    <ItemGroup>
+      <_TemporaryCompilerReference Include="@(ReferencePath)"
+                                   Condition="'%(ReferencePath.Filename)' == 'System.Runtime'" />
+      <_CoreCompileResourceInputs Include="@(_TemporaryCompilerReference)"
+                                  LogicalName="Playground.Compiler.References.System.Runtime.dll"
+                                  ManifestResourceName="Playground.Compiler.References.System.Runtime.dll"
+                                  WithCulture="false"
+                                  Type="Non-Resx" />
+    </ItemGroup>
+    <Error Condition="'@(_TemporaryCompilerReference)' == ''"
+           Text="The temporary System.Runtime compiler reference could not be resolved." />
+  </Target>
 </Project>

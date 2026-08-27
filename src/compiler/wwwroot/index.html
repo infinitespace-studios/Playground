@@ -26,6 +26,18 @@
       color: #c33;
     }
 
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.75rem;
+    }
+
+    pre {
+      padding: 1rem;
+      overflow: auto;
+      border: 1px solid currentColor;
+    }
+
     output {
       display: block;
       margin-top: 1.5rem;
@@ -44,13 +56,20 @@
     <p id="status" role="status" aria-live="polite" data-state="starting">
       Starting .NET WebAssembly runtime...
     </p>
-    <button id="ping" type="button" disabled aria-describedby="instructions">
-      Run compiler context proof
-    </button>
-    <p id="instructions">Activate twice. Each activation calls the same runtime once.</p>
+    <div class="controls">
+      <button id="ping" type="button" disabled aria-describedby="instructions">
+        Run compiler context proof
+      </button>
+      <button id="compile" type="button" disabled aria-describedby="instructions">
+        Compile valid source
+      </button>
+    </div>
+    <p id="instructions">Use either control. Compile may be activated twice to prove unique assembly names.</p>
     <output aria-label="Compiler context proof results">
       <ol id="results" aria-live="polite"></ol>
     </output>
+    <h2>Structured proof state</h2>
+    <pre id="proof-state" aria-live="polite"></pre>
   </main>
 </body>
 </html>
