@@ -225,11 +225,13 @@ public sealed class ThrowingRunGame : Game
       failureTeardown?: { hadGame?: boolean; disposeAttempts?: number };
     };
   };
-  const failureEvents = failure.preview?.events ?? [];
-  if (failure.wireOrder?.join(",") !==
+  const failureEvents = (failure.preview?.events ?? []).filter(
+    event => event.type === "preview.failed" || event.type === "preview.stopped");
+  if (failure.wireOrder?.filter(type => type !== "preview.output").join(",") !==
       "preview.start.response,preview.failed,preview.stopped" ||
       failureEvents.map(event => event.type).join(",") !== "preview.failed,preview.stopped" ||
-      failureEvents[0]?.sequence !== 1 || failureEvents[1]?.sequence !== 2 ||
+      failureEvents[0]?.sequence === undefined ||
+      failureEvents[1]?.sequence !== failureEvents[0].sequence + 1 ||
       failureEvents[0]?.correlationId !== failureEvents[1]?.correlationId ||
       failure.preview?.start?.managed?.runAttempts !== 1 ||
       failure.preview.start.managed.retainedGame !== false ||
@@ -373,13 +375,15 @@ public sealed class ThrowingRunGame : Game
       };
       beforeRetirement?: { iframeConnected?: boolean; portClosed?: boolean };
     } }).failureProof;
+    const lateEndpointEvents = proof?.endpointSnapshot?.lifecycleEvents?.length ?? 0;
     if (!proof ||
         (proof.elapsedMilliseconds ?? 2_000) >= 2_000 ||
-        proof.clientObservations?.discardedUnknownOrLate !== 2 ||
+        proof.clientObservations?.discardedUnknownOrLate !== lateEndpointEvents + 1 ||
         proof.clientObservations?.terminalResponses !== 1 ||
         proof.clientObservations?.lifecycleEvents !== 0 ||
         proof.endpointSnapshot?.terminals?.length !== 2 ||
-        proof.endpointSnapshot.lifecycleEvents?.map(event => event.type).join(",") !==
+        proof.endpointSnapshot.lifecycleEvents?.filter(
+          event => event.type !== "preview.output").map(event => event.type).join(",") !==
           "preview.started" ||
         proof.beforeRetirement?.iframeConnected !== true ||
         proof.beforeRetirement?.portClosed !== false ||
@@ -421,7 +425,8 @@ public sealed class ThrowingRunGame : Game
       firstManaged.runAttempts !== 1 || secondManaged.runAttempts !== 1 ||
       Number(secondManaged.proofDisposeCount) !== 0 ||
       preview.compilerRuntimeStarts !== 1 || preview.previewRuntimeStarts !== 1 ||
-      preview.wireOrder.join(",") !== "preview.start.response,preview.started") {
+      preview.wireOrder.filter(type => type !== "preview.output").join(",") !==
+        "preview.start.response,preview.started") {
     throw new Error("Issue 023 asynchronous retention assertions failed.");
   }
 

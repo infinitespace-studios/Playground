@@ -182,7 +182,8 @@ export async function runIssue024AutoProof(): Promise<void> {
       stopped.wasConnectedAtStopped !== true ||
       stopped.revokedObjectUrls !== 1 ||
       stopped.objectUrlsUnavailable !== true ||
-      stopped.wireOrder.join(",") !== "preview.stop.response,preview.stopped" ||
+      stopped.wireOrder.filter(type => type !== "preview.output").join(",") !==
+        "preview.stop.response,preview.stopped" ||
       stopped.stoppedEvent?.payload?.reason !== "requested" ||
       managed?.proofDisposeCount !== 1 ||
       quiescent?.disposeCount !== 1 ||

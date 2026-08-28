@@ -24,8 +24,9 @@ public static partial class PreviewExports
     private static ForwardingTextWriter? _forwardingOut;
     private static ForwardingTextWriter? _forwardingError;
 
-    [JSImport("globalThis.__playgroundForwardManagedOutput")]
-    internal static partial void ForwardManagedOutput(string stream, string text);
+    [JSImport("globalThis.__playgroundForwardOutput")]
+    internal static partial void ForwardOutput(
+        string source, string stream, string category, string text);
 
     [JSExport]
     public static string Ping()
@@ -394,8 +395,10 @@ public static partial class PreviewExports
             return;
         _originalOut = Console.Out;
         _originalError = Console.Error;
-        _forwardingOut = new ForwardingTextWriter(text => ForwardManagedOutput("stdout", text));
-        _forwardingError = new ForwardingTextWriter(text => ForwardManagedOutput("stderr", text));
+        _forwardingOut = new ForwardingTextWriter(
+            text => ForwardOutput("managed", "stdout", "console", text));
+        _forwardingError = new ForwardingTextWriter(
+            text => ForwardOutput("managed", "stderr", "console", text));
         Console.SetOut(_forwardingOut);
         Console.SetError(_forwardingError);
     }

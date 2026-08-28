@@ -38,6 +38,7 @@
     <WasmExtraFilesToDeploy Include="../shared/Issue21Endpoints.js" TargetPath="Issue21Endpoints.js" />
     <WasmExtraFilesToDeploy Include="../shared/PreviewStartRuntime.js" TargetPath="PreviewStartRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/PreviewStopRuntime.js" TargetPath="PreviewStopRuntime.js" />
+    <WasmExtraFilesToDeploy Include="../shared/NativeOutputRuntime.js" TargetPath="NativeOutputRuntime.js" />
   </ItemGroup>
 
   <Target Name="ConfigurePreviewAppBundle" BeforeTargets="PrepareInputsForWasmBuild">

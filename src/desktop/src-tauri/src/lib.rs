@@ -204,6 +204,15 @@ fn issue027_is_proof_enabled() -> bool {
     issue027_proof_enabled()
 }
 
+fn issue028_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE028_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue028_is_proof_enabled() -> bool {
+    issue028_proof_enabled()
+}
+
 fn packaged_pipeline_proof_enabled() -> bool {
     issue021_proof_enabled()
         || issue022_proof_enabled()
@@ -211,6 +220,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue024_proof_enabled()
         || issue025_proof_enabled()
         || issue027_proof_enabled()
+        || issue028_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -672,6 +682,16 @@ fn issue027_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+fn issue028_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue028_proof_enabled() {
+        return Err("issue 028 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE028_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -746,12 +766,14 @@ pub fn run() {
             issue024_is_proof_enabled,
             issue025_is_proof_enabled,
             issue027_is_proof_enabled,
+            issue028_is_proof_enabled,
             prepare_packaged_proof_window,
             issue023_emit_checkpoint,
             issue023_emit_report,
             issue024_emit_report,
             issue025_emit_report,
-            issue027_emit_report
+            issue027_emit_report,
+            issue028_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

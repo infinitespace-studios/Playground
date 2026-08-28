@@ -129,7 +129,8 @@ function assertCleanup(stop: Record<string, unknown>) {
       stop.wasConnectedAtStopped !== true ||
       stop.revokedObjectUrls !== 1 ||
       stop.objectUrlsUnavailable !== true ||
-      (stop.wireOrder as string[]).join(",") !== "preview.stop.response,preview.stopped" ||
+      (stop.wireOrder as string[]).filter(type => type !== "preview.output").join(",") !==
+        "preview.stop.response,preview.stopped" ||
       runtime.stop?.disposeAttempts !== 1 ||
       quiescent?.disposeCount !== 1 ||
       quiescent?.callbackAfterDisposedCount !== 0 ||

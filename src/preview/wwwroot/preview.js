@@ -11,6 +11,7 @@ import {
 } from "./Issue21Endpoints.js";
 import { createPreviewStartExecutor } from "./PreviewStartRuntime.js";
 import { createPreviewStopExecutor } from "./PreviewStopRuntime.js";
+import { createNativeOutputCapture } from "./NativeOutputRuntime.js";
 
 const status = document.querySelector("#status");
 const pingButton = document.querySelector("#ping");
@@ -69,6 +70,7 @@ globalThis.previewIssue024Proof = {
   audioCloseCalls: 0,
   errors: [],
 };
+globalThis.previewIssue028Proof = { enabled: false };
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -85,13 +87,25 @@ let stopExecutor = null;
 let outputCorrelationId = null;
 let outputLive = false;
 let pendingOutputEvents = [];
-globalThis.__playgroundForwardManagedOutput = (stream, text) => {
-  if (!outputCorrelationId || !["stdout", "stderr"].includes(stream) ||
+const nativeOutput = createNativeOutputCapture();
+dotnet.withModuleConfig({
+  print: nativeOutput.print,
+  printErr: nativeOutput.printErr,
+});
+// The stock runtime is normally silent before managed startup. Route one
+// product-neutral diagnostic through the configured native callback.
+const nativeBootstrapDiagnostic = "Playground native runtime bootstrap.";
+nativeOutput.print(nativeBootstrapDiagnostic);
+
+globalThis.__playgroundForwardOutput = (source, stream, category, text) => {
+  if (!outputCorrelationId || !["managed", "native"].includes(source) ||
+      !["stdout", "stderr"].includes(stream) ||
+      !["console", "startup", "runtime", "content", "shader"].includes(category) ||
       typeof text !== "string") return;
   const event = lifecycleEvent("preview.output", outputCorrelationId, {
-    source: "managed",
+    source,
     stream,
-    category: "console",
+    category,
     text,
   });
   if (outputLive && previewEndpoint && !previewEndpoint.closed) {
@@ -108,6 +122,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean") &&
     (!Object.hasOwn(data, "issue023Proof") || typeof data.issue023Proof === "boolean") &&
     (!Object.hasOwn(data, "issue024Proof") || typeof data.issue024Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue028Proof") || typeof data.issue028Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -124,6 +139,9 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue22Proof.enabled = data.issue022Proof === true;
     globalThis.previewIssue023Proof.enabled = issue023ProofEnabled;
     globalThis.previewIssue024Proof.enabled = data.issue024Proof === true;
+    globalThis.previewIssue028Proof.enabled = data.issue028Proof === true;
+    if (!nativeOutput.authenticate(data.contextGeneration))
+      throw new Error("Native output generation authentication failed.");
     protocolPort = port;
     const expectationRegistry = createProofExpectationRegistry({
       authorized: data.issue021Proof,
@@ -361,9 +379,14 @@ async function executeLoadRequest(message, observation) {
 }
 
 async function executeStartRequest(message) {
+  if (loadState !== "loaded") throw new Error("INVALID_STATE");
   outputCorrelationId = message.correlationId;
   outputLive = false;
   pendingOutputEvents = [];
+  if (!nativeOutput.flush(protocolGeneration, ({ stream, category, text }) =>
+    globalThis.__playgroundForwardOutput("native", stream, category, text))) {
+    throw new Error("INVALID_STATE");
+  }
   startExecutor ??= createPreviewStartExecutor({
     getState: () => loadState,
     setState: state => {
@@ -408,6 +431,8 @@ async function executeStartRequest(message) {
     outcome.afterPost?.();
     if (!delayedEvents?.length && outcome.result?.success === true)
       activateOutput();
+    if (outcome.result?.success !== true)
+      nativeOutput.retire(protocolGeneration);
   };
   return {
     ...outcome,
@@ -436,6 +461,7 @@ async function executeStopRequest(message) {
       outputLive = false;
       outputCorrelationId = null;
       pendingOutputEvents = [];
+      nativeOutput.retire(protocolGeneration);
     },
   };
 }
@@ -476,6 +502,12 @@ globalThis.previewIssue027WriterSelfTest = async () => {
     throw new Error("INTERNAL_ERROR");
   return JSON.parse(exports.RunForwardingTextWriterSelfTest());
 };
+globalThis.previewIssue028Snapshot = () => nativeOutput.snapshot();
+globalThis.previewIssue028EmitNativePaths = () => {
+  if (!globalThis.previewIssue028Proof.enabled) throw new Error("INVALID_STATE");
+  nativeOutput.print("Playground native runtime stdout proof.");
+  nativeOutput.printErr("Playground native runtime stderr proof.");
+};
 globalThis.previewIssue023EndpointSnapshot = () => {
   if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
   return Object.freeze({
@@ -501,6 +533,7 @@ globalThis.previewIssue024Snapshot = () => Object.freeze({
   ...globalThis.previewIssue024Proof,
   state: loadState,
   endpointClosed: previewEndpoint?.closed === true,
+  nativeOutput: nativeOutput.snapshot(),
 });
 globalThis.previewIssue22Teardown = async () => {
   const exports = await exportsPromise;

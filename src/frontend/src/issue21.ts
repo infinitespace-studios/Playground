@@ -133,6 +133,8 @@ declare global {
     previewIssue024Proof?: Record<string, unknown>;
     previewIssue024Snapshot?: () => Record<string, unknown>;
     previewIssue027WriterSelfTest?: () => Promise<Record<string, unknown>>;
+    previewIssue028Snapshot?: () => Record<string, unknown>;
+    previewIssue028EmitNativePaths?: () => void;
   }
 
 }
@@ -1144,6 +1146,7 @@ export async function compileLoadStartIssue23(input: {
     timeoutRetirementGraceMs?: number;
     expectedStartCode?: "INTERNAL_ERROR";
     issue024Proof?: boolean;
+    issue028Proof?: boolean;
     onOutput?: (event: PreviewOutput) => void;
   }): Promise<Issue23RunningPreview> {
     await ensureIssue21Contexts(false, true);
@@ -1216,6 +1219,7 @@ export async function compileLoadStartIssue23(input: {
           issue022Proof: false,
           issue023Proof: input.proofMode,
           issue024Proof: input.issue024Proof === true,
+          issue028Proof: input.issue028Proof === true,
           runGamePipeline: true,
           issue023Case: input.runtimeCase ?? "normal",
         }, window.location.origin, [channel.port2]);
@@ -1569,6 +1573,10 @@ export async function compileLoadStartIssue23(input: {
               new Promise<never>((_, reject) =>
                 window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
             ]);
+          }
+          if (input.issue028Proof) {
+            frame.contentWindow?.previewIssue028EmitNativePaths?.();
+            await new Promise(resolve => window.setTimeout(resolve, 20));
           }
           const runtime = frame.contentWindow?.previewIssue024Snapshot?.() ?? null;
           const wasConnectedAtStopped = frame.isConnected;

@@ -36,6 +36,11 @@ import {
 } from "../../shared/PreviewStartRuntime.js";
 import { createPreviewStopExecutor } from "../../shared/PreviewStopRuntime.js";
 import {
+  createNativeOutputCapture,
+  normalizeNativeOutputArguments,
+  normalizeUnicodeScalars,
+} from "../../shared/NativeOutputRuntime.js";
+import {
   createIssue21LoadController,
   verifyIssue21ProofOutcomes,
 } from "./issue21-controller.ts";
@@ -48,6 +53,183 @@ import { createIssue024RunStopController } from "./issue24-controller.ts";
 const uuid = "00112233-4455-4677-8899-aabbccddeeff";
 const compileId = "12345678-1234-4abc-8def-123456789abc";
 const digest = "a".repeat(64);
+
+test("native output capture tees, normalizes, orders, and flushes once", () => {
+  const tee: Array<[string, unknown[]]> = [];
+  const emitted: Array<{ stream: string; category: string; text: string }> = [];
+  const capture = createNativeOutputCapture({
+    teeOut: (...args) => tee.push(["stdout", args]),
+    teeErr: (...args) => tee.push(["stderr", args]),
+  });
+  const object = { toString: () => "object-value" };
+  capture.print("first", 2, object);
+  capture.printErr(null, undefined, false);
+  assert.equal(normalizeNativeOutputArguments(["first", 2, object]), "first 2 object-value");
+  assert.equal(capture.authenticate("generation-one"), true);
+  assert.equal(capture.flush("wrong-generation", value => emitted.push(value)), false);
+  assert.equal(capture.flush("generation-one", value => emitted.push(value)), true);
+  assert.equal(capture.flush("generation-one", value => emitted.push(value)), false);
+  capture.print("live");
+  assert.deepEqual(tee, [
+    ["stdout", ["first", "2", "object-value"]],
+    ["stderr", ["null", "undefined", "false"]],
+    ["stdout", ["live"]],
+  ]);
+  assert.deepEqual(emitted, [
+    { stream: "stdout", category: "startup", text: "first 2 object-value" },
+    { stream: "stderr", category: "startup", text: "null undefined false" },
+    { stream: "stdout", category: "runtime", text: "live" },
+  ]);
+  const snapshot = capture.snapshot();
+  assert.equal(snapshot.flushCalls, 1);
+  assert.equal(snapshot.emittedMessages, 3);
+  assert.equal(snapshot.bufferedMessages, 0);
+});
+
+test("native output replaces every malformed surrogate and preserves valid pairs", () => {
+  const cases = [
+    ["\uD800", "\uFFFD"],
+    ["\uDC00", "\uFFFD"],
+    ["\uD800A", "\uFFFDA"],
+    ["\uDC00A", "\uFFFDA"],
+    ["A\uD800", "A\uFFFD"],
+    ["A\uDC00", "A\uFFFD"],
+    ["A\uD800B", "A\uFFFDB"],
+    ["A\uDC00B", "A\uFFFDB"],
+    ["\uD800\uD800\uDC00\uDC00", "\uFFFD𐀀\uFFFD"],
+    ["\uDC00\uDC00\uD800\uD800", "\uFFFD\uFFFD\uFFFD\uFFFD"],
+    ["x\uD83D\uDE42y", "x🙂y"],
+    ["\uD800\uD83D\uDE42\uDC00", "\uFFFD🙂\uFFFD"],
+  ];
+  for (const [input, expected] of cases)
+    assert.equal(normalizeUnicodeScalars(input), expected);
+  const converted = { toString: () => "left\uD800🙂\uDC00right" };
+  assert.equal(
+    normalizeNativeOutputArguments([converted]),
+    "left\uFFFD🙂\uFFFDright",
+  );
+
+  const tee: string[][] = [];
+  const emitted: string[] = [];
+  const capture = createNativeOutputCapture({
+    teeOut: (...args) => tee.push(args as string[]),
+    teeErr() {},
+  });
+  capture.print("\uD800", converted);
+  capture.authenticate("normalized-tee");
+  capture.flush("normalized-tee", value => emitted.push(value.text));
+  assert.deepEqual(tee, [["\uFFFD", "left\uFFFD🙂\uFFFDright"]]);
+  assert.deepEqual(emitted, ["\uFFFD left\uFFFD🙂\uFFFDright"]);
+});
+
+test("native scalar splitting is exact at 16 KiB and aggregate 64 KiB boundaries", () => {
+  const emitted: string[] = [];
+  const capture = createNativeOutputCapture({ teeOut() {}, teeErr() {} });
+  capture.print("🙂".repeat(4096));
+  capture.print("🙂".repeat(4097));
+  capture.authenticate("scalar-boundary");
+  capture.flush("scalar-boundary", value => emitted.push(value.text));
+  assert.deepEqual(emitted.map(text => [text.length, new TextEncoder().encode(text).byteLength]), [
+    [8192, 16_384],
+    [8192, 16_384],
+    [2, 4],
+  ]);
+  assert.ok(emitted.every(text => normalizeUnicodeScalars(text) === text));
+
+  const aggregate = createNativeOutputCapture({ teeOut() {}, teeErr() {} });
+  for (let index = 0; index < 4; index += 1)
+    aggregate.print("🙂".repeat(4096));
+  aggregate.print("🙂");
+  const snapshot = aggregate.snapshot();
+  assert.equal(snapshot.acceptedPrePortMessages, 4);
+  assert.equal(snapshot.acceptedPrePortUtf8Bytes, 65_536);
+  assert.equal(snapshot.droppedOverflowMessages, 1);
+  assert.equal(snapshot.droppedOverflowUtf8Bytes, 4);
+});
+
+test("native output buffer enforces byte/message bounds and scalar-safe chunks", () => {
+  const emitted: Array<{ text: string }> = [];
+  const capture = createNativeOutputCapture({
+    teeOut() {},
+    teeErr() {},
+    limits: { messages: 2, utf8Bytes: 8, messageUtf8Bytes: 4 },
+  });
+  capture.print("🙂🙂");
+  capture.printErr("x");
+  capture.print("dropped");
+  assert.equal(capture.authenticate("bounded"), true);
+  assert.equal(capture.flush("bounded", value => emitted.push(value)), true);
+  assert.deepEqual(emitted.map(value => value.text), ["🙂", "🙂"]);
+  const snapshot = capture.snapshot();
+  assert.equal(snapshot.acceptedPrePortMessages, 2);
+  assert.equal(snapshot.acceptedPrePortUtf8Bytes, 8);
+  assert.equal(snapshot.droppedOverflowMessages, 3);
+  assert.equal(snapshot.droppedOverflowUtf8Bytes, 8);
+});
+
+test("native output rejects stale generations and post-retirement delivery but still tees", () => {
+  const tee: string[] = [];
+  const emitted: string[] = [];
+  const capture = createNativeOutputCapture({
+    teeOut: (...args) => tee.push(args.join(" ")),
+    teeErr: (...args) => tee.push(args.join(" ")),
+  });
+  capture.print("queued");
+  assert.equal(capture.authenticate("generation"), true);
+  assert.equal(capture.retire("stale"), false);
+  assert.equal(capture.flush("generation", value => emitted.push(value.text)), true);
+  assert.equal(capture.retire("generation"), true);
+  capture.printErr("retired");
+  assert.deepEqual(emitted, ["queued"]);
+  assert.deepEqual(tee, ["queued", "retired"]);
+  assert.equal(capture.snapshot().rejectedAfterRetirement, 1);
+
+  const hostile = new Proxy({}, { get() { throw new Error("hostile"); } });
+  assert.equal(normalizeNativeOutputArguments([hostile, Symbol("s")]), "<unprintable> Symbol(s)");
+});
+
+test("normalized native payload validates without closing the authenticated port", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+  const received: string[] = [];
+  client.onOutputEvent(message => {
+    validatePreviewOutputEvent(message, uuid, uuid);
+    received.push(message.payload.text);
+  });
+  channel.port2.onmessage = event => channel.port2.postMessage({
+    protocolVersion: 1,
+    correlationId: event.data.correlationId,
+    type: "preview.start.response",
+    result: { success: true, data: { previewId: uuid, accepted: true } },
+  });
+  await client.request(
+    startRequest(),
+    "preview.start.response",
+    value => validatePreviewStartResponse(value, uuid, uuid),
+  );
+  const capture = createNativeOutputCapture({ teeOut() {}, teeErr() {} });
+  capture.print("A\uD800🙂\uDC00B");
+  capture.authenticate("authenticated");
+  let sequence = 0;
+  capture.flush("authenticated", value => channel.port2.postMessage({
+    protocolVersion: 1,
+    correlationId: uuid,
+    type: "preview.output",
+    payload: {
+      previewId: uuid,
+      sequence: ++sequence,
+      source: "native",
+      stream: value.stream,
+      category: value.category,
+      text: value.text,
+    },
+  }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(received, ["A\uFFFD🙂\uFFFDB"]);
+  assert.equal(client.isClosed, false);
+  client.close("test complete");
+  channel.port2.close();
+});
 
 test("normal UI controller succeeds without proof expectation access and disables repeat load", async () => {
   let expectationCalls = 0;

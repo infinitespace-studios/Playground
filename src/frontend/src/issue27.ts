@@ -86,10 +86,10 @@ function simplified(events: readonly PreviewOutput[]) {
 }
 
 function assertPrefix(events: readonly PreviewOutput[]) {
-  const actual = simplified(events);
+  const actual = simplified(events.filter(event => event.payload.source === "managed"));
   if (JSON.stringify(actual) !== JSON.stringify(expectedBeforeStop))
     throw new Error(`Managed output sequence mismatched: ${JSON.stringify(actual)}`);
-  if (!events.every(event =>
+  if (!events.filter(event => event.payload.source === "managed").every(event =>
     event.payload.source === "managed" && event.payload.category === "console"))
     throw new Error("Managed output tags mismatched.");
 }
@@ -113,7 +113,8 @@ async function runCycle(index: number) {
     },
   });
   const deadline = performance.now() + 10_000;
-  while (preview.outputEvents.length < expectedBeforeStop.length &&
+  while (preview.outputEvents.filter(
+    event => event.payload.source === "managed").length < expectedBeforeStop.length &&
          performance.now() < deadline) {
     await wait(25);
   }
@@ -124,15 +125,17 @@ async function runCycle(index: number) {
         JSON.stringify([2, 0, 7, 7, 6, 16_384, 3_616]))
     throw new Error(`Managed writer self-test failed: ${JSON.stringify(writerSelfTest)}`);
   const startedIndex = preview.wireOrder.indexOf("preview.started");
-  if (startedIndex < 0 ||
-      preview.wireOrder.slice(0, startedIndex).filter(type => type === "preview.output").length !== 6)
+  const startedSequence = (preview.startedEvent as PreviewOutput).payload.sequence;
+  if (startedIndex < 0 || preview.outputEvents.filter(event =>
+    event.payload.source === "managed" && event.payload.sequence < startedSequence).length !== 6)
     throw new Error(`Constructor output was not ordered before started: ${preview.wireOrder}`);
   const sequences = preview.outputEvents.map(event => event.payload.sequence);
   if (!sequences.every((sequence, position) => position === 0 || sequence > sequences[position - 1]))
     throw new Error(`Output event sequence regressed: ${sequences}`);
   const stop = await preview.stop() as Record<string, unknown>;
   const expectedAfterStop = [...expectedBeforeStop, ["stderr", "dispose-err"]];
-  const actualAfterStop = simplified(preview.outputEvents);
+  const actualAfterStop = simplified(
+    preview.outputEvents.filter(event => event.payload.source === "managed"));
   if (JSON.stringify(actualAfterStop) !== JSON.stringify(expectedAfterStop))
     throw new Error(`Disposal output sequence mismatched: ${JSON.stringify(actualAfterStop)}`);
   const countAfterStop = preview.outputEvents.length;
