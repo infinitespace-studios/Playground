@@ -343,6 +343,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue034_proof_enabled()
         || issue035_proof_enabled()
         || issue036_proof_enabled()
+        || issue037_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -706,6 +707,9 @@ mod tests {
         PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, navigation_allowed, preview_asset,
         preview_content_type, preview_protocol_response, proof_activation_target_allowed,
         proof_window_ready, require_packaged_pipeline_proof,
+        issue037_validate_identity, issue037_read_store, issue037_write_store_atomic,
+        chrono_free_iso8601, ISSUE037_SCHEMA_VERSION, ISSUE037_MAX_IDENTITY_BYTES,
+        ISSUE037_MAX_ENTRIES,
     };
     use tauri::http::{Method, Response};
 
@@ -939,6 +943,106 @@ mod tests {
             None
         );
     }
+
+    // --- Issue 037 unit tests ---
+
+    #[test]
+    fn issue037_identity_validation_accepts_valid_identities() {
+        assert!(issue037_validate_identity("builtin-scratch-v1").is_ok());
+        assert!(issue037_validate_identity("a").is_ok());
+        assert!(issue037_validate_identity("project_123-test").is_ok());
+        assert!(issue037_validate_identity(&"a".repeat(ISSUE037_MAX_IDENTITY_BYTES)).is_ok());
+    }
+
+    #[test]
+    fn issue037_identity_validation_rejects_invalid_identities() {
+        assert!(issue037_validate_identity("").is_err());
+        assert!(issue037_validate_identity(&"a".repeat(ISSUE037_MAX_IDENTITY_BYTES + 1)).is_err());
+        assert!(issue037_validate_identity("has spaces").is_err());
+        assert!(issue037_validate_identity("has.dots").is_err());
+        assert!(issue037_validate_identity("path/injection").is_err());
+        assert!(issue037_validate_identity("path\\injection").is_err());
+        assert!(issue037_validate_identity("emoji😀").is_err());
+        assert!(issue037_validate_identity("null\0byte").is_err());
+    }
+
+    #[test]
+    fn issue037_store_roundtrip_and_atomicity() {
+        let dir = std::env::temp_dir().join(format!("issue037-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("test-ack.json");
+
+        // Read non-existent file returns empty store
+        let store = issue037_read_store(&path).unwrap();
+        assert_eq!(store["schemaVersion"], ISSUE037_SCHEMA_VERSION);
+        assert_eq!(store["acknowledged"].as_object().unwrap().len(), 0);
+
+        // Write and re-read
+        let mut store = store;
+        store["acknowledged"]["builtin-scratch-v1"] =
+            serde_json::json!({ "acknowledgedAt": "2026-01-01T00:00:00Z" });
+        issue037_write_store_atomic(&path, &store).unwrap();
+        let reloaded = issue037_read_store(&path).unwrap();
+        assert!(reloaded["acknowledged"]["builtin-scratch-v1"]["acknowledgedAt"]
+            .as_str()
+            .unwrap()
+            .starts_with("2026"));
+
+        // No .tmp file left behind
+        assert!(!path.with_extension("json.tmp").exists());
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn issue037_store_rejects_corrupt_json() {
+        let dir = std::env::temp_dir().join(format!("issue037-corrupt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("corrupt.json");
+        std::fs::write(&path, "not json").unwrap();
+        assert!(issue037_read_store(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn issue037_store_rejects_wrong_schema_version() {
+        let dir = std::env::temp_dir().join(format!("issue037-schema-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("wrong-version.json");
+        std::fs::write(
+            &path,
+            r#"{"schemaVersion":99,"acknowledged":{}}"#,
+        )
+        .unwrap();
+        assert!(issue037_read_store(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn issue037_entry_limit_is_enforced() {
+        assert!(ISSUE037_MAX_ENTRIES == 1024);
+    }
+
+    #[test]
+    fn issue037_timestamp_is_valid_iso8601() {
+        let ts = chrono_free_iso8601();
+        assert!(
+            ts.len() == 20 && ts.ends_with('Z') && ts.contains('T'),
+            "timestamp format: {ts}"
+        );
+    }
+
+    #[test]
+    fn issue037_proof_and_production_store_filenames_are_distinct() {
+        assert_ne!(
+            super::ISSUE037_STORE_FILENAME,
+            super::ISSUE037_PROOF_STORE_FILENAME,
+        );
+        assert!(super::ISSUE037_PROOF_STORE_FILENAME.contains("proof"));
+    }
 }
 
 #[tauri::command]
@@ -1104,6 +1208,260 @@ fn issue036_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+// --- Issue 037: first-run warning acknowledgement store ---
+//
+// Persistence lives in a JSON file inside Tauri's app-data directory, which is
+// inaccessible to the opaque preview iframe (no Tauri IPC, no filesystem).
+// The store schema is: { "schemaVersion": 1, "acknowledged": { "<identity>": { "acknowledgedAt": "<ISO-8601>" } } }
+// Identity is currently the fixed string "builtin-scratch-v1" (the single
+// built-in scratch project).  Issues 050/051 will replace this with a real
+// per-project stable identity.
+//
+// Atomic write: write to a `.tmp` sibling, then rename, so a crash mid-write
+// never corrupts the store.  Identity strings are bounded to 256 bytes of
+// printable ASCII to prevent path injection or unbounded growth.
+//
+// When proof mode is active (`MONOGAME_ISSUE037_PROOF=1`), a separate proof-
+// namespace file is used so ordinary user acknowledgements are never destroyed.
+
+const ISSUE037_STORE_FILENAME: &str = "first-run-acknowledgements.json";
+const ISSUE037_PROOF_STORE_FILENAME: &str = "first-run-acknowledgements-proof.json";
+const ISSUE037_SCHEMA_VERSION: u64 = 1;
+const ISSUE037_MAX_IDENTITY_BYTES: usize = 256;
+const ISSUE037_MAX_ENTRIES: usize = 1024;
+
+fn issue037_store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+    use tauri::Manager;
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))?;
+    let filename = if issue037_proof_enabled() {
+        ISSUE037_PROOF_STORE_FILENAME
+    } else {
+        ISSUE037_STORE_FILENAME
+    };
+    Ok(dir.join(filename))
+}
+
+fn issue037_validate_identity(identity: &str) -> Result<(), String> {
+    if identity.is_empty() || identity.len() > ISSUE037_MAX_IDENTITY_BYTES {
+        return Err("identity must be 1–256 bytes".into());
+    }
+    if !identity
+        .bytes()
+        .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
+    {
+        return Err("identity must contain only alphanumeric, hyphen, or underscore".into());
+    }
+    Ok(())
+}
+
+fn issue037_read_store(path: &std::path::Path) -> Result<serde_json::Value, String> {
+    match std::fs::read_to_string(path) {
+        Ok(content) => {
+            let value: serde_json::Value = serde_json::from_str(&content)
+                .map_err(|error| format!("acknowledgement store is corrupt: {error}"))?;
+            let version = value
+                .get("schemaVersion")
+                .and_then(|version| version.as_u64())
+                .ok_or("acknowledgement store missing schemaVersion")?;
+            if version != ISSUE037_SCHEMA_VERSION {
+                return Err(format!(
+                    "unsupported acknowledgement store schema version {version}"
+                ));
+            }
+            Ok(value)
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({
+            "schemaVersion": ISSUE037_SCHEMA_VERSION,
+            "acknowledged": {}
+        })),
+        Err(error) => Err(format!("failed to read acknowledgement store: {error}")),
+    }
+}
+
+fn issue037_write_store_atomic(
+    path: &std::path::Path,
+    store: &serde_json::Value,
+) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create app data directory: {error}"))?;
+    }
+    let tmp = path.with_extension("json.tmp");
+    let serialized = serde_json::to_string_pretty(store)
+        .map_err(|error| format!("failed to serialize acknowledgement store: {error}"))?;
+    std::fs::write(&tmp, serialized)
+        .map_err(|error| format!("failed to write acknowledgement store: {error}"))?;
+    std::fs::rename(&tmp, path)
+        .map_err(|error| format!("failed to commit acknowledgement store: {error}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+fn issue037_check_acknowledgement(
+    app: tauri::AppHandle,
+    identity: String,
+) -> Result<bool, String> {
+    issue037_validate_identity(&identity)?;
+    let path = issue037_store_path(&app)?;
+    let store = issue037_read_store(&path)?;
+    Ok(store
+        .get("acknowledged")
+        .and_then(|acknowledged| acknowledged.get(&identity))
+        .is_some())
+}
+
+#[tauri::command]
+fn issue037_write_acknowledgement(
+    app: tauri::AppHandle,
+    identity: String,
+) -> Result<(), String> {
+    issue037_validate_identity(&identity)?;
+    let path = issue037_store_path(&app)?;
+    let mut store = issue037_read_store(&path)?;
+    let acknowledged = store
+        .get_mut("acknowledged")
+        .and_then(|value| value.as_object_mut())
+        .ok_or("acknowledgement store has invalid shape")?;
+    if acknowledged.len() >= ISSUE037_MAX_ENTRIES && !acknowledged.contains_key(&identity) {
+        return Err("acknowledgement store entry limit reached".into());
+    }
+    acknowledged.insert(
+        identity,
+        serde_json::json!({
+            "acknowledgedAt": chrono_free_iso8601()
+        }),
+    );
+    issue037_write_store_atomic(&path, &store)
+}
+
+/// Minimal ISO-8601 UTC timestamp without pulling in chrono.
+fn chrono_free_iso8601() -> String {
+    let duration = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let secs = duration.as_secs();
+    // 1970-01-01 epoch math
+    let days = secs / 86400;
+    let day_secs = secs % 86400;
+    let hours = day_secs / 3600;
+    let minutes = (day_secs % 3600) / 60;
+    let seconds = day_secs % 60;
+    // Simplified date from days since epoch
+    let mut y = 1970i64;
+    let mut remaining = days as i64;
+    loop {
+        let year_days = if y % 4 == 0 && (y % 100 != 0 || y % 400 == 0) {
+            366
+        } else {
+            365
+        };
+        if remaining < year_days {
+            break;
+        }
+        remaining -= year_days;
+        y += 1;
+    }
+    let leap = y % 4 == 0 && (y % 100 != 0 || y % 400 == 0);
+    let month_days: [i64; 12] = [
+        31,
+        if leap { 29 } else { 28 },
+        31,
+        30,
+        31,
+        30,
+        31,
+        31,
+        30,
+        31,
+        30,
+        31,
+    ];
+    let mut m = 0usize;
+    while m < 12 && remaining >= month_days[m] {
+        remaining -= month_days[m];
+        m += 1;
+    }
+    format!(
+        "{y:04}-{:02}-{:02}T{hours:02}:{minutes:02}:{seconds:02}Z",
+        m + 1,
+        remaining + 1,
+    )
+}
+
+fn issue037_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE037_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue037_is_proof_enabled() -> bool {
+    issue037_proof_enabled()
+}
+
+#[tauri::command]
+fn issue037_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue037_proof_enabled() {
+        return Err("issue 037 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE037_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Proof-only: read the store contents for verification (bounded, no paths).
+#[tauri::command]
+fn issue037_read_store_snapshot(app: tauri::AppHandle) -> Result<String, String> {
+    if !issue037_proof_enabled() {
+        return Err("issue 037 proof instrumentation is disabled".into());
+    }
+    let path = issue037_store_path(&app)?;
+    let store = issue037_read_store(&path)?;
+    // Return only the acknowledged map, not the file path
+    serde_json::to_string(&store).map_err(|error| error.to_string())
+}
+
+/// Proof-only: clear the store for test isolation.
+#[tauri::command]
+fn issue037_clear_store(app: tauri::AppHandle) -> Result<(), String> {
+    if !issue037_proof_enabled() {
+        return Err("issue 037 proof instrumentation is disabled".into());
+    }
+    let path = issue037_store_path(&app)?;
+    let empty = serde_json::json!({
+        "schemaVersion": ISSUE037_SCHEMA_VERSION,
+        "acknowledged": {}
+    });
+    issue037_write_store_atomic(&path, &empty)
+}
+
+/// Proof-only: returns the current proof phase from env (1 or 2).
+#[tauri::command]
+fn issue037_proof_phase() -> Result<u32, String> {
+    if !issue037_proof_enabled() {
+        return Err("issue 037 proof instrumentation is disabled".into());
+    }
+    let phase = std::env::var("MONOGAME_ISSUE037_PROOF_PHASE")
+        .unwrap_or_else(|_| "1".into())
+        .parse::<u32>()
+        .map_err(|error| format!("invalid proof phase: {error}"))?;
+    if phase < 1 || phase > 2 {
+        return Err(format!("proof phase must be 1 or 2, got {phase}"));
+    }
+    Ok(phase)
+}
+
+/// Proof-only: emit a checkpoint line for multi-process phase markers.
+#[tauri::command]
+fn issue037_emit_checkpoint(checkpoint: String) -> Result<(), String> {
+    if !issue037_proof_enabled() {
+        return Err("issue 037 proof instrumentation is disabled".into());
+    }
+    println!("ISSUE037_CHECKPOINT={checkpoint}");
+    Ok(())
+}
+
 fn navigation_allowed(url: &tauri::Url) -> bool {
     matches!(url.scheme(), "tauri" | "playground-preview" | "about")
 }
@@ -1226,7 +1584,15 @@ pub fn run() {
             issue035_is_proof_enabled,
             issue035_emit_report,
             issue036_is_proof_enabled,
-            issue036_emit_report
+            issue036_emit_report,
+            issue037_check_acknowledgement,
+            issue037_write_acknowledgement,
+            issue037_is_proof_enabled,
+            issue037_emit_report,
+            issue037_read_store_snapshot,
+            issue037_clear_store,
+            issue037_proof_phase,
+            issue037_emit_checkpoint
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

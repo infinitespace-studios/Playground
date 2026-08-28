@@ -2257,7 +2257,7 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofCommands = commandNames(proofInventoryBlock).sort();
-  assert.equal(manifestCommands.length, 49);
+  assert.equal(manifestCommands.length, 57);
   assert.deepEqual(manifestCommands, handlerCommands);
   assert.deepEqual(permissionCommands, handlerCommands);
   assert.deepEqual(proofCommands, handlerCommands);

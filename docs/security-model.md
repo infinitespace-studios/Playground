@@ -111,7 +111,7 @@ permission `main-commands`. It has no remote URL grant. The exact command
 inventory is maintained and cross-checked in four places:
 `build.rs`, `permissions/main.toml`, `generate_handler!`, and the packaged
 proof inventory. It consists of
-the issue 009–034 proof enable/checkpoint/report commands,
+the issue 009–037 proof enable/checkpoint/report commands,
 `prepare_packaged_proof_window`, and the issue-034 marker commands. No
 filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
 arbitrary command-forwarding command is registered.
@@ -129,8 +129,8 @@ matrix covers appended permission tables, plugin/all-frame initialization,
 second handler macros, extra runtime/build/plugin dependencies, and dependency
 feature drift. Protocol tests cover second/remote/wildcard capabilities,
 `webviews`, `local: false`, and extra permissions. It also validates all
-generated files. The effective 51-file ACL scope is exactly one capability,
-one composite `main-commands` permission, and 49 Tauri-generated per-command
+generated files. The effective 59-file ACL scope is exactly one capability,
+one composite `main-commands` permission, and 57 Tauri-generated per-command
 allow/deny permission files. The generated directory is intentionally ignored
 by Git: `tauri_build` reproducibly creates it from `APP_COMMANDS`, then
 `build.rs` rejects missing, extra, renamed, non-file, or malformed entries.
@@ -169,16 +169,16 @@ IDs to the preview, and submits NSString JSON envelopes through the raw proxy.
 Every envelope matches Tauri 2.11.5's postMessage fallback shape:
 `cmd`, `callback`, `error`, `options` (including headers and
 `customProtocolIpcBlocked`), `payload`, and optionally
-`__TAURI_INVOKE_KEY__`. All 45 registered commands receive missing-key,
-deliberately-wrong-key, and replayed-wrong-key variants (180 native messages,
-135 logical probes).
+`__TAURI_INVOKE_KEY__`. All 57 registered commands receive missing-key,
+deliberately-wrong-key, and replayed-wrong-key variants (228 native messages,
+171 logical probes).
 
 Missing-key strings produce Tauri's concrete native parser diagnostic
-`JSON error: missing field` naming `__TAURI_INVOKE_KEY__`; exactly 45 are
+`JSON error: missing field` naming `__TAURI_INVOKE_KEY__`; exactly 57 are
 observed.
 Wrong and replayed keys are silently dropped at invoke-key authentication:
 no success/error callback runs during the bounded ten-second observation, all
-270 callback IDs are then removed, the window dimensions and marker counter
+342 callback IDs are then removed, the window dimensions and marker counter
 remain unchanged, and the app completes a fresh preview restart. Tauri does
 not return an authentication error callback for this transport. ACL evaluation
 is **not** claimed: the wrong-key requests are rejected before runtime
@@ -335,3 +335,94 @@ Browsers cannot synthesize arbitrary `event.source` or `event.origin` on
 `postMessage`, so origin-spoofing is validated by direct unit test of
 `installPrivatePortBootstrap` with simulated event properties, not by live
 browser proof. This distinction is documented honestly in the test suite.
+
+## First-run warning and acknowledgement persistence (issue 037)
+
+Before any user-triggered compile+Run proceeds for a project identity that has
+not been previously acknowledged, a blocking modal warns that this application
+is intended primarily for running the user's own local code, provides
+defence-in-depth protections against accidental or opportunistic desktop
+privilege access, but does not provide a complete sandbox against deliberately
+malicious code.  The user must explicitly confirm before the first compilation
+begins.  Cancel or Escape dismisses the modal without side effects.
+
+### Storage ownership and isolation
+
+Acknowledgements are persisted in a JSON file
+(`first-run-acknowledgements.json`) in Tauri's app-data directory
+(`AppHandle::path().app_data_dir()`).  This directory is owned by the trusted
+desktop process and is inaccessible to the opaque preview iframe, which has no
+Tauri IPC transport, no filesystem access, and no `localStorage` (opaque
+origin).  Writes use atomic rename (`write` to `.tmp`, then `rename`) so a
+crash mid-write never corrupts the store.
+
+### Schema
+
+```json
+{
+  "schemaVersion": 1,
+  "acknowledged": {
+    "<identity>": { "acknowledgedAt": "2026-08-28T19:30:00Z" }
+  }
+}
+```
+
+Identity strings are bounded to 256 bytes of printable alphanumeric plus
+hyphen/underscore.  The entry limit is 1024.
+
+### Identity and invalidation
+
+The current identity is a fixed constant `"builtin-scratch-v1"` representing
+the single built-in scratch project.  Issues 050/051 will replace this with a
+real per-project stable identity.  Identity is not keyed on mutable source
+content (editing code does not reprompt).  Changing the identity constant
+causes the warning to reappear.  Clearing or deleting the store file also
+causes the warning to reappear.
+
+### Proof namespace isolation
+
+When proof mode is active (`MONOGAME_ISSUE037_PROOF=1`), all acknowledgement
+commands operate on a separate proof-namespace file
+(`first-run-acknowledgements-proof.json`) so ordinary user acknowledgements
+are never read, modified, or destroyed by proof runs.
+
+### Proof bypass
+
+The packaged proof auto-run calls `compileLoadStartIssue23` directly,
+bypassing `gateFirstRun`.  The `gateFirstRun` export has no bypass parameter;
+every call through it always queries the native store.  Proof-only Tauri
+commands (`issue037_clear_store`, `issue037_read_store_snapshot`,
+`issue037_proof_phase`, `issue037_emit_checkpoint`) are gated by the
+`MONOGAME_ISSUE037_PROOF=1` environment variable, which is set only by the
+proof orchestrator and cannot be forged by preview iframe code (no IPC
+transport).  The multi-process proof orchestrates two sequential app-bundle
+launches via the existing LaunchServices relay, proving persistence across
+genuinely separate OS processes.
+
+### Limitations
+
+The acknowledgement is advisory: it does not enforce OS-level isolation.
+A user who has acknowledged the warning may still run code that attempts to
+access desktop privileges; the defence-in-depth layers (sandbox, CSP, shell
+hooks, IPC boundary) are the actual mitigation.  The warning is not a consent
+gate for data collection or telemetry — no data leaves the device.  The
+identity scheme will be extended in issues 050/051.
+
+### Commands
+
+Eight Tauri commands are added to the `main` capability:
+
+| Command | Purpose | Proof-only |
+|---|---|---|
+| `issue037_check_acknowledgement` | Check if an identity is acknowledged | No |
+| `issue037_write_acknowledgement` | Persist acknowledgement for an identity | No |
+| `issue037_is_proof_enabled` | Check proof env gate | No |
+| `issue037_emit_report` | Emit packaged proof report | Yes |
+| `issue037_read_store_snapshot` | Read store contents (bounded, no paths) | Yes |
+| `issue037_clear_store` | Clear store for test isolation | Yes |
+| `issue037_proof_phase` | Return current multi-process proof phase | Yes |
+| `issue037_emit_checkpoint` | Emit proof phase checkpoint line | Yes |
+
+All eight are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
+and `ISSUE034_APPROVED_COMMANDS`.  They are inaccessible from the opaque
+preview under the existing ACL/invoke-key boundary.

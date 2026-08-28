@@ -53,6 +53,14 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue035_emit_report",
   "issue036_is_proof_enabled",
   "issue036_emit_report",
+  "issue037_check_acknowledgement",
+  "issue037_write_acknowledgement",
+  "issue037_is_proof_enabled",
+  "issue037_emit_report",
+  "issue037_read_store_snapshot",
+  "issue037_clear_store",
+  "issue037_proof_phase",
+  "issue037_emit_checkpoint",
 ] as const;
 
 const source = `

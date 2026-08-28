@@ -53,6 +53,14 @@ const APP_COMMANDS: &[&str] = &[
     "issue035_emit_report",
     "issue036_is_proof_enabled",
     "issue036_emit_report",
+    "issue037_check_acknowledgement",
+    "issue037_write_acknowledgement",
+    "issue037_is_proof_enabled",
+    "issue037_emit_report",
+    "issue037_read_store_snapshot",
+    "issue037_clear_store",
+    "issue037_proof_phase",
+    "issue037_emit_checkpoint",
 ];
 
 fn collect_files(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) {
@@ -159,6 +167,7 @@ tauri-build = { version = "2", features = [] }
 toml = "0.8"
 
 [dependencies]
+serde_json = "1"
 tauri = { version = "2", features = [] }
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -466,8 +475,8 @@ fn validate_generated_acl(root: &Path) {
     }
     assert_eq!(
         1 + 1 + generated_files.len(),
-        51,
-        "effective ACL must contain one capability, one composite permission, and 49 generated permissions"
+        59,
+        "effective ACL must contain one capability, one composite permission, and 57 generated permissions"
     );
 }
 

@@ -118,9 +118,17 @@ function createRunStopController(proofMode: boolean) {
   return { controller, runButton, stopButton, status };
 }
 
-export function installIssue024RunStopControl(): void {
+export function installIssue024RunStopControl(gate?: () => Promise<boolean>): void {
   const { controller, runButton, stopButton } = createRunStopController(false);
-  runButton.addEventListener("click", () => { void controller.run().catch(() => {}); });
+  runButton.addEventListener("click", () => {
+    if (gate) {
+      void gate().then(proceed => {
+        if (proceed) void controller.run().catch(() => {});
+      }).catch(() => {});
+    } else {
+      void controller.run().catch(() => {});
+    }
+  });
   stopButton.addEventListener("click", () => { void controller.stop().catch(() => {}); });
 }
 
