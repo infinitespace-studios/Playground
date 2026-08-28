@@ -87,6 +87,8 @@ let stopExecutor = null;
 let outputCorrelationId = null;
 let outputLive = false;
 let pendingOutputEvents = [];
+let terminationCause = null;
+let runtimeFailureCorrelationId = null;
 const nativeOutput = createNativeOutputCapture();
 dotnet.withModuleConfig({
   print: nativeOutput.print,
@@ -113,6 +115,76 @@ globalThis.__playgroundForwardOutput = (source, stream, category, text) => {
   } else {
     pendingOutputEvents.push(event);
   }
+};
+function runtimeFailureError(failure, fallbackMessage) {
+  if (!failure || typeof failure !== "object") {
+    return { code: "PREVIEW_RUNTIME_FAILED", message: fallbackMessage };
+  }
+  const details = {
+    exceptionType: failure.exceptionType,
+    innerCount: failure.innerCount,
+    cleanupSucceeded: failure.cleanupSucceeded,
+    disposeAttempts: failure.disposeAttempts,
+    frameCount: failure.frameCount,
+    updateCount: failure.updateCount,
+    proofDisposeCount: failure.proofDisposeCount,
+    callbackAfterDisposedCount: failure.callbackAfterDisposedCount,
+  };
+  if (failure.innerExceptionType) details.innerExceptionType = failure.innerExceptionType;
+  if (failure.innerMessage) details.innerMessage = failure.innerMessage;
+  for (const [index, frame] of (failure.frames ?? []).slice(0, 5).entries()) {
+    details[`frame${index}Method`] = frame.method;
+    details[`frame${index}File`] = frame.file;
+    details[`frame${index}Line`] = frame.line;
+    details[`frame${index}Column`] = frame.column;
+  }
+  return {
+    code: "PREVIEW_RUNTIME_FAILED",
+    message: failure.message || fallbackMessage,
+    details,
+  };
+}
+globalThis.__playgroundBeginManagedRuntimeFailure = reportJson => {
+  if (terminationCause !== null || loadState !== "running" ||
+      !outputCorrelationId || !previewEndpoint || previewEndpoint.closed) return false;
+  const failure = JSON.parse(reportJson);
+  terminationCause = "failed";
+  globalThis.__playgroundForwardOutput(
+    "managed", "stderr", "runtime",
+    `${failure.exceptionType}: ${failure.message}`);
+  const correlationId = crypto.randomUUID();
+  runtimeFailureCorrelationId = correlationId;
+  const error = runtimeFailureError(failure, "The running game failed.");
+  previewEndpoint.emitEvent(lifecycleEvent("preview.failed", correlationId, {
+    phase: "running",
+    error,
+  }));
+  return true;
+};
+globalThis.__playgroundCompleteManagedRuntimeFailure = reportJson => {
+  if (terminationCause !== "failed" || runtimeFailureCorrelationId === null ||
+      loadState !== "running" || !previewEndpoint || previewEndpoint.closed) return;
+  const failure = JSON.parse(reportJson);
+  const correlationId = runtimeFailureCorrelationId;
+  // Cleanup evidence is intentionally carried by the terminal failure details
+  // generated before disposal only in the packaged proof snapshot.
+  globalThis.previewIssue024Proof.runtimeFailureCleanup = {
+    cleanupSucceeded: failure.cleanupSucceeded,
+    disposeAttempts: failure.disposeAttempts,
+    frameCount: failure.frameCount,
+    updateCount: failure.updateCount,
+    proofDisposeCount: failure.proofDisposeCount,
+    callbackAfterDisposedCount: failure.callbackAfterDisposedCount,
+  };
+  loadState = "disposed";
+  globalThis.previewIssue21Proof.state = loadState;
+  previewEndpoint.emitEvent(lifecycleEvent("preview.stopped", correlationId, {
+    reason: "failed",
+  }));
+  outputLive = false;
+  outputCorrelationId = null;
+  pendingOutputEvents = [];
+  nativeOutput.retire(protocolGeneration);
 };
 const bootstrapObservations = installPrivatePortBootstrap({
   expectedSource: parent,
@@ -225,6 +297,10 @@ async function startRuntime() {
   if (typeof exports?.Ping !== "function") {
     throw new Error("PreviewExports.Ping was not exported.");
   }
+  if (typeof exports.InitializeRuntimeFailureBoundary !== "function") {
+    throw new Error("PreviewExports.InitializeRuntimeFailureBoundary was not exported.");
+  }
+  exports.InitializeRuntimeFailureBoundary();
   await runtime.runMain();
   proofState.successfulRuntimeStarts += 1;
   globalThis.previewIssue21Proof.runtimeStarts += 1;
@@ -535,6 +611,14 @@ globalThis.previewIssue024Snapshot = () => Object.freeze({
   endpointClosed: previewEndpoint?.closed === true,
   nativeOutput: nativeOutput.snapshot(),
 });
+globalThis.previewIssue029QuiescentProof = async () => {
+  const exports = await exportsPromise;
+  if (typeof exports.QueryStoppedGameProof !== "function") throw new Error("INTERNAL_ERROR");
+  const before = JSON.parse(exports.QueryStoppedGameProof());
+  await new Promise(resolve => globalThis.setTimeout(resolve, 100));
+  const after = JSON.parse(exports.QueryStoppedGameProof());
+  return Object.freeze({ before, after });
+};
 globalThis.previewIssue22Teardown = async () => {
   const exports = await exportsPromise;
   if (typeof exports.TeardownGame !== "function") throw new Error("INTERNAL_ERROR");

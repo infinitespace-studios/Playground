@@ -34,6 +34,7 @@ export class ProtocolPortClient {
   readonly observations: Record<string, number>;
   readonly controlEvents: unknown[];
   readonly lifecycleEligible: Set<string>;
+  readonly runtimeFailureCorrelation: string | null;
   readonly isClosed: boolean;
   readonly closeReason: string | null;
   request(message: { correlationId: string }, responseType: string, validate: (value: unknown) => unknown, transfer?: ArrayBuffer[], timeoutMs?: number): Promise<unknown>;

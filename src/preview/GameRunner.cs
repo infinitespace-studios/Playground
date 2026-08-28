@@ -85,7 +85,7 @@ internal sealed class GameRunner : IDisposable
                 if (IsFatal(cause)) ExceptionDispatchInfo.Capture(cause).Throw();
                 DisposeUnexpectedObject(created);
                 return _construction = ConstructionFailure(
-                    "The game constructor failed before preview startup.");
+                    "The game constructor failed before preview startup.", cause);
             }
             catch (Exception exception) when (IsExpectedReflectionConstructionFailure(exception))
             {
@@ -146,7 +146,7 @@ internal sealed class GameRunner : IDisposable
             {
                 _runDurationMilliseconds = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
                 _state = RunnerState.Failed;
-                failure = StartFailure("The game failed during preview startup.");
+                failure = StartFailure("The game failed during preview startup.", exception: exception);
             }
             var disposal = Teardown();
             return failure with {
@@ -298,14 +298,15 @@ internal sealed class GameRunner : IDisposable
             InvalidCastException or
             NotSupportedException;
 
-    private ConstructionResult ConstructionFailure(string message) =>
+    private ConstructionResult ConstructionFailure(string message, Exception? exception = null) =>
         new(false, null, false, null, new RunnerError("PREVIEW_START_FAILED", message),
-            _constructionAttempts, false);
+            _constructionAttempts, false, exception);
 
-    private StartResult StartFailure(string message, string code = "PREVIEW_START_FAILED") =>
+    private StartResult StartFailure(
+        string message, string code = "PREVIEW_START_FAILED", Exception? exception = null) =>
         new(false, _state.ToString().ToLowerInvariant(), _runAttempts, _runReturned,
             _runDurationMilliseconds, _game is not null, _disposed, _disposeAttempts,
-            new RunnerError(code, message));
+            new RunnerError(code, message), exception);
 
     private static void DisposeUnexpectedObject(object? created)
     {
@@ -418,7 +419,8 @@ internal sealed class GameRunner : IDisposable
         PlaygroundDiagnostic? Diagnostic,
         RunnerError? Error,
         int ConstructionAttempts,
-        bool RetainedGame);
+        bool RetainedGame,
+        Exception? Exception = null);
 
     internal sealed record DisposalResult(
         bool Success,
@@ -436,7 +438,8 @@ internal sealed class GameRunner : IDisposable
         bool RetainedGame,
         bool Disposed,
         int DisposeAttempts,
-        RunnerError? Error);
+        RunnerError? Error,
+        Exception? Exception = null);
 
     internal sealed record RunnerSnapshot(
         string State,

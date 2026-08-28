@@ -23,10 +23,27 @@ public static partial class PreviewExports
     private static TextWriter? _originalError;
     private static ForwardingTextWriter? _forwardingOut;
     private static ForwardingTextWriter? _forwardingError;
+    private static RuntimeExceptionMapper? _exceptionMapper;
+    private static int _runtimeBoundaryInstalled;
+    private static int _runtimeBoundaryActive;
+    private static int _runtimeFailureReported;
 
     [JSImport("globalThis.__playgroundForwardOutput")]
     internal static partial void ForwardOutput(
         string source, string stream, string category, string text);
+
+    [JSImport("globalThis.__playgroundBeginManagedRuntimeFailure")]
+    internal static partial bool BeginManagedRuntimeFailure(string report);
+
+    [JSImport("globalThis.__playgroundCompleteManagedRuntimeFailure")]
+    internal static partial void CompleteManagedRuntimeFailure(string report);
+
+    [JSExport]
+    public static void InitializeRuntimeFailureBoundary()
+    {
+        if (Interlocked.Exchange(ref _runtimeBoundaryInstalled, 1) == 0)
+            AppDomain.CurrentDomain.UnhandledException += OnUnhandledException;
+    }
 
     [JSExport]
     public static string Ping()
@@ -148,6 +165,8 @@ public static partial class PreviewExports
                         true, "INVALID_STATE", "The preview was torn down while assembly loading was in progress.");
                 }
                 _gameRunner = new GameRunner(assembly);
+                _exceptionMapper = new RuntimeExceptionMapper(
+                    assembly, pdbBytes!, validated.ExpectedSourcePaths);
                 Volatile.Write(ref _loadState, 2);
             }
             return JsonSerializer.Serialize(
@@ -168,7 +187,8 @@ public static partial class PreviewExports
                         validated.CodeViewStamp,
                         validated.PortablePdbGuid,
                         validated.PortablePdbStamp,
-                        validated.ExpectedAssemblyName),
+                        validated.ExpectedAssemblyName,
+                        validated.ExpectedSourcePaths),
                     null),
                 PreviewJsonContext.Default.AssemblyLoadResult);
         }
@@ -228,7 +248,10 @@ public static partial class PreviewExports
         {
             runner = _loadState == 2 ? _gameRunner : null;
             if (runner is not null)
+            {
                 InstallConsoleCapture();
+                Volatile.Write(ref _runtimeBoundaryActive, 1);
+            }
         }
 
         if (runner is null)
@@ -241,8 +264,10 @@ public static partial class PreviewExports
         if (!construction.Success)
             return SerializeStartFailure(
                 construction.Error?.Code ?? "PREVIEW_START_FAILED",
-                construction.Error?.Message ?? "The Game subclass could not be constructed.");
+                construction.Error?.Message ?? "The Game subclass could not be constructed.",
+                construction.Exception is null ? null : _exceptionMapper?.Map(construction.Exception));
         var start = runner.RunGame();
+        var failure = start.Exception is null ? null : _exceptionMapper?.Map(start.Exception);
         return JsonSerializer.Serialize(
             new GameStartResult(
                 start.Success,
@@ -253,7 +278,8 @@ public static partial class PreviewExports
                 start.RetainedGame,
                 start.Disposed,
                 start.DisposeAttempts,
-                start.Error is null ? null : new LoadError(start.Error.Code, start.Error.Message)),
+                start.Error is null ? null : new LoadError(start.Error.Code, start.Error.Message),
+                failure),
             PreviewJsonContext.Default.GameStartResult);
     }
 
@@ -343,14 +369,16 @@ public static partial class PreviewExports
 
     [JSExport]
     public static string TeardownGame()
-        => StopGameCore();
+        => StopGameCore(false);
 
     [JSExport]
     public static string StopGame()
-        => StopGameCore();
+        => StopGameCore(false);
 
-    private static string StopGameCore()
+    private static string StopGameCore(bool runtimeFailure)
     {
+        if (!runtimeFailure)
+            Volatile.Write(ref _runtimeBoundaryActive, 0);
         lock (LifecycleGate)
         {
             var runner = Interlocked.Exchange(ref _gameRunner, null);
@@ -386,6 +414,44 @@ public static partial class PreviewExports
                     gameType is null ? null : ReadProofCounter(gameType, "FrameCount"),
                     gameType is null ? null : ReadProofCounter(gameType, "DisposeCount")),
                 PreviewJsonContext.Default.GameTeardownResult);
+        }
+    }
+
+    private static void OnUnhandledException(object sender, UnhandledExceptionEventArgs args)
+    {
+        if (Volatile.Read(ref _runtimeBoundaryActive) != 1 ||
+            args.ExceptionObject is not Exception exception)
+            return;
+        var failure = _exceptionMapper?.Map(exception);
+        if (failure is null ||
+            Interlocked.CompareExchange(ref _runtimeFailureReported, 1, 0) != 0)
+            return;
+        Volatile.Write(ref _runtimeBoundaryActive, 0);
+        try
+        {
+            if (!BeginManagedRuntimeFailure(JsonSerializer.Serialize(
+                    failure, PreviewJsonContext.Default.RuntimeExceptionReport)))
+                return;
+            var teardown = JsonSerializer.Deserialize(
+                StopGameCore(true), PreviewJsonContext.Default.GameTeardownResult);
+            failure = failure with {
+                CleanupSucceeded = teardown?.Success == true,
+                DisposeAttempts = teardown?.DisposeAttempts,
+                FrameCount = _lastStoppedGameType is null
+                    ? null : ReadProofCounter(_lastStoppedGameType, "FrameCount"),
+                UpdateCount = _lastStoppedGameType is null
+                    ? null : ReadProofCounter(_lastStoppedGameType, "UpdateCount"),
+                ProofDisposeCount = _lastStoppedGameType is null
+                    ? null : ReadProofCounter(_lastStoppedGameType, "DisposeCount"),
+                CallbackAfterDisposedCount = _lastStoppedGameType is null
+                    ? null : ReadProofCounter(_lastStoppedGameType, "CallbackAfterDisposedCount"),
+            };
+            CompleteManagedRuntimeFailure(JsonSerializer.Serialize(
+                failure, PreviewJsonContext.Default.RuntimeExceptionReport));
+        }
+        catch (Exception boundaryFailure) when (!GameRunner.IsFatal(boundaryFailure))
+        {
+            // The original exception remains unhandled; never replace it with reporting failure.
         }
     }
 
@@ -565,7 +631,8 @@ public static partial class PreviewExports
             codeViewId.Stamp,
             pdbId.Guid.ToString("D"),
             pdbId.Stamp,
-            expectedAssemblyName);
+            expectedAssemblyName,
+            expectedSourcePaths);
     }
 
     private static bool IsCanonicalLogicalPath(string path, UTF8Encoding strictUtf8)
@@ -590,10 +657,11 @@ public static partial class PreviewExports
             new AssemblyLoadResult(false, mutationStarted, null, new LoadError(code, message)),
             PreviewJsonContext.Default.AssemblyLoadResult);
 
-    private static string SerializeStartFailure(string code, string message) =>
+    private static string SerializeStartFailure(
+        string code, string message, RuntimeExceptionReport? failure = null) =>
         JsonSerializer.Serialize(
             new GameStartResult(false, "stopped", 0, false, null, false, false, 0,
-                new LoadError(code, message)),
+                new LoadError(code, message), failure),
             PreviewJsonContext.Default.GameStartResult);
 
     internal sealed record PreviewContextProof(
@@ -628,7 +696,8 @@ public static partial class PreviewExports
         uint CodeViewStamp,
         string PortablePdbGuid,
         uint PortablePdbStamp,
-        string ExpectedAssemblyName);
+        string ExpectedAssemblyName,
+        string[] ExpectedSourcePaths);
 
     internal sealed record AssemblyLoadResult(
         bool Success,
@@ -664,7 +733,8 @@ public static partial class PreviewExports
         bool RetainedGame,
         bool Disposed,
         int DisposeAttempts,
-        LoadError? Error);
+        LoadError? Error,
+        RuntimeExceptionReport? Failure = null);
     internal sealed record GameRunStateResult(
         string State,
         int ConstructionAttempts,
@@ -716,7 +786,8 @@ public static partial class PreviewExports
         uint CodeViewStamp,
         string PortablePdbGuid,
         uint PortablePdbStamp,
-        string ExpectedAssemblyName);
+        string ExpectedAssemblyName,
+        string[] ExpectedSourcePaths);
 }
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
@@ -728,5 +799,6 @@ public static partial class PreviewExports
 [JsonSerializable(typeof(PreviewExports.GameRunStateResult))]
 [JsonSerializable(typeof(PreviewExports.RunnerBehavioralSelfTest))]
 [JsonSerializable(typeof(PreviewExports.GameStoppedProof))]
+[JsonSerializable(typeof(RuntimeExceptionReport))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class PreviewJsonContext : JsonSerializerContext;

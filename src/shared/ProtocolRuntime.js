@@ -604,6 +604,7 @@ export class ProtocolPortClient {
     this.outputListeners = new Set();
     this.controlEvents = [];
     this.lifecycleEligible = new Set();
+    this.runtimeFailureCorrelation = null;
     this.isClosed = false;
     this.closeReason = null;
     this.lastSequence = 0;
@@ -648,6 +649,12 @@ export class ProtocolPortClient {
       }
       if (value.type === "preview.started" || value.type === "preview.failed" ||
           value.type === "preview.stopped" || value.type === "preview.output") {
+        if (value.type === "preview.failed" && value.payload?.phase === "running" &&
+            !this.lifecycleEligible.has(value.correlationId) &&
+            this.runtimeFailureCorrelation === null && this.lifecycleEligible.size > 0) {
+          this.runtimeFailureCorrelation = value.correlationId;
+          this.lifecycleEligible.add(value.correlationId);
+        }
         if (!this.lifecycleEligible.has(value.correlationId)) {
           this.observations.discardedUnknownOrLate += 1;
           return;

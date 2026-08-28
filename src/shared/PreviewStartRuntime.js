@@ -22,14 +22,24 @@ export function createPreviewStartExecutor({
 }) {
   const fail = (exports, message, error) => {
     setState("failed");
+    const teardown = typeof exports.TeardownGame === "function"
+      ? JSON.parse(exports.TeardownGame())
+      : null;
+    if (error.code === "PREVIEW_RUNTIME_FAILED" && teardown) {
+      error = {
+        ...error,
+        details: {
+          ...(error.details ?? {}),
+          cleanupSucceeded: teardown.success === true,
+          disposeAttempts: teardown.disposeAttempts,
+        },
+      };
+    }
+    recordFailureTeardown(teardown);
     const failed = createLifecycleEvent("preview.failed", message.correlationId, {
       phase: "start",
       error,
     });
-    const teardown = typeof exports.TeardownGame === "function"
-      ? JSON.parse(exports.TeardownGame())
-      : null;
-    recordFailureTeardown(teardown);
     const stopped = createLifecycleEvent("preview.stopped", message.correlationId, {
       reason: "failed",
     });
@@ -96,10 +106,28 @@ export function createPreviewStartExecutor({
       });
     }
     if (!managed.success) {
-      return fail(exports, message, {
-        code: managed.error?.code ?? "PREVIEW_START_FAILED",
-        message: managed.error?.message ?? "Managed preview startup failed.",
-      });
+      const failureDetails = managed.failure
+        ? { exceptionType: managed.failure.exceptionType }
+        : null;
+      const firstFrame = managed.failure?.frames?.[0];
+      if (firstFrame) {
+        Object.assign(failureDetails, {
+          frame0Method: firstFrame.method,
+          frame0File: firstFrame.file,
+          frame0Line: firstFrame.line,
+          frame0Column: firstFrame.column,
+        });
+      }
+      return fail(exports, message, managed.failure
+        ? {
+            code: "PREVIEW_RUNTIME_FAILED",
+            message: managed.failure.message ?? "Managed preview startup failed.",
+            details: failureDetails,
+          }
+        : {
+            code: managed.error?.code ?? "PREVIEW_START_FAILED",
+            message: managed.error?.message ?? "Managed preview startup failed.",
+          });
     }
 
     setState("running");

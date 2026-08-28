@@ -132,6 +132,7 @@ declare global {
     previewIssue023EndpointSnapshot?: () => Record<string, unknown>;
     previewIssue024Proof?: Record<string, unknown>;
     previewIssue024Snapshot?: () => Record<string, unknown>;
+    previewIssue029QuiescentProof?: () => Promise<Record<string, unknown>>;
     previewIssue027WriterSelfTest?: () => Promise<Record<string, unknown>>;
     previewIssue028Snapshot?: () => Record<string, unknown>;
     previewIssue028EmitNativePaths?: () => void;
@@ -161,6 +162,7 @@ export interface Issue23RunningPreview {
   transfer: { assemblySenderDetached: boolean; pdbSenderDetached: boolean };
   wireOrder: string[];
   outputEvents: PreviewOutput[];
+  failure: Promise<Record<string, unknown>>;
   probes: Record<string, unknown>;
   client: ProtocolPortClient;
   query(): Promise<Record<string, unknown>>;
@@ -1305,6 +1307,13 @@ export async function compileLoadStartIssue23(input: {
     const startCorrelationId = createUuid();
     const wireOrder: string[] = [];
     const outputEvents: PreviewOutput[] = [];
+    const generatedObjectUrls = new Set<string>();
+    let runtimeFailureCorrelation: string | null = null;
+    let runtimeFailedEvent: unknown = null;
+    let runtimeFailureFinalizing = false;
+    let resolveRuntimeFailure!: (value: Record<string, unknown>) => void;
+    const failure = new Promise<Record<string, unknown>>(
+      resolve => { resolveRuntimeFailure = resolve; });
     const removeOutputListener = client.onOutputEvent(message => {
       if (message.correlationId !== startCorrelationId) return;
       const validated = validatePreviewOutputEvent(
@@ -1313,8 +1322,55 @@ export async function compileLoadStartIssue23(input: {
       outputEvents.push(validated.message);
       input.onOutput?.(validated.message);
     });
+    const removeRuntimeFailureListener = client.onLifecycleEvent(message => {
+      if (message.type === "preview.failed" && message.payload.phase === "running") {
+        if (runtimeFailureCorrelation !== null) return;
+        const validated = validatePreviewLifecycleEvent(message, isolatedPreviewId);
+        runtimeFailureCorrelation = validated.message.correlationId;
+        runtimeFailedEvent = validated.message;
+        wireOrder.push(validated.message.type);
+        return;
+      }
+      if (message.type !== "preview.stopped" ||
+          message.correlationId !== runtimeFailureCorrelation) return;
+      if (runtimeFailureFinalizing) return;
+      runtimeFailureFinalizing = true;
+      const validated = validatePreviewLifecycleEvent(
+        message, isolatedPreviewId, runtimeFailureCorrelation);
+      wireOrder.push(validated.message.type);
+      const runtime = frame.contentWindow?.previewIssue024Snapshot?.() ?? null;
+      const quiescentProof = frame.contentWindow?.previewIssue029QuiescentProof;
+      void (async () => {
+        let quiescent: unknown = null;
+        let quiescentError: string | null = null;
+        try {
+          quiescent = typeof quiescentProof === "function"
+            ? await quiescentProof()
+            : null;
+        } catch (error) {
+          quiescentError = error instanceof Error ? error.message : String(error);
+        } finally {
+          removeRuntimeFailureListener();
+          removeOutputListener();
+          client.close(new Error("Failed preview cleanup completed."));
+          for (const url of generatedObjectUrls) URL.revokeObjectURL(url);
+          generatedObjectUrls.clear();
+          frame.remove();
+          resolveRuntimeFailure({
+            failedEvent: runtimeFailedEvent,
+            stoppedEvent: validated.message,
+            runtime,
+            quiescent,
+            quiescentError,
+            iframeConnected: frame.isConnected,
+            portClosed: client.isClosed,
+          });
+        }
+      })();
+    });
     let removeListener = () => {};
     let lifecycleTimer = 0;
+    let startFailedEvent: unknown = null;
     let resolveStopped!: (message: unknown) => void;
     const stoppedPromise = new Promise<unknown>(resolve => { resolveStopped = resolve; });
     const startedPromise = new Promise<unknown>((resolve, reject) => {
@@ -1329,6 +1385,8 @@ export async function compileLoadStartIssue23(input: {
           window.clearTimeout(lifecycleTimer);
           if (validated.message.type === "preview.started") {
             resolve(validated.message);
+          } else if (validated.message.type === "preview.failed") {
+            startFailedEvent = validated.message;
           } else if (validated.message.type === "preview.stopped") {
             resolveStopped(validated.message);
           }
@@ -1393,6 +1451,7 @@ export async function compileLoadStartIssue23(input: {
             error => {
               removeListener();
               removeOutputListener();
+              removeRuntimeFailureListener();
               client.close(error);
               frame.remove();
             },
@@ -1419,6 +1478,7 @@ export async function compileLoadStartIssue23(input: {
       };
       removeListener();
       removeOutputListener();
+      removeRuntimeFailureListener();
       window.clearTimeout(lifecycleTimer);
       client.close(failure);
       frame.remove();
@@ -1430,6 +1490,7 @@ export async function compileLoadStartIssue23(input: {
           hostCloseReason: client.closeReason,
           clientObservations: { ...client.observations },
           wireOrder: [...wireOrder],
+          failedEvent: startFailedEvent,
           endpointSnapshot,
           beforeRetirement,
         },
@@ -1473,6 +1534,7 @@ export async function compileLoadStartIssue23(input: {
         };
         const failureProof = {
           wireOrder: [...wireOrder],
+          failedEvent: startFailedEvent,
           stoppedEvent,
           preview: frame.contentWindow?.previewIssue023Proof,
           endpointSnapshot,
@@ -1481,6 +1543,7 @@ export async function compileLoadStartIssue23(input: {
         };
         removeListener();
         removeOutputListener();
+        removeRuntimeFailureListener();
         client.close(new Error("Failed preview retired."));
         frame.remove();
         Object.assign(failureProof, {
@@ -1519,7 +1582,6 @@ export async function compileLoadStartIssue23(input: {
       ) as ReturnType<typeof validatePreviewStartResponse>).message;
     }
 
-    const generatedObjectUrls = new Set<string>();
     if (input.issue024Proof) {
       generatedObjectUrls.add(URL.createObjectURL(new Blob(
         [input.sourceText], { type: "text/plain" })));
@@ -1582,6 +1644,7 @@ export async function compileLoadStartIssue23(input: {
           const wasConnectedAtStopped = frame.isConnected;
           removeStopListener();
           removeOutputListener();
+          removeRuntimeFailureListener();
           client.close(new Error("Cooperative preview stop completed."));
           const urlsToRevoke = [...generatedObjectUrls];
           for (const url of urlsToRevoke) URL.revokeObjectURL(url);
@@ -1614,6 +1677,7 @@ export async function compileLoadStartIssue23(input: {
         } catch (error) {
           removeStopListener();
           removeOutputListener();
+          removeRuntimeFailureListener();
           client.close(error);
           for (const url of generatedObjectUrls) URL.revokeObjectURL(url);
           generatedObjectUrls.clear();
@@ -1649,6 +1713,7 @@ export async function compileLoadStartIssue23(input: {
       },
       wireOrder,
       outputEvents,
+      failure,
       probes,
       client,
       async query() {

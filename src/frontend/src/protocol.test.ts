@@ -1658,6 +1658,84 @@ test("start client accepts a delayed correlated event only after its terminal re
   channel.port2.close();
 });
 
+test("first Draw failure wins over a duplicate Update surface and owns stopped", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+  const received: string[] = [];
+  client.onLifecycleEvent(message => received.push(
+    `${message.type}:${message.correlationId}`));
+  channel.port2.onmessage = event => {
+    channel.port2.postMessage({
+      protocolVersion: 1,
+      correlationId: event.data.correlationId,
+      type: "preview.start.response",
+      result: { success: true, data: { previewId: uuid, accepted: true } },
+    });
+  };
+  await client.request(
+    startRequest(), "preview.start.response",
+    value => validatePreviewStartResponse(value, uuid, uuid));
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: uuid, type: "preview.started",
+    payload: { previewId: uuid, sequence: 1 },
+  });
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: compileId, type: "preview.failed",
+    payload: {
+      previewId: uuid, sequence: 2, phase: "running",
+      error: { code: "PREVIEW_RUNTIME_FAILED", message: "Draw failure" },
+    },
+  });
+  channel.port2.postMessage({
+    protocolVersion: 1,
+    correlationId: "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee",
+    type: "preview.failed",
+    payload: {
+      previewId: uuid, sequence: 3, phase: "running",
+      error: { code: "PREVIEW_RUNTIME_FAILED", message: "duplicate Update surface" },
+    },
+  });
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: compileId, type: "preview.stopped",
+    payload: { previewId: uuid, sequence: 4, reason: "failed" },
+  });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(received, [
+    `preview.started:${uuid}`,
+    `preview.failed:${compileId}`,
+    `preview.stopped:${compileId}`,
+  ]);
+  assert.equal(client.runtimeFailureCorrelation, compileId);
+  assert.equal(client.observations.discardedUnknownOrLate, 1);
+  client.close("test");
+  channel.port2.close();
+});
+
+test("run controller recovers after production failure observation without stopping twice", async () => {
+  let resolveFailure!: () => void;
+  let starts = 0;
+  let stops = 0;
+  const controls: Array<[string, boolean]> = [];
+  const failure = new Promise<void>(resolve => { resolveFailure = resolve; });
+  const controller = createIssue024RunStopController({
+    start: async () => ({ id: ++starts, failure }),
+    stop: async () => { stops++; },
+    observeFailure: preview => preview.failure,
+    setRunDisabled: value => controls.push(["run", value]),
+    setStopDisabled: value => controls.push(["stop", value]),
+    setStatus() {},
+    reportError(error) { throw error; },
+  });
+  await controller.run();
+  resolveFailure();
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(controller.state, "idle");
+  assert.equal(stops, 0);
+  assert.deepEqual(controls.slice(-2), [["run", false], ["stop", true]]);
+  await controller.run();
+  assert.equal(starts, 2);
+});
+
 test("validates correlated monotonic start lifecycle event shape", () => {
   const event = {
     protocolVersion: 1,

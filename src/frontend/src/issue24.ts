@@ -106,6 +106,7 @@ function createRunStopController(proofMode: boolean) {
       });
     },
     stop: (preview, reason) => preview.stop(reason),
+    observeFailure: preview => preview.failure,
     setRunDisabled: disabled => { runButton.disabled = disabled; },
     setStopDisabled: disabled => { stopButton.disabled = disabled; },
     setStatus: (state, text) => {

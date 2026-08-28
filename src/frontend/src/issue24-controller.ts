@@ -5,6 +5,7 @@ export function createIssue024RunStopController<T>({
   setStopDisabled,
   setStatus,
   reportError,
+  observeFailure,
 }: {
   start: () => Promise<T>;
   stop: (preview: T, reason?: "user" | "restart") => Promise<unknown>;
@@ -12,6 +13,7 @@ export function createIssue024RunStopController<T>({
   setStopDisabled: (disabled: boolean) => void;
   setStatus: (state: "busy" | "ready" | "error", text: string) => void;
   reportError: (error: unknown) => void;
+  observeFailure?: (preview: T) => Promise<unknown>;
 }) {
   let state: "idle" | "starting" | "running" | "stopping" = "idle";
   let active: T | null = null;
@@ -29,6 +31,24 @@ export function createIssue024RunStopController<T>({
       state = "running";
       setStopDisabled(false);
       setStatus("ready", "Running clear-color Game in a fresh preview.");
+      if (observeFailure) {
+        void observeFailure(preview).then(() => {
+          if (active !== preview || state !== "running") return;
+          active = null;
+          state = "idle";
+          setRunDisabled(false);
+          setStopDisabled(true);
+          setStatus("error", "Preview failed; editor controls recovered.");
+        }, error => {
+          if (active !== preview || state !== "running") return;
+          active = null;
+          state = "idle";
+          setRunDisabled(false);
+          setStopDisabled(true);
+          setStatus("error", error instanceof Error ? error.message : String(error));
+          reportError(error);
+        });
+      }
       return preview;
     }, error => {
       active = null;
