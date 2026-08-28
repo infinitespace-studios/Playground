@@ -73,6 +73,7 @@ globalThis.previewIssue024Proof = {
 globalThis.previewIssue028Proof = { enabled: false };
 globalThis.previewIssue030Proof = { enabled: false, samples: [], errors: [] };
 globalThis.previewIssue033Proof = { enabled: false };
+globalThis.previewIssue034Proof = { enabled: false };
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -322,6 +323,186 @@ async function executeBridgeAction(action, payload) {
       violations,
     };
   }
+  if (action === "issue034-security" && globalThis.previewIssue034Proof.enabled) {
+    const internals = globalThis.__TAURI_INTERNALS__;
+    const webkitHandlers = globalThis.webkit?.messageHandlers;
+    const handlerNames = webkitHandlers && typeof webkitHandlers === "object"
+      ? Object.getOwnPropertyNames(webkitHandlers)
+      : [];
+    let directInvoke = "unreachable";
+    if (typeof internals?.invoke === "function") {
+      try {
+        await internals.invoke("issue034_trusted_marker");
+        directInvoke = "unexpected-success";
+      } catch {
+        directInvoke = "rejected";
+      }
+    }
+    const rawIpc = {
+      windowIpc: typeof globalThis.ipc,
+      windowIpcPostMessage: typeof globalThis.ipc?.postMessage,
+      webkitIpcPostMessage: typeof webkitHandlers?.ipc?.postMessage,
+      submitted: 0,
+      rejected: 0,
+      malformedProbeCount: 0,
+    };
+    const ipcHandler = webkitHandlers?.ipc;
+    const probes = Array.isArray(payload?.ipcProbes) ? payload.ipcProbes : [];
+    if (probes.length > 256)
+      throw new Error("Issue 034 raw IPC probe count exceeds its bound.");
+    for (const probe of probes) {
+      if (!probe || typeof probe.envelope !== "string" ||
+          probe.envelope.length > 4_096 ||
+          !Number.isInteger(probe.repetitions) ||
+          probe.repetitions < 1 || probe.repetitions > 2) {
+        rawIpc.malformedProbeCount += 1;
+        continue;
+      }
+      for (let attempt = 0; attempt < probe.repetitions; attempt += 1) {
+        try {
+          if (typeof ipcHandler?.postMessage !== "function")
+            throw new Error("WebKit IPC handler is unavailable.");
+          ipcHandler.postMessage(probe.envelope);
+          rawIpc.submitted += 1;
+        } catch {
+          rawIpc.rejected += 1;
+        }
+      }
+    }
+    const urls = [
+      "file:///issue034-controlled-canary.txt",
+      "tauri://localhost/tests/security/fixtures/issue034-canary.txt",
+      "asset://localhost/tests/security/fixtures/issue034-canary.txt",
+      "http://ipc.localhost/issue034_trusted_marker",
+      "ipc://localhost/issue034_trusted_marker",
+      "playground-preview://localhost/%2e%2e/tests/security/fixtures/issue034-canary.txt",
+    ];
+    const customProtocolProbe = probes.find(probe =>
+      probe && typeof probe === "object" &&
+      probe.command === "issue034_trusted_marker" &&
+      probe.variant === "wrong-key");
+    const customProtocolHeaders = customProtocolProbe
+      ? {
+          "Content-Type": "application/json",
+          "Tauri-Callback": String(customProtocolProbe.callback),
+          "Tauri-Error": String(customProtocolProbe.error),
+          "Tauri-Invoke-Key": "issue034-deliberately-invalid-invoke-key",
+        }
+      : {};
+    const fetchResults = await Promise.all(urls.map(async (url, probe) => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 2_000);
+      try {
+        const ipc = url.startsWith("ipc:") || url.startsWith("http://ipc.");
+        const response = await fetch(url, {
+          method: ipc ? "POST" : "GET",
+          body: ipc ? "{}" : undefined,
+          headers: ipc ? customProtocolHeaders : undefined,
+          credentials: "omit",
+          signal: controller.signal,
+        });
+        const text = (await response.text()).slice(0, 256);
+        const bodyBytes = new TextEncoder().encode(text);
+        return {
+          probe,
+          resolved: true,
+          status: response.status,
+          bodySha256: await sha256Buffer(bodyBytes.buffer),
+          bodyBytes: bodyBytes.byteLength,
+        };
+      } catch (error) {
+        return {
+          probe,
+          resolved: false,
+          error: error instanceof Error ? error.name : "Error",
+          bodySha256: null,
+          bodyBytes: 0,
+        };
+      } finally {
+        clearTimeout(timer);
+      }
+    }));
+    const xhrResults = await Promise.all(urls.map((url, probe) =>
+      new Promise(resolve => {
+        const request = new XMLHttpRequest();
+        let settled = false;
+        const finish = async (resolved, error) => {
+          if (settled) return;
+          settled = true;
+          let text = "";
+          try {
+            text = typeof request.responseText === "string"
+              ? request.responseText.slice(0, 256)
+              : "";
+          } catch {
+            text = "";
+          }
+          const bodyBytes = new TextEncoder().encode(text);
+          try {
+            resolve({
+              probe,
+              resolved,
+              status: request.status,
+              error,
+              bodySha256: await sha256Buffer(bodyBytes.buffer),
+              bodyBytes: bodyBytes.byteLength,
+            });
+          } catch {
+            resolve({
+              probe,
+              resolved: false,
+              status: request.status,
+              error: "digest-error",
+              bodySha256: null,
+              bodyBytes: bodyBytes.byteLength,
+            });
+          }
+        };
+        request.timeout = 2_000;
+        request.onload = () => finish(true, null);
+        request.onerror = () => finish(false, "error");
+        request.ontimeout = () => finish(false, "timeout");
+        try {
+          request.open(
+            url.startsWith("ipc:") || url.startsWith("http://ipc.") ? "POST" : "GET",
+            url,
+          );
+          request.withCredentials = false;
+          if (url.startsWith("ipc:") || url.startsWith("http://ipc.")) {
+            for (const [name, value] of Object.entries(customProtocolHeaders))
+              request.setRequestHeader(name, value);
+          }
+          request.send(
+            url.startsWith("ipc:") || url.startsWith("http://ipc.") ? "{}" : null);
+        } catch {
+          finish(false, "exception");
+        }
+      })));
+    const exports = await exportsPromise;
+    if (typeof exports.Issue034FileSystemProbe !== "function")
+      throw new Error("Issue 034 managed filesystem probe is unavailable.");
+    return {
+      globals: {
+        tauri: typeof globalThis.__TAURI__,
+        internals: typeof internals,
+        isTauri: typeof globalThis.isTauri,
+        invoke: typeof internals?.invoke,
+        transformCallback: typeof internals?.transformCallback,
+        convertFileSrc: typeof internals?.convertFileSrc,
+        internalsKeys: internals && typeof internals === "object"
+          ? Object.keys(internals).sort()
+          : [],
+        webkit: typeof globalThis.webkit,
+        webkitMessageHandlers: typeof webkitHandlers,
+        webkitHandlerNames: handlerNames.sort(),
+      },
+      directInvoke,
+      rawIpc,
+      fetchResults,
+      xhrResults,
+      managedFileSystem: JSON.parse(exports.Issue034FileSystemProbe()),
+    };
+  }
   if (action === "wait-animation-frame") {
     return await boundedAnimationFrame("wait-animation-frame");
   }
@@ -442,6 +623,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue028Proof") || typeof data.issue028Proof === "boolean") &&
     (!Object.hasOwn(data, "issue030Proof") || typeof data.issue030Proof === "boolean") &&
     (!Object.hasOwn(data, "issue033Proof") || typeof data.issue033Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue034Proof") || typeof data.issue034Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -461,6 +643,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue028Proof.enabled = data.issue028Proof === true;
     globalThis.previewIssue030Proof.enabled = data.issue030Proof === true;
     globalThis.previewIssue033Proof.enabled = data.issue033Proof === true;
+    globalThis.previewIssue034Proof.enabled = data.issue034Proof === true;
     installPreviewBridge(additionalPorts[0], data.issue021Proof === true);
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");

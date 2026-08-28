@@ -72,6 +72,40 @@ public static partial class PreviewExports
     }
 
     [JSExport]
+    public static string Issue034FileSystemProbe()
+    {
+        var paths = new[]
+        {
+            "/issue034-controlled-canary.txt",
+            "tests/security/fixtures/issue034-canary.txt",
+            "/Users/issue034-controlled-canary.txt",
+        };
+        var results = paths.Select((path, index) =>
+        {
+            try
+            {
+                _ = File.ReadAllText(path);
+                return new { probe = index, read = true, error = (string?)null };
+            }
+            catch (Exception exception)
+            {
+                return new
+                {
+                    probe = index,
+                    read = false,
+                    error = (string?)exception.GetType().Name
+                };
+            }
+        }).ToArray();
+        return JsonSerializer.Serialize(new
+        {
+            currentDirectory = Environment.CurrentDirectory,
+            results,
+            anyRead = results.Any(result => result.read),
+        });
+    }
+
+    [JSExport]
     public static string RunForwardingTextWriterSelfTest()
     {
         var received = new List<string>();

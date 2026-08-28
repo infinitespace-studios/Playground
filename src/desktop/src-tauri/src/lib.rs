@@ -254,8 +254,7 @@ fn issue033_proof_enabled() -> bool {
 }
 
 fn issue033_no_wasm_eval_proof_enabled() -> bool {
-    std::env::var_os("MONOGAME_ISSUE033_NO_WASM_EVAL_PROOF")
-        .is_some_and(|value| value == "1")
+    std::env::var_os("MONOGAME_ISSUE033_NO_WASM_EVAL_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
@@ -280,6 +279,44 @@ fn issue033_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     Ok(())
 }
 
+fn issue034_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE034_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue034_is_proof_enabled() -> bool {
+    issue034_proof_enabled()
+}
+
+static ISSUE034_TRUSTED_MARKER_CALLS: std::sync::atomic::AtomicUsize =
+    std::sync::atomic::AtomicUsize::new(0);
+
+fn require_issue034_main_frame(webview: &tauri::WebviewWindow) -> Result<(), String> {
+    if !issue034_proof_enabled() || webview.label() != "main" {
+        return Err("issue 034 trusted marker is unavailable".into());
+    }
+    Ok(())
+}
+
+#[tauri::command]
+fn issue034_trusted_marker(webview: tauri::WebviewWindow) -> Result<&'static str, String> {
+    require_issue034_main_frame(&webview)?;
+    ISSUE034_TRUSTED_MARKER_CALLS
+        .fetch_update(
+            std::sync::atomic::Ordering::SeqCst,
+            std::sync::atomic::Ordering::SeqCst,
+            |count| (count < 8).then_some(count + 1),
+        )
+        .map_err(|_| "issue 034 trusted marker call limit reached".to_string())?;
+    Ok("issue034-main-frame-marker-v1")
+}
+
+#[tauri::command]
+fn issue034_trusted_marker_calls(webview: tauri::WebviewWindow) -> Result<usize, String> {
+    require_issue034_main_frame(&webview)?;
+    Ok(ISSUE034_TRUSTED_MARKER_CALLS.load(std::sync::atomic::Ordering::SeqCst))
+}
+
 fn packaged_pipeline_proof_enabled() -> bool {
     issue021_proof_enabled()
         || issue022_proof_enabled()
@@ -294,6 +331,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue032_proof_enabled()
         || issue033_proof_enabled()
         || issue033_no_wasm_eval_proof_enabled()
+        || issue034_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -681,6 +719,37 @@ mod tests {
     }
 
     #[test]
+    fn issue034_shell_policy_is_fail_closed() {
+        let config = include_str!("../tauri.conf.json");
+        let capability = include_str!("../capabilities/main.json");
+        let permission = include_str!("../permissions/main.toml");
+        let manifest = include_str!("../Cargo.toml");
+        let lockfile = include_str!("../Cargo.lock");
+        let canary = include_bytes!("../../../../tests/security/fixtures/issue034-canary.txt");
+        assert!(config.contains("\"withGlobalTauri\": false"));
+        assert!(capability.contains("\"windows\": [\"main\"]"));
+        assert!(capability.contains("\"local\": true"));
+        assert!(capability.contains("\"permissions\": [\"main-commands\"]"));
+        assert!(permission.contains("issue034_trusted_marker"));
+        let canary_checksum = canary.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
+            (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
+        });
+        assert_eq!(canary.len(), 38);
+        assert_eq!(canary_checksum, 0x0e9f23477671a0b8);
+        assert!(lockfile.contains("name = \"tauri\"\nversion = \"2.11.5\""));
+        for forbidden in [
+            "tauri-plugin-fs",
+            "tauri-plugin-shell",
+            "tauri-plugin-process",
+            "tauri-plugin-opener",
+            "tauri-plugin-dialog",
+            "tauri-plugin-clipboard-manager",
+        ] {
+            assert!(!manifest.contains(forbidden), "{forbidden}");
+        }
+    }
+
+    #[test]
     fn proof_readiness_requires_native_and_tauri_focus() {
         assert!(proof_window_ready(true, true, false, true, true));
         assert!(!proof_window_ready(true, true, false, false, true));
@@ -953,14 +1022,21 @@ fn issue033_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
-fn issue033_emit_no_wasm_eval_report(
-    app: tauri::AppHandle,
-    report: String,
-) -> Result<(), String> {
+fn issue033_emit_no_wasm_eval_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue033_no_wasm_eval_proof_enabled() {
         return Err("issue 033 no-wasm-eval proof instrumentation is disabled".into());
     }
     emit_packaged_proof_report(&format!("ISSUE033_NO_WASM_EVAL_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn issue034_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue034_proof_enabled() {
+        return Err("issue 034 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE034_REPORT={report}"))?;
     app.exit(0);
     Ok(())
 }
@@ -1049,6 +1125,9 @@ pub fn run() {
             issue032_is_proof_enabled,
             issue033_is_proof_enabled,
             issue033_is_no_wasm_eval_proof_enabled,
+            issue034_is_proof_enabled,
+            issue034_trusted_marker,
+            issue034_trusted_marker_calls,
             issue033_emit_checkpoint,
             prepare_packaged_proof_window,
             issue023_emit_checkpoint,
@@ -1062,7 +1141,8 @@ pub fn run() {
             issue031_emit_report,
             issue032_emit_report,
             issue033_emit_report,
-            issue033_emit_no_wasm_eval_report
+            issue033_emit_no_wasm_eval_report,
+            issue034_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

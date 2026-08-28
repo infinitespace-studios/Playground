@@ -1,6 +1,6 @@
 # Preview security model
 
-## Version 1 (issue 033)
+## Version 1 (issues 033–034)
 
 Every production game-preview iframe is created with exactly:
 
@@ -91,11 +91,134 @@ The compiler iframe is not a game preview and is outside issue 033.
 because the preview must be embedded by the editor. The
 custom protocol is registered only inside the desktop webview.
 
+## Desktop IPC and filesystem boundary
+
+The desktop uses pinned Tauri `2.11.5`. Its core initialization, invoke,
+metadata, IPC, event, isolation, and optional global-API scripts are created as
+`InitializationScript { for_main_frame_only: true }`. Therefore they execute
+in the trusted top-level `main` frame and not in nested preview frames.
+`app.withGlobalTauri` is explicitly `false`. There are no plugin initialization
+scripts and no `tauri-plugin-fs`, shell, process, opener, dialog, or clipboard
+dependency.
+The frontend has no `@tauri-apps/api` dependency or imported transport; the
+trusted code uses Tauri's injected, non-global `__TAURI_INTERNALS__.invoke`
+transport directly.
+
+Custom application commands are opted into Tauri's runtime authority through
+`AppManifest::commands`. The sole local capability is
+`capabilities/main.json`: identifier `main`, `local: true`, window `main`, and
+permission `main-commands`. It has no remote URL grant. The exact command
+inventory is maintained and cross-checked in four places:
+`build.rs`, `permissions/main.toml`, `generate_handler!`, and the packaged
+proof inventory. It consists of
+the issue 009–034 proof enable/checkpoint/report commands,
+`prepare_packaged_proof_window`, and the issue-034 marker commands. No
+filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
+arbitrary command-forwarding command is registered.
+The structured policy validator requires exactly one permission table with
+only the expected identifier, description, and exact `commands.allow`; extra
+tables, fields, and grants fail the build. It recursively checks desktop Rust
+sources for exactly one handler macro/registration and rejects plugin or
+all-frame initialization APIs. Cargo's exact allowlist is: runtime `tauri`
+with no features; build-time `serde_json`, `toml`, and featureless
+`tauri-build`; and macOS-only `objc2`, `objc2-app-kit`, and
+`objc2-foundation` at the documented exact versions/features in `Cargo.toml`.
+All other dependency names, target sections, or feature changes require a
+deliberate validator/documentation update. The executable build-time negative
+matrix covers appended permission tables, plugin/all-frame initialization,
+second handler macros, extra runtime/build/plugin dependencies, and dependency
+feature drift. Protocol tests cover second/remote/wildcard capabilities,
+`webviews`, `local: false`, and extra permissions. It also validates all
+generated files. The effective 47-file ACL scope is exactly one capability,
+one composite `main-commands` permission, and 45 Tauri-generated per-command
+allow/deny permission files. The generated directory is intentionally ignored
+by Git: `tauri_build` reproducibly creates it from `APP_COMMANDS`, then
+`build.rs` rejects missing, extra, renamed, non-file, or malformed entries.
+
+`issue034_trusted_marker` is harmless and proof-gated. It accepts no user
+argument, validates that Tauri identified the invoking webview-window as
+`main`, returns only `issue034-main-frame-marker-v1`, and increments an
+eight-call maximum process-local counter. The packaged proof invokes it once
+from the top level and verifies the counter remains exactly one after two
+preview generations and forged transport attempts.
+
+The production preview evaluates and records these expressions:
+
+```text
+typeof window.__TAURI__
+typeof window.__TAURI_INTERNALS__
+typeof window.isTauri
+typeof window.__TAURI_INTERNALS__?.invoke
+typeof window.__TAURI_INTERNALS__?.transformCallback
+typeof window.__TAURI_INTERNALS__?.convertFileSrc
+Object.keys(window.__TAURI_INTERNALS__ ?? {})
+Object.getOwnPropertyNames(window.webkit?.messageHandlers ?? {})
+```
+
+The trusted top level must observe `__TAURI_INTERNALS__` as an object,
+`invoke` and `transformCallback` as functions, `isTauri` as a boolean, and
+metadata label `main`; `window.__TAURI__` remains undefined. On the pinned
+macOS WebKit runtime, the top-level enumerable internals are only `plugins`
+(the callable and metadata properties are non-enumerable). The opaque preview
+observes every Tauri global/function above as undefined and no enumerable
+message-handler names. WebKit does expose a dynamic
+`window.webkit.messageHandlers.ipc.postMessage` proxy to the nested frame even
+though no Tauri initialization script ran there. The proof installs bounded
+one-shot callback/error IDs in the trusted observer, passes only those numeric
+IDs to the preview, and submits NSString JSON envelopes through the raw proxy.
+Every envelope matches Tauri 2.11.5's postMessage fallback shape:
+`cmd`, `callback`, `error`, `options` (including headers and
+`customProtocolIpcBlocked`), `payload`, and optionally
+`__TAURI_INVOKE_KEY__`. All 45 registered commands receive missing-key,
+deliberately-wrong-key, and replayed-wrong-key variants (180 native messages,
+135 logical probes).
+
+Missing-key strings produce Tauri's concrete native parser diagnostic
+`JSON error: missing field` naming `__TAURI_INVOKE_KEY__`; exactly 45 are
+observed.
+Wrong and replayed keys are silently dropped at invoke-key authentication:
+no success/error callback runs during the bounded ten-second observation, all
+270 callback IDs are then removed, the window dimensions and marker counter
+remain unchanged, and the app completes a fresh preview restart. Tauri does
+not return an authentication error callback for this transport. ACL evaluation
+is **not** claimed: the wrong-key requests are rejected before runtime
+authority evaluates the `main` capability. Thus denial is not inferred from
+missing globals or from merely submitting an object to Wry.
+The random invoke key and callback transforms are never copied across the
+private preview port or included in reports.
+
+The preview also attempts both Fetch and XMLHttpRequest GET/POST through `file:`, `tauri:`, `asset:`,
+`ipc:`, `http://ipc.localhost`, and an encoded traversal of
+`playground-preview:`. All non-preview transports must reject before content
+is returned. The custom IPC POSTs use the real command URL, `{}` JSON body,
+`Content-Type`, numeric `Tauri-Callback`/`Tauri-Error`, and a deliberately
+wrong `Tauri-Invoke-Key`; CSP blocks those URL transports before Tauri parsing,
+so they are not described as ACL or authentication results. The direct WebKit
+NSString transport supplies the native parser/authentication evidence. The
+preview protocol traversal must return only generic
+`400 Bad Request`. A repository-controlled non-secret canary at
+`tests/security/fixtures/issue034-canary.txt` establishes a trusted checksum
+and SHA-256 expectation. Its literal content is absent from production source,
+preview reports, and packaged resources. The preview reports only bounded body
+lengths and SHA-256 digests; the trusted controller proves none equals the
+canary digest. A managed
+probe separately attempts `File.ReadAllText` against plausible virtual/project
+paths and must report no successful read. This distinguishes browser/.NET
+virtual filesystems from the unavailable host filesystem without probing any
+private user file.
+
+Capability labels cannot distinguish an iframe from its containing webview:
+both belong to `main`. The nested-frame boundary therefore additionally
+depends on Tauri's supported main-frame-only initialization behavior, the
+unavailable invoke key/transforms, opaque-origin sandbox, CSP, and the absence
+of plugin scripts. Issue 034 does not claim arbitrary-code OS isolation or
+network/navigation denial; those remain issues 035–038.
+
 ## Limits and follow-up
 
 Sandbox, CSP, API analyzers, opaque origin, and private ports are
-defense-in-depth product boundaries, not a security sandbox for arbitrary
+defense-in-depth product boundaries, not a complete security sandbox for arbitrary
 hostile code. They do not by themselves provide process, OS, CPU, or memory
-isolation. Issues 034–038 add process boundary, protocol hardening, network
+isolation. Issues 035–038 add process boundary, protocol hardening, network
 denial, resource limits, and adversarial validation. No claim here supersedes
 those remaining controls.

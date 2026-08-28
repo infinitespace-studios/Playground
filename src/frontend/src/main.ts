@@ -11,6 +11,7 @@ import { runIssue030AutoProof } from "./issue30";
 import { runIssue031AutoProof } from "./issue31";
 import { runIssue032AutoProof } from "./issue32";
 import { runIssue033AutoProof, runIssue033NoWasmEvalProof } from "./issue33";
+import { runIssue034AutoProof } from "./issue34";
 
 interface RuntimeBuild {
   buildConfiguration: string;
@@ -101,6 +102,12 @@ declare global {
     __MONOGAME_DIAGNOSTICS__: RuntimeDiagnostics;
     __TAURI_INTERNALS__?: {
       invoke<T>(command: string, args?: Record<string, unknown>): Promise<T>;
+    };
+    __TAURI__?: unknown;
+    isTauri?: boolean;
+    __ISSUE034_EXPECTED_IPC_ERRORS__?: {
+      remaining: number;
+      observed: string[];
     };
   }
 }
@@ -307,7 +314,17 @@ window.addEventListener("unhandledrejection", (event) => {
 
 const originalConsoleError = console.error.bind(console);
 console.error = (...args: unknown[]) => {
-  diagnostics.consoleErrors.push(args.map(String).join(" "));
+  const message = args.map(String).join(" ");
+  const expectedIpc = window.__ISSUE034_EXPECTED_IPC_ERRORS__;
+  if (expectedIpc && expectedIpc.remaining > 0 &&
+      /^JSON error: missing field `__TAURI_INVOKE_KEY__` at line 1 column \d+$/
+        .test(message)) {
+    expectedIpc.remaining -= 1;
+    expectedIpc.observed.push(message.slice(0, 160));
+    originalConsoleError(...args);
+    return;
+  }
+  diagnostics.consoleErrors.push(message);
   setFailure("WebView console error — inspect packaged runtime diagnostics");
   originalConsoleError(...args);
 };
@@ -1355,4 +1372,15 @@ void runIssue033NoWasmEvalProof().catch((error: unknown) => {
     }),
   });
   console.error("Issue 033 no-wasm proof instrumentation failed", error);
+});
+void runIssue034AutoProof().catch((error: unknown) => {
+  void window.__TAURI_INTERNALS__?.invoke("issue034_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: error instanceof Error ? error.message : String(error),
+      diagnostics,
+    }),
+  });
+  console.error("Issue 034 proof instrumentation failed", error);
 });

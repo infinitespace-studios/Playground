@@ -10,7 +10,9 @@ name = "monogame_playground_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
+serde_json = "1"
 tauri-build = { version = "2", features = [] }
+toml = "0.8"
 
 [dependencies]
 tauri = { version = "2", features = [] }
