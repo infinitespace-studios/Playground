@@ -39,7 +39,11 @@ export type PlaygroundDiagnosticId =
   | "PG0007_DLLIMPORT_NOT_ALLOWED"
   | "PG0008_UNMANAGED_CALLERS_ONLY_NOT_ALLOWED"
   | "PG0009_UNSAFE_NATIVE_CALL_NOT_ALLOWED"
-  | "PG0010_CONTENT_PLATFORM_MISMATCH";
+  | "PG0010_CONTENT_PLATFORM_MISMATCH"
+  | "PG0101"
+  | "PG0102"
+  | "PG0103"
+  | "PG0104";
 
 export interface PlaygroundDiagnostic {
   readonly origin: "playground";

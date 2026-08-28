@@ -322,6 +322,11 @@ file, line, column
 - `PG0008_UNMANAGED_CALLERS_ONLY_NOT_ALLOWED`
 - `PG0009_UNSAFE_NATIVE_CALL_NOT_ALLOWED`
 - `PG0010_CONTENT_PLATFORM_MISMATCH`
+- `PG0101` (supported-API policy: `DllImport`)
+- `PG0102` (supported-API policy: `UnmanagedCallersOnly`)
+- `PG0103` (supported-API policy: unsafe syntax)
+- `PG0104` (supported-API policy: direct
+  `System.Runtime.InteropServices.JavaScript` use)
 
 Paths use the source logical-path rules in section 8. Messages are display-safe
 plain text subject to the diagnostic limit. Diagnostics must be sorted by

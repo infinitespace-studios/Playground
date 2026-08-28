@@ -23,6 +23,7 @@ import {
   validatePreviewStopRequest,
   validatePreviewStopResponse,
 } from "./protocol.ts";
+
 import { installPrivatePortBootstrap } from "../../shared/ProtocolRuntime.js";
 import {
   createCompilerEndpoint,
@@ -53,6 +54,49 @@ import { createIssue024RunStopController } from "./issue24-controller.ts";
 const uuid = "00112233-4455-4677-8899-aabbccddeeff";
 const compileId = "12345678-1234-4abc-8def-123456789abc";
 const digest = "a".repeat(64);
+
+test("supported API policy exactly inventories the pinned reference identities", async () => {
+  const policy = await readFile(
+    new URL("../../../docs/supported-api-policy.md", import.meta.url),
+    "utf8",
+  );
+  const manifest = JSON.parse(await readFile(
+    new URL("../../../docs/reference-allowlist.json", import.meta.url),
+    "utf8",
+  )) as {
+    schemaVersion: number;
+    monogameCommitSha: string;
+    assemblies: Array<{
+      simpleName: string;
+      version: string;
+      publicKeyToken: string | null;
+    }>;
+  };
+  assert.equal(manifest.schemaVersion, 1);
+  assert.equal(policy.includes(manifest.monogameCommitSha), true);
+  const identityRows = [...policy.matchAll(
+    /^\| `([^`]+)` \| `([^`]+)` \| (?:`([^`]+)`|none) \|$/gm,
+  )].map(match => ({
+    simpleName: match[1],
+    version: match[2],
+    publicKeyToken: match[3] ?? null,
+  }));
+  assert.deepEqual(identityRows, manifest.assemblies.map(assembly => ({
+    simpleName: assembly.simpleName,
+    version: assembly.version,
+    publicKeyToken: assembly.publicKeyToken,
+  })));
+  for (const id of ["PG0101", "PG0102", "PG0103", "PG0104"]) {
+    assert.equal(policy.includes(`| \`${id}\` |`), true);
+    assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.includes(id), true);
+  }
+  assert.match(policy, /not a security sandbox/i);
+  assert.match(policy, /does \*\*not\*\* prove the meaning of strings/i);
+  assert.match(
+    policy,
+    /`delegate\* unmanaged<\.\.\.>`[\s\S]*not currently assigned `PG0103`[\s\S]*deferred to issue 032/i,
+  );
+});
 
 test("cross-file fixtures are canonical, reusable, and duplicate-safe", async () => {
   const root = new URL("../../../", import.meta.url);
@@ -657,7 +701,7 @@ test("matches assembly, diagnostic, error-detail, and error-code contract bounda
     details: { key: "x".repeat(1025) },
   }), uuid, compileId), /MALFORMED/);
   assert.equal(PROTOCOL_ERROR_CODES.length, 32);
-  assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 10);
+  assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 14);
   assert.equal(LIMITS.errorDetails, 16 * 1024);
   assert.equal(Object.isFrozen(LIMITS), true);
 });

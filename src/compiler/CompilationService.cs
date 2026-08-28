@@ -69,13 +69,27 @@ public static class CompilationService
                 deterministic: true,
                 concurrentBuild: false));
 
+        var policyDiagnostics = PolicyAnalyzer.Analyze(compilation);
+        if (policyDiagnostics.Count != 0)
+        {
+            var compilerDiagnostics = ToDiagnostics(compilation.GetDiagnostics(), files);
+            return new CompilationResult(
+                false,
+                assemblyName,
+                null,
+                null,
+                SortDiagnostics(compilerDiagnostics.Concat(policyDiagnostics)),
+                null);
+        }
+
         using var assemblyStream = new MemoryStream();
         using var pdbStream = new MemoryStream();
         var emitResult = compilation.Emit(
             assemblyStream,
             pdbStream,
             options: new EmitOptions(debugInformationFormat: DebugInformationFormat.PortablePdb));
-        var diagnostics = ToDiagnostics(emitResult.Diagnostics, files);
+        var diagnostics = SortDiagnostics(
+            ToDiagnostics(emitResult.Diagnostics, files).Concat(policyDiagnostics));
 
         if (!emitResult.Success)
         {
@@ -131,7 +145,7 @@ public static class CompilationService
             .Select(file => file.Path)
             .ToHashSet(StringComparer.Ordinal);
 
-        return diagnostics
+        return SortDiagnostics(diagnostics
             .Where(diagnostic => diagnostic.Severity != DiagnosticSeverity.Hidden)
             .Select(diagnostic =>
             {
@@ -154,7 +168,14 @@ public static class CompilationService
                     // Roslyn and Monaco both count UTF-16 code units; expose them as 1-based coordinates.
                     hasSource ? lineSpan.StartLinePosition.Line + 1 : 0,
                     hasSource ? lineSpan.StartLinePosition.Character + 1 : 0);
-            })
+            }))
+            .ToArray();
+    }
+
+    private static IReadOnlyList<CompilerDiagnostic> SortDiagnostics(
+        IEnumerable<CompilerDiagnostic> diagnostics)
+    {
+        return diagnostics
             .OrderBy(diagnostic => diagnostic.File, StringComparer.Ordinal)
             .ThenBy(diagnostic => diagnostic.Line)
             .ThenBy(diagnostic => diagnostic.Column)
