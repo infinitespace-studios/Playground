@@ -54,6 +54,54 @@ const uuid = "00112233-4455-4677-8899-aabbccddeeff";
 const compileId = "12345678-1234-4abc-8def-123456789abc";
 const digest = "a".repeat(64);
 
+test("cross-file fixtures are canonical, reusable, and duplicate-safe", async () => {
+  const root = new URL("../../../", import.meta.url);
+  const gamePath = "tests/compiler/fixtures/cross-file/Game1.cs";
+  const playerPath = "tests/compiler/fixtures/cross-file/Player.cs";
+  const [game, player] = await Promise.all([
+    readFile(new URL(gamePath, root), "utf8"),
+    readFile(new URL(playerPath, root), "utf8"),
+  ]);
+  assert.match(game, /_player\.CrossFileValue\(\)/);
+  assert.match(player, /CrossFileValue\(\) => 42/);
+  const request = {
+    protocolVersion: 1,
+    correlationId: uuid,
+    type: "compile.request",
+    payload: {
+      compileId,
+      assemblyName: "CrossFileFixture",
+      sources: [
+        { path: gamePath, text: game },
+        { path: playerPath, text: player },
+      ],
+      primarySourcePath: gamePath,
+    },
+  };
+  assert.doesNotThrow(() => validateCompileRequest(request));
+  assert.doesNotThrow(() => validateCompileRequest({
+    ...request,
+    payload: { ...request.payload, sources: [...request.payload.sources].reverse() },
+  }));
+  assert.throws(() => validateCompileRequest({
+    ...request,
+    payload: {
+      ...request.payload,
+      sources: [
+        request.payload.sources[0],
+        { ...request.payload.sources[1], path: gamePath },
+      ],
+    },
+  }), /MALFORMED_PAYLOAD/);
+  const broken = player.replace(
+    "public int CrossFileValue() => 42;",
+    "public MissingType CrossFileValue() => null;",
+  );
+  assert.notEqual(broken, player);
+  assert.equal(broken.split("\n").findIndex(line => line.includes("MissingType")) + 1, 5);
+  assert.equal(broken.split("\n")[4].indexOf("MissingType") + 1, 12);
+});
+
 test("native output capture tees, normalizes, orders, and flushes once", () => {
   const tee: Array<[string, unknown[]]> = [];
   const emitted: Array<{ stream: string; category: string; text: string }> = [];

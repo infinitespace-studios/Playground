@@ -70,6 +70,8 @@ interface ManagedLoadProof {
   codeViewStamp: number;
   portablePdbGuid: string;
   portablePdbStamp: number;
+  expectedAssemblyName?: string;
+  expectedSourcePaths?: string[];
 }
 
 interface Issue22PipelineProof {
@@ -133,6 +135,7 @@ declare global {
     previewIssue024Proof?: Record<string, unknown>;
     previewIssue024Snapshot?: () => Record<string, unknown>;
     previewIssue029QuiescentProof?: () => Promise<Record<string, unknown>>;
+    previewIssue030PixelProof?: () => Record<string, unknown>;
     previewIssue027WriterSelfTest?: () => Promise<Record<string, unknown>>;
     previewIssue028Snapshot?: () => Record<string, unknown>;
     previewIssue028EmitNativePaths?: () => void;
@@ -154,6 +157,8 @@ export interface Issue23RunningPreview {
   loadCorrelationId: UuidV4;
   startCorrelationId: UuidV4;
   compileDiagnostics: readonly unknown[];
+  binaryProof: BinaryProof;
+  managedLoad: ManagedLoadProof | null;
   compilerRuntimeStarts: number;
   previewRuntimeStarts: number;
   loadResponse: unknown;
@@ -1135,10 +1140,72 @@ export async function compileLoadConstructIssue22Case(input: {
   }
 }
 
+export async function compileSourcesThroughPersistentCompiler(input: {
+  assemblyName: string;
+  sources: readonly { path: string; text: string }[];
+  primarySourcePath: string;
+}): Promise<Record<string, unknown>> {
+  await ensureIssue21Contexts(false, true);
+  const compileId = createUuid();
+  const correlationId = createUuid();
+  const request: CompileRequest = {
+    protocolVersion: PROTOCOL_VERSION,
+    correlationId,
+    type: "compile.request",
+    payload: {
+      compileId,
+      assemblyName: input.assemblyName,
+      sources: [...input.sources],
+      primarySourcePath: input.primarySourcePath,
+      timeoutMs: 30_000,
+      settings: {
+        languageVersion: "13.0",
+        nullable: "disable",
+        optimization: "debug",
+        allowUnsafe: false,
+        warningsAsErrors: false,
+      },
+    },
+  };
+  const response = await compilerClient.request(
+    request,
+    "compile.response",
+    value => validateCompileResponse(value, correlationId, compileId, {
+      assemblyName: input.assemblyName,
+      sourcePaths: input.sources.map(source => source.path),
+      primarySourcePath: input.primarySourcePath,
+    }),
+    [],
+    30_000,
+  ) as ReturnType<typeof validateCompileResponse>;
+  if (!response.message.result.success) {
+    return {
+      compileId,
+      correlationId,
+      success: false,
+      error: response.message.result.error,
+    };
+  }
+  const data = response.message.result.data;
+  return {
+    compileId,
+    correlationId,
+    success: true,
+    diagnostics: data.diagnostics,
+    binaryProof: data.binaryProof,
+    assemblySha256: await sha256(data.assembly),
+    pdbSha256: await sha256(data.pdb),
+    assemblyByteLength: data.assembly.byteLength,
+    pdbByteLength: data.pdb.byteLength,
+  };
+}
+
 export async function compileLoadStartIssue23(input: {
     assemblyName: string;
     sourcePath: string;
     sourceText: string;
+    sources?: readonly { path: string; text: string }[];
+    primarySourcePath?: string;
     proofMode: boolean;
     runtimeCase?: "normal" | "delay-run" | "delay-run-late" | "delay-run-long" | "delay-event" | "unexpected";
     startTimeoutMs?: number;
@@ -1149,11 +1216,17 @@ export async function compileLoadStartIssue23(input: {
     expectedStartCode?: "INTERNAL_ERROR";
     issue024Proof?: boolean;
     issue028Proof?: boolean;
+    issue030Proof?: boolean;
     onOutput?: (event: PreviewOutput) => void;
   }): Promise<Issue23RunningPreview> {
     await ensureIssue21Contexts(false, true);
     const compileId = createUuid();
     const compileCorrelationId = createUuid();
+    const compileSources = input.sources ?? [{
+      path: input.sourcePath,
+      text: input.sourceText,
+    }];
+    const primarySourcePath = input.primarySourcePath ?? input.sourcePath;
     const compileRequest: CompileRequest = {
       protocolVersion: PROTOCOL_VERSION,
       correlationId: compileCorrelationId,
@@ -1161,8 +1234,8 @@ export async function compileLoadStartIssue23(input: {
       payload: {
         compileId,
         assemblyName: input.assemblyName,
-        sources: [{ path: input.sourcePath, text: input.sourceText }],
-        primarySourcePath: input.sourcePath,
+        sources: [...compileSources],
+        primarySourcePath,
         timeoutMs: 30_000,
         settings: {
           languageVersion: "13.0",
@@ -1178,8 +1251,8 @@ export async function compileLoadStartIssue23(input: {
       "compile.response",
       value => validateCompileResponse(value, compileCorrelationId, compileId, {
         assemblyName: input.assemblyName,
-        sourcePaths: [input.sourcePath],
-        primarySourcePath: input.sourcePath,
+        sourcePaths: compileSources.map(source => source.path),
+        primarySourcePath,
       }),
       [],
       30_000,
@@ -1222,6 +1295,7 @@ export async function compileLoadStartIssue23(input: {
           issue023Proof: input.proofMode,
           issue024Proof: input.issue024Proof === true,
           issue028Proof: input.issue028Proof === true,
+          issue030Proof: input.issue030Proof === true,
           runGamePipeline: true,
           issue023Case: input.runtimeCase ?? "normal",
         }, window.location.origin, [channel.port2]);
@@ -1584,7 +1658,7 @@ export async function compileLoadStartIssue23(input: {
 
     if (input.issue024Proof) {
       generatedObjectUrls.add(URL.createObjectURL(new Blob(
-        [input.sourceText], { type: "text/plain" })));
+        [compileSources.map(source => source.text).join("\n")], { type: "text/plain" })));
     }
     let stopOperation: Promise<Record<string, unknown>> | null = null;
     const stop = (reason: "user" | "restart" = "user") => {
@@ -1702,6 +1776,8 @@ export async function compileLoadStartIssue23(input: {
       loadCorrelationId,
       startCorrelationId,
       compileDiagnostics: data.diagnostics,
+      binaryProof: data.binaryProof,
+      managedLoad: frame.contentWindow?.previewIssue21Proof?.load ?? null,
       compilerRuntimeStarts: compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts ?? 0,
       previewRuntimeStarts: frame.contentWindow?.previewIssue21Proof?.runtimeStarts ?? 0,
       loadResponse: loadResponse.message,

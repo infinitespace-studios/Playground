@@ -71,6 +71,7 @@ globalThis.previewIssue024Proof = {
   errors: [],
 };
 globalThis.previewIssue028Proof = { enabled: false };
+globalThis.previewIssue030Proof = { enabled: false, samples: [], errors: [] };
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -195,6 +196,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue023Proof") || typeof data.issue023Proof === "boolean") &&
     (!Object.hasOwn(data, "issue024Proof") || typeof data.issue024Proof === "boolean") &&
     (!Object.hasOwn(data, "issue028Proof") || typeof data.issue028Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue030Proof") || typeof data.issue030Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -212,6 +214,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue023Proof.enabled = issue023ProofEnabled;
     globalThis.previewIssue024Proof.enabled = data.issue024Proof === true;
     globalThis.previewIssue028Proof.enabled = data.issue028Proof === true;
+    globalThis.previewIssue030Proof.enabled = data.issue030Proof === true;
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");
     protocolPort = port;
@@ -654,6 +657,31 @@ for (const name of [
     return original.apply(this, args);
   };
 }
+
+const originalWebGlClear = WebGL2RenderingContext.prototype.clear;
+WebGL2RenderingContext.prototype.clear = function (mask) {
+  const result = originalWebGlClear.call(this, mask);
+  if (globalThis.previewIssue030Proof.enabled &&
+      (mask & this.COLOR_BUFFER_BIT) !== 0 &&
+      globalThis.previewIssue030Proof.samples.length < 8) {
+    try {
+      const pixel = new Uint8Array(4);
+      this.readPixels(
+        Math.floor(this.drawingBufferWidth / 2),
+        Math.floor(this.drawingBufferHeight / 2),
+        1, 1, this.RGBA, this.UNSIGNED_BYTE, pixel);
+      globalThis.previewIssue030Proof.samples.push([...pixel]);
+    } catch (error) {
+      globalThis.previewIssue030Proof.errors.push(
+        error instanceof Error ? error.message : String(error));
+    }
+  }
+  return result;
+};
+globalThis.previewIssue030PixelProof = () => Object.freeze({
+  samples: globalThis.previewIssue030Proof.samples.map(sample => [...sample]),
+  errors: [...globalThis.previewIssue030Proof.errors],
+});
 
 for (const AudioContextType of [globalThis.AudioContext, globalThis.webkitAudioContext]) {
   if (!AudioContextType?.prototype || AudioContextType.prototype.__playgroundStopInstrumented) continue;

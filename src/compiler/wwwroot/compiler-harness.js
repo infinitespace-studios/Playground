@@ -189,6 +189,9 @@ async function executeCompileRequest(message, observation) {
           error: {
             code: metadata.error?.code ?? "COMPILE_FAILED",
             message: metadata.error?.message ?? "Compilation failed.",
+            ...(metadata.diagnostics?.length
+              ? { diagnostics: metadata.diagnostics }
+              : {}),
           },
         },
       };

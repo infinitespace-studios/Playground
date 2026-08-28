@@ -47,6 +47,7 @@ public static class CompilationService
         string? requestedAssemblyName = null)
     {
         var trees = files
+            .OrderBy(file => file.Path, StringComparer.Ordinal)
             .Select(file => CSharpSyntaxTree.ParseText(
                 CreateBrowserPortablePdbSource(file),
                 new CSharpParseOptions(LanguageVersion.CSharp13),
