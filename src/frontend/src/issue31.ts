@@ -297,7 +297,7 @@ export async function runIssue031AutoProof(): Promise<void> {
         diagnostic.origin === "compiler" && diagnostic.severity === "error"))
     throw new Error(`Malformed source analysis was not safe: ${JSON.stringify(malformed)}`);
 
-  const deferredFunctionPointer = await compile("Issue031_DeferredFunctionPointer", [{
+  const functionPointerPolicy = await compile("Issue031_FunctionPointerPolicy", [{
     path: "src/DeferredFunctionPointer.cs",
     text: [
       "public static class DeferredFunctionPointer {",
@@ -305,13 +305,16 @@ export async function runIssue031AutoProof(): Promise<void> {
       "}",
     ].join("\n"),
   }]);
-  if (deferredFunctionPointer.success !== false ||
-      deferredFunctionPointer.error?.diagnostics?.some(diagnostic =>
-        diagnostic.id === "PG0103" || diagnostic.id === "PG0106") ||
-      !deferredFunctionPointer.error?.diagnostics?.some(diagnostic =>
-        diagnostic.origin === "compiler" && diagnostic.severity === "error"))
+  const functionPointerDiagnostics = functionPointerPolicy.error?.diagnostics ?? [];
+  if (functionPointerPolicy.success !== false ||
+      functionPointerDiagnostics.some(diagnostic => diagnostic.id === "PG0103") ||
+      functionPointerDiagnostics.filter(diagnostic =>
+        diagnostic.id === "PG0106" &&
+        diagnostic.file === "src/DeferredFunctionPointer.cs" &&
+        diagnostic.line === 2 &&
+        diagnostic.column === 16).length !== 1)
     throw new Error(
-      `Function pointer was not left to issue 032: ${JSON.stringify(deferredFunctionPointer)}`,
+      `Function pointer ownership regressed: ${JSON.stringify(functionPointerPolicy)}`,
     );
 
   const lookalikes = await compile("Issue031_Lookalikes", [{
@@ -376,7 +379,7 @@ export async function runIssue031AutoProof(): Promise<void> {
         reversedIdentical: true,
       },
       malformed,
-      deferredFunctionPointer,
+      functionPointerPolicy,
       lookalikes,
       cleanIssue030: clean,
       assertions: {
@@ -387,7 +390,7 @@ export async function runIssue031AutoProof(): Promise<void> {
         roslynErrorsMerged: true,
         malformedSourceHandled: true,
         functionPointerNotAssignedPg0103: true,
-        pg0106DeferredToIssue032: true,
+        functionPointerAssignedPg0106: true,
         repeatedCompilationDeterministic: true,
         reversedSourceOrderDeterministic: true,
         cleanCrossFileRegression: true,

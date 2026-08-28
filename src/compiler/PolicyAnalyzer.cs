@@ -21,6 +21,8 @@ public static class PolicyAnalyzer
             AnalyzeAttributes(tree, root, model, diagnostics);
             AnalyzeUnsafeSyntax(tree, root, diagnostics);
             AnalyzeJavaScriptInterop(tree, root, model, diagnostics);
+            AnalyzeMarshal(tree, root, model, diagnostics);
+            AnalyzeUnmanagedFunctionPointers(tree, root, diagnostics);
         }
 
         return diagnostics
@@ -197,6 +199,96 @@ public static class PolicyAnalyzer
         }
     }
 
+    private static void AnalyzeMarshal(
+        SyntaxTree tree,
+        SyntaxNode root,
+        SemanticModel model,
+        List<CompilerDiagnostic> diagnostics)
+    {
+        var marshalAliases = root.DescendantNodes()
+            .OfType<UsingDirectiveSyntax>()
+            .Where(usingDirective =>
+                usingDirective.Alias is not null &&
+                usingDirective.Name is not null &&
+                IsMarshalReference(usingDirective.Name, model, null))
+            .Select(usingDirective => usingDirective.Alias!.Name.Identifier.ValueText)
+            .ToHashSet(StringComparer.Ordinal);
+
+        foreach (var usingDirective in root.DescendantNodes().OfType<UsingDirectiveSyntax>())
+        {
+            if (usingDirective.Name is not null &&
+                IsMarshalReference(usingDirective.Name, model, marshalAliases))
+            {
+                diagnostics.Add(MakeDiagnostic(
+                    "PG0105",
+                    "System.Runtime.InteropServices.Marshal is not permitted in playground code.",
+                    tree,
+                    usingDirective.Name.GetLocation()));
+            }
+        }
+
+        var blockedMemberAccesses = root.DescendantNodes()
+            .OfType<MemberAccessExpressionSyntax>()
+            .Where(node =>
+                !node.Ancestors().OfType<UsingDirectiveSyntax>().Any() &&
+                IsMarshalReference(node, model, marshalAliases))
+            .ToArray();
+        var blockedMemberSet = blockedMemberAccesses.ToHashSet();
+        foreach (var memberAccess in blockedMemberAccesses
+                     .Where(node =>
+                         !node.Ancestors()
+                             .OfType<MemberAccessExpressionSyntax>()
+                             .Any(blockedMemberSet.Contains)))
+        {
+            diagnostics.Add(MakeDiagnostic(
+                "PG0105",
+                "System.Runtime.InteropServices.Marshal is not permitted in playground code.",
+                tree,
+                memberAccess.GetLocation()));
+        }
+
+        foreach (var name in root.DescendantNodes().OfType<NameSyntax>())
+        {
+            if (name.Ancestors().Any(ancestor =>
+                    ancestor is UsingDirectiveSyntax ||
+                    ancestor is BaseNamespaceDeclarationSyntax) ||
+                name.AncestorsAndSelf()
+                    .OfType<MemberAccessExpressionSyntax>()
+                    .Any(blockedMemberSet.Contains) ||
+                name.Parent is NameSyntax &&
+                IsMarshalReference((NameSyntax)name.Parent, model, marshalAliases) ||
+                !IsMarshalReference(name, model, marshalAliases))
+            {
+                continue;
+            }
+
+            diagnostics.Add(MakeDiagnostic(
+                "PG0105",
+                "System.Runtime.InteropServices.Marshal is not permitted in playground code.",
+                tree,
+                name.GetLocation()));
+        }
+    }
+
+    private static void AnalyzeUnmanagedFunctionPointers(
+        SyntaxTree tree,
+        SyntaxNode root,
+        List<CompilerDiagnostic> diagnostics)
+    {
+        foreach (var functionPointer in root.DescendantNodes()
+                     .OfType<FunctionPointerTypeSyntax>()
+                     .Where(node =>
+                         node.CallingConvention?.ManagedOrUnmanagedKeyword
+                             .IsKind(SyntaxKind.UnmanagedKeyword) == true))
+        {
+            diagnostics.Add(MakeDiagnostic(
+                "PG0106",
+                "Unmanaged function pointers are not permitted in playground code.",
+                tree,
+                functionPointer.GetLocation()));
+        }
+    }
+
     private static bool IsBlockedReference(
         SyntaxNode node,
         SemanticModel model,
@@ -254,6 +346,59 @@ public static class PolicyAnalyzer
     private static bool IsJavaScriptInteropName(string name) =>
         name == JavaScriptInteropNamespace ||
         name.StartsWith(JavaScriptInteropNamespace + ".", StringComparison.Ordinal);
+
+    private static bool IsMarshalReference(
+        SyntaxNode node,
+        SemanticModel model,
+        IReadOnlySet<string>? marshalAliases)
+    {
+        var symbol = GetReferencedSymbol(node, model);
+        if (IsMarshalSymbol(symbol))
+        {
+            return true;
+        }
+
+        if (node is MemberAccessExpressionSyntax memberAccess &&
+            IsMarshalSymbol(GetReferencedSymbol(memberAccess.Expression, model)))
+        {
+            return true;
+        }
+
+        if (symbol is not null && symbol.Kind != SymbolKind.ErrorType)
+        {
+            return false;
+        }
+
+        var text = node.ToString().Replace("global::", "", StringComparison.Ordinal);
+        if (text == "System.Runtime.InteropServices.Marshal" ||
+            text.StartsWith("System.Runtime.InteropServices.Marshal.", StringComparison.Ordinal))
+        {
+            return true;
+        }
+
+        var firstSegment = text.Split(['.', ':'], 2)[0];
+        return marshalAliases?.Contains(firstSegment) == true;
+    }
+
+    private static ISymbol? GetReferencedSymbol(SyntaxNode node, SemanticModel model)
+    {
+        var alias = node is NameSyntax name ? model.GetAliasInfo(name) : null;
+        var symbolInfo = model.GetSymbolInfo(node);
+        return alias?.Target ?? symbolInfo.Symbol ??
+            symbolInfo.CandidateSymbols.FirstOrDefault();
+    }
+
+    private static bool IsMarshalSymbol(ISymbol? symbol)
+    {
+        symbol = symbol is IAliasSymbol alias ? alias.Target : symbol;
+        if (symbol is null || symbol.Locations.Any(location => location.IsInSource))
+        {
+            return false;
+        }
+
+        var type = symbol as INamedTypeSymbol ?? symbol.ContainingType;
+        return IsType(type, "System.Runtime.InteropServices", "Marshal");
+    }
 
     private static bool IsType(
         INamedTypeSymbol? type,

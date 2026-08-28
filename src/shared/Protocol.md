@@ -327,6 +327,8 @@ file, line, column
 - `PG0103` (supported-API policy: unsafe syntax)
 - `PG0104` (supported-API policy: direct
   `System.Runtime.InteropServices.JavaScript` use)
+- `PG0105` (supported-API policy: framework `Marshal` use)
+- `PG0106` (supported-API policy: unmanaged function pointers)
 
 Paths use the source logical-path rules in section 8. Messages are display-safe
 plain text subject to the diagnostic limit. Diagnostics must be sorted by

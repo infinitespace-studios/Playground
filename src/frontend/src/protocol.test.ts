@@ -86,16 +86,13 @@ test("supported API policy exactly inventories the pinned reference identities",
     version: assembly.version,
     publicKeyToken: assembly.publicKeyToken,
   })));
-  for (const id of ["PG0101", "PG0102", "PG0103", "PG0104"]) {
+  for (const id of ["PG0101", "PG0102", "PG0103", "PG0104", "PG0105", "PG0106"]) {
     assert.equal(policy.includes(`| \`${id}\` |`), true);
     assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.includes(id), true);
   }
   assert.match(policy, /not a security sandbox/i);
   assert.match(policy, /does \*\*not\*\* prove the meaning of strings/i);
-  assert.match(
-    policy,
-    /`delegate\* unmanaged<\.\.\.>`[\s\S]*not currently assigned `PG0103`[\s\S]*deferred to issue 032/i,
-  );
+  assert.match(policy, /`PG0106` owns unmanaged function-pointer syntax/i);
 });
 
 test("cross-file fixtures are canonical, reusable, and duplicate-safe", async () => {
@@ -701,7 +698,7 @@ test("matches assembly, diagnostic, error-detail, and error-code contract bounda
     details: { key: "x".repeat(1025) },
   }), uuid, compileId), /MALFORMED/);
   assert.equal(PROTOCOL_ERROR_CODES.length, 32);
-  assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 14);
+  assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 16);
   assert.equal(LIMITS.errorDetails, 16 * 1024);
   assert.equal(Object.isFrozen(LIMITS), true);
 });

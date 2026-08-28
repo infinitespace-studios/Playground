@@ -1,6 +1,6 @@
 # Supported API policy
 
-**Policy version:** 1.0.0
+**Policy version:** 2.0.0
 
 **Protocol version:** 1
 
@@ -60,14 +60,14 @@ runtime even when their containing reference is listed.
 
 ## Prohibited constructs
 
-| Construct | Diagnostic | Enforcement in policy 1.0.0 |
+| Construct | Diagnostic | Enforcement in policy 2.0.0 |
 | --- | --- | --- |
 | `DllImportAttribute` on any legal target | `PG0101` | Semantic attribute identity; compilation fails |
 | `UnmanagedCallersOnlyAttribute` on any legal target | `PG0102` | Semantic attribute identity; compilation fails |
 | Explicit unsafe syntax: `unsafe` modifiers/blocks, ordinary pointer types, `fixed`, or `stackalloc` | `PG0103` | Syntax plus fixed `allowUnsafe: false`; compilation fails |
 | Direct namespace, type, member, alias, or static-using reference under `System.Runtime.InteropServices.JavaScript` | `PG0104` | Semantic identity where resolvable, conservative unresolved canonical-name handling; compilation fails |
-| `System.Runtime.InteropServices.Marshal` native-memory/delegate operations | `PG0105` | Prohibited; category-specific analyzer enforcement is scheduled for issue 032 |
-| Unmanaged indirect calls, including `delegate* unmanaged<...>` declaration or invocation | `PG0106` | Prohibited, but not currently assigned `PG0103`; category-specific analyzer enforcement is deferred to issue 032 |
+| Use of the framework `System.Runtime.InteropServices.Marshal` type or members | `PG0105` | Semantic type/member identity, including aliases, static imports, `typeof`, `nameof`, and member groups; compilation fails |
+| Unmanaged function-pointer syntax, including `delegate* unmanaged<...>` with explicit calling conventions | `PG0106` | Syntax identity; compilation fails. An independently present `unsafe` modifier/block still receives `PG0103` |
 
 No usable DLL or PDB is emitted when a policy diagnostic is present. Policy
 and Roslyn diagnostics are merged and sorted by canonical logical path, line,
@@ -131,5 +131,10 @@ unsafe or unavailable-reference syntax. Incomplete source is analyzed without
 throwing, but unresolved names cannot always have a trusted semantic identity.
 The `PG0104` fallback is limited to the exact canonical JavaScript-interop
 namespace and aliases declared from it; it is not general string matching.
-Marshal and unmanaged function-pointer analysis, including emission of
-`PG0105` and `PG0106`, remain the explicit issue-032 work described above.
+`PG0105` does not prohibit unrelated Runtime.InteropServices structs or
+attributes. `PG0106` owns unmanaged function-pointer syntax; it is not
+duplicated as `PG0103` unless a separate explicit unsafe construct is also
+present. Constant strings, reflection, `dynamic`, generated IL, and equivalent
+runtime indirection are not heuristically classified as Marshal/function
+pointer use because doing so would create an unreliable security claim and
+false positives.

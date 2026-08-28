@@ -43,7 +43,9 @@ export type PlaygroundDiagnosticId =
   | "PG0101"
   | "PG0102"
   | "PG0103"
-  | "PG0104";
+  | "PG0104"
+  | "PG0105"
+  | "PG0106";
 
 export interface PlaygroundDiagnostic {
   readonly origin: "playground";
