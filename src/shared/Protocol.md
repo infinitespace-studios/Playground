@@ -732,3 +732,36 @@ version receives `MISSING_PROTOCOL_VERSION`; any value other than `1` receives
 `UNSUPPORTED_PROTOCOL_VERSION`, subject to the safe-response rules in section
 3. All participants in a packaged build must use the same generated contract
 revision.
+
+## 12. Enforcement verification
+
+Every validation rule from sections 1–11 is exercised by unit tests and
+a packaged proof (issue 036). The coverage includes:
+
+- **Bootstrap boundary**: wrong `event.source`, wrong `event.origin`, missing
+  ports, non-plain-object data, wrong `type`, missing `contextGeneration`,
+  non-`Object.prototype` prototypes, and post-bootstrap window messages from
+  the expected source (which close the accepted port).
+- **Envelope validation**: missing `protocolVersion`, unsupported version
+  (integer non-`1`, non-integer, string, boolean, null), missing or non-UUIDv4
+  `correlationId`, unknown `type`, route mismatch, non-object envelope.
+- **Payload validation**: wrong `previewId` (`MESSAGE_SOURCE_REJECTED`),
+  oversized source files and aggregate, binary size limits (assembly, PDB,
+  aggregate), empty buffers, aliased `assembly === pdb`, timeout above maximum,
+  sparse arrays, path traversal (`..`), oversized output text, unpaired
+  surrogates.
+- **Structural clone safety**: `SharedArrayBuffer`, typed-array views, cyclic
+  references, accessor properties, symbol keys, function values, non-plain
+  prototypes, `Infinity`/`NaN`/`BigInt`, `undefined` values.
+- **Correlation and state**: duplicate correlation IDs, stale responses after
+  timeout, `protocol.error` control events (discarded without crash).
+- **Live packaged attacks**: `postMessage` to running preview's
+  `contentWindow` during active game rendering, with before/after state
+  capture proving no assembly load, no game start, no state mutation, and
+  continued CornflowerBlue pixel rendering.
+
+Rejections produce structured `protocol.error` or terminal `success: false`
+responses. They are bounded (one rejection per invalid message, no
+amplification), do not crash handlers, and cause no unintended side effects.
+An invalid `protocol.error` is logged and discarded without reply, preventing
+rejection loops.

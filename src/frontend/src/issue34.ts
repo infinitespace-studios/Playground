@@ -51,6 +51,8 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue034_emit_report",
   "issue035_is_proof_enabled",
   "issue035_emit_report",
+  "issue036_is_proof_enabled",
+  "issue036_emit_report",
 ] as const;
 
 const source = `

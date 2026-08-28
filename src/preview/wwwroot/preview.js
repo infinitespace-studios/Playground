@@ -75,6 +75,7 @@ globalThis.previewIssue030Proof = { enabled: false, samples: [], errors: [] };
 globalThis.previewIssue033Proof = { enabled: false };
 globalThis.previewIssue034Proof = { enabled: false };
 globalThis.previewIssue035Proof = { enabled: false };
+globalThis.previewIssue036Proof = { enabled: false };
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -697,6 +698,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue033Proof") || typeof data.issue033Proof === "boolean") &&
     (!Object.hasOwn(data, "issue034Proof") || typeof data.issue034Proof === "boolean") &&
     (!Object.hasOwn(data, "issue035Proof") || typeof data.issue035Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue036Proof") || typeof data.issue036Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -718,6 +720,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue033Proof.enabled = data.issue033Proof === true;
     globalThis.previewIssue034Proof.enabled = data.issue034Proof === true;
     globalThis.previewIssue035Proof.enabled = data.issue035Proof === true;
+    globalThis.previewIssue036Proof.enabled = data.issue036Proof === true;
     installPreviewBridge(additionalPorts[0], data.issue021Proof === true);
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");

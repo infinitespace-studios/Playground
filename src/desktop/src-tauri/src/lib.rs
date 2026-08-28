@@ -342,6 +342,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue033_no_wasm_eval_proof_enabled()
         || issue034_proof_enabled()
         || issue035_proof_enabled()
+        || issue036_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -1084,6 +1085,25 @@ fn issue035_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+fn issue036_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE036_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue036_is_proof_enabled() -> bool {
+    issue036_proof_enabled()
+}
+
+#[tauri::command]
+fn issue036_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue036_proof_enabled() {
+        return Err("issue 036 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE036_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 fn navigation_allowed(url: &tauri::Url) -> bool {
     matches!(url.scheme(), "tauri" | "playground-preview" | "about")
 }
@@ -1204,7 +1224,9 @@ pub fn run() {
             issue033_emit_no_wasm_eval_report,
             issue034_emit_report,
             issue035_is_proof_enabled,
-            issue035_emit_report
+            issue035_emit_report,
+            issue036_is_proof_enabled,
+            issue036_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

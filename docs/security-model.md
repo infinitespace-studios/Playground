@@ -129,8 +129,8 @@ matrix covers appended permission tables, plugin/all-frame initialization,
 second handler macros, extra runtime/build/plugin dependencies, and dependency
 feature drift. Protocol tests cover second/remote/wildcard capabilities,
 `webviews`, `local: false`, and extra permissions. It also validates all
-generated files. The effective 49-file ACL scope is exactly one capability,
-one composite `main-commands` permission, and 47 Tauri-generated per-command
+generated files. The effective 51-file ACL scope is exactly one capability,
+one composite `main-commands` permission, and 49 Tauri-generated per-command
 allow/deny permission files. The generated directory is intentionally ignored
 by Git: `tauri_build` reproducibly creates it from `APP_COMMANDS`, then
 `build.rs` rejects missing, extra, renamed, non-file, or malformed entries.
@@ -293,6 +293,45 @@ an iframe from its containing webview remains true.
 Sandbox, CSP, shell navigation hooks, API analyzers, opaque origin, and
 private ports are defense-in-depth product boundaries, not a complete security
 sandbox for arbitrary hostile code. They do not by themselves provide process,
-OS, CPU, or memory isolation. Issues 036–038 add process boundary, protocol
-hardening, resource limits, and adversarial validation. No claim here
-supersedes those remaining controls.
+OS, CPU, or memory isolation. Issues 037–038 add process boundary, resource
+limits, and further adversarial validation. No claim here supersedes those
+remaining controls.
+
+## Protocol message validation (issue 036)
+
+Every protocol message receiver validates inputs before side effects. The
+bootstrap `window.postMessage` receiver validates `event.source`,
+`event.origin`, data shape, `contextGeneration` UUIDv4, port count, and
+`type === "protocol.bootstrap"`. After bootstrap, all traffic uses the private
+`MessagePort`; `event.origin` and `event.source` are unavailable on port
+messages and are not fabricated.
+
+Private-port receivers enforce Protocol.md section 4 validation order:
+`protocolVersion` presence and exact v1 support, canonical UUIDv4 correlation,
+known message type, route authorization, payload schema, field types, UTF-8
+scalar validity, buffer identity/size, path canonicalization, and aggregate
+limits. Size enforcement uses actual `ArrayBuffer.byteLength` and
+overflow-safe integer addition, not JSON serialization approximations.
+
+Rejected messages receive exactly one bounded structured response
+(`protocol.error` for envelope-level failures, terminal `success: false` for
+payload-level failures). Rejections do not crash handlers, do not load
+assemblies, do not start games, and do not mutate protocol state. Invalid
+`protocol.error` messages are discarded without reply to prevent amplification
+loops. Duplicate correlation IDs are rejected without executing the request
+again.
+
+Post-bootstrap `window.postMessage` from the expected source closes the
+accepted port as a defense against confused-deputy replay. Messages from
+unexpected sources are silently discarded.
+
+The packaged proof (`MONOGAME_ISSUE036_PROOF=1`) exercises live `postMessage`
+attacks against a running preview iframe's `contentWindow` during active game
+rendering and verifies before/after runtime state identity, continued
+CornflowerBlue pixel rendering, no assembly load, and clean stop. Unit tests
+cover every structural rejection class from Protocol.md sections 2–5 and 8–9.
+
+Browsers cannot synthesize arbitrary `event.source` or `event.origin` on
+`postMessage`, so origin-spoofing is validated by direct unit test of
+`installPrivatePortBootstrap` with simulated event properties, not by live
+browser proof. This distinction is documented honestly in the test suite.

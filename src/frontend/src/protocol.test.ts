@@ -2257,7 +2257,7 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofCommands = commandNames(proofInventoryBlock).sort();
-  assert.equal(manifestCommands.length, 45);
+  assert.equal(manifestCommands.length, 49);
   assert.deepEqual(manifestCommands, handlerCommands);
   assert.deepEqual(permissionCommands, handlerCommands);
   assert.deepEqual(proofCommands, handlerCommands);
@@ -2265,4 +2265,496 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   assert.doesNotMatch(cargo,
     /tauri-plugin-(?:fs|shell|process|opener|dialog|clipboard-manager)/);
   assert.doesNotMatch(frontendPackage, /@tauri-apps\/api/);
+});
+
+// ── Issue 036: validate forged, malformed, and oversized protocol messages ──
+
+test("036: missing protocolVersion is rejected as MISSING_PROTOCOL_VERSION", () => {
+  assert.throws(() => validateCompileRequest({
+    correlationId: uuid, type: "compile.request",
+    payload: { compileId, assemblyName: "X", sources: [{ path: "a.cs", text: "x" }], primarySourcePath: "a.cs" },
+  }), /MISSING_PROTOCOL_VERSION/);
+});
+
+test("036: unsupported protocolVersion is rejected", () => {
+  for (const version of [0, 2, -1, 1.5, "1", null, true]) {
+    const msg = {
+      protocolVersion: version, correlationId: uuid, type: "compile.request",
+      payload: { compileId, assemblyName: "X", sources: [{ path: "a.cs", text: "x" }], primarySourcePath: "a.cs" },
+    };
+    assert.throws(
+      () => validateCompileRequest(msg),
+      /UNSUPPORTED_PROTOCOL_VERSION|MALFORMED_ENVELOPE|MISSING_PROTOCOL_VERSION/,
+      `version=${JSON.stringify(version)}`,
+    );
+  }
+  // undefined value rejects at inspectClone level
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: undefined, correlationId: uuid, type: "compile.request",
+    payload: { compileId, assemblyName: "X", sources: [{ path: "a.cs", text: "x" }], primarySourcePath: "a.cs" },
+  }), /MALFORMED/);
+});
+
+test("036: unknown message type is rejected as UNKNOWN_MESSAGE_TYPE", () => {
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, correlationId: uuid, type: "attack.forged",
+    payload: {},
+  }), /UNKNOWN_MESSAGE_TYPE/);
+});
+
+test("036: route mismatch type is rejected as MESSAGE_ROUTE_REJECTED", () => {
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, correlationId: uuid, type: "preview.load.request",
+    payload: {},
+  }), /MESSAGE_ROUTE_REJECTED/);
+});
+
+test("036: malformed envelope — missing correlationId", () => {
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, type: "compile.request",
+    payload: { compileId, assemblyName: "X", sources: [{ path: "a.cs", text: "x" }], primarySourcePath: "a.cs" },
+  }), /MALFORMED_ENVELOPE/);
+});
+
+test("036: malformed envelope — non-UUIDv4 correlationId", () => {
+  for (const bad of ["not-uuid", "00000000-0000-0000-0000-000000000000", 42, null]) {
+    assert.throws(() => validateCompileRequest({
+      protocolVersion: 1, correlationId: bad, type: "compile.request",
+      payload: { compileId, assemblyName: "X", sources: [{ path: "a.cs", text: "x" }], primarySourcePath: "a.cs" },
+    }), /MALFORMED_ENVELOPE/);
+  }
+});
+
+test("036: malformed envelope — non-object message", () => {
+  for (const value of [null, undefined, 42, "string", true, []]) {
+    assert.throws(() => validateCompileRequest(value as unknown), /MALFORMED/);
+  }
+});
+
+test("036: malformed payload — wrong previewId is MESSAGE_SOURCE_REJECTED", () => {
+  assert.throws(() => validatePreviewStartRequest({
+    protocolVersion: 1, correlationId: uuid, type: "preview.start.request",
+    payload: { previewId: compileId },
+  }, uuid), /MESSAGE_SOURCE_REJECTED/);
+});
+
+test("036: oversized message exceeding 32 MiB is rejected", () => {
+  const bigText = "x".repeat(2 * 1024 * 1024);
+  const sources = [];
+  for (let i = 0; i < 20; i++) {
+    sources.push({ path: `file${i}.cs`, text: bigText });
+  }
+  assert.throws(() => inspectClone({
+    protocolVersion: 1, correlationId: uuid, type: "compile.request",
+    payload: { compileId, assemblyName: "Test", sources, primarySourcePath: "file0.cs" },
+  }), /MESSAGE_TOO_LARGE|SOURCE_TOO_LARGE|TOO_MANY_SOURCE_FILES/);
+});
+
+test("036: oversized source file is rejected as SOURCE_TOO_LARGE", () => {
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, correlationId: uuid, type: "compile.request",
+    payload: {
+      compileId, assemblyName: "Test",
+      sources: [{ path: "big.cs", text: "x".repeat(LIMITS.sourceFile + 1) }],
+      primarySourcePath: "big.cs",
+    },
+  }), /SOURCE_TOO_LARGE/);
+});
+
+test("036: oversized assembly is rejected as ASSEMBLY_TOO_LARGE", () => {
+  const bigAssembly = new ArrayBuffer(LIMITS.assembly + 1);
+  const pdb = new ArrayBuffer(64);
+  assert.throws(() => validateBinaryPair(bigAssembly, pdb), /ASSEMBLY_TOO_LARGE/);
+});
+
+test("036: oversized PDB is rejected as PDB_TOO_LARGE", () => {
+  const assembly = new ArrayBuffer(64);
+  const bigPdb = new ArrayBuffer(LIMITS.pdb + 1);
+  assert.throws(() => validateBinaryPair(assembly, bigPdb), /PDB_TOO_LARGE/);
+});
+
+test("036: aggregate binary exceeding limit is BINARY_PAYLOAD_TOO_LARGE", () => {
+  const assembly = new ArrayBuffer(LIMITS.assembly);
+  const pdb = new ArrayBuffer(LIMITS.pdb);
+  assert.throws(() => validateBinaryPair(assembly, pdb), /BINARY_PAYLOAD_TOO_LARGE/);
+});
+
+test("036: empty assembly or PDB is rejected as MALFORMED_PAYLOAD", () => {
+  assert.throws(() => validateBinaryPair(new ArrayBuffer(0), new ArrayBuffer(64)), /MALFORMED_PAYLOAD/);
+  assert.throws(() => validateBinaryPair(new ArrayBuffer(64), new ArrayBuffer(0)), /MALFORMED_PAYLOAD/);
+});
+
+test("036: aliased assembly === pdb is rejected as MALFORMED_PAYLOAD", () => {
+  const buf = new ArrayBuffer(64);
+  assert.throws(() => validateBinaryPair(buf, buf), /MALFORMED_PAYLOAD/);
+});
+
+test("036: SharedArrayBuffer is rejected by inspectClone", () => {
+  if (typeof SharedArrayBuffer !== "undefined") {
+    assert.throws(() => inspectClone({ shared: new SharedArrayBuffer(8) }), /MALFORMED_PAYLOAD/);
+  }
+});
+
+test("036: typed array view in envelope is rejected", () => {
+  const buffer = new ArrayBuffer(8);
+  assert.throws(() => inspectClone({ view: new Uint8Array(buffer) }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: DataView in envelope is rejected by inspectClone", () => {
+  const buffer = new ArrayBuffer(8);
+  assert.throws(() => inspectClone({ view: new DataView(buffer) }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: cyclic object is rejected by inspectClone", () => {
+  const cycle: Record<string, unknown> = { a: 1 };
+  cycle.self = cycle;
+  assert.throws(() => inspectClone(cycle), /MALFORMED_PAYLOAD/);
+});
+
+test("036: accessor property is rejected by inspectClone", () => {
+  const obj = {};
+  Object.defineProperty(obj, "trap", { get: () => "evil", enumerable: true });
+  assert.throws(() => inspectClone(obj), /MALFORMED_PAYLOAD/);
+});
+
+test("036: symbol key is rejected by inspectClone", () => {
+  const obj = { [Symbol("trap")]: "value" };
+  assert.throws(() => inspectClone(obj), /MALFORMED_PAYLOAD/);
+});
+
+test("036: function value is rejected by inspectClone", () => {
+  assert.throws(() => inspectClone({ fn: () => {} }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: non-Object.prototype object is rejected", () => {
+  class Evil { protocolVersion = 1; }
+  assert.throws(() => inspectClone(new Evil()), /MALFORMED_PAYLOAD/);
+});
+
+test("036: duplicate correlation ID on endpoint is rejected without side effects", async () => {
+  const channel = new MessageChannel();
+  let loadCalls = 0;
+  const endpoint = createPreviewEndpoint({
+    port: channel.port2,
+    previewId: uuid,
+    execute: async () => {
+      loadCalls += 1;
+      return { result: { success: true, data: { previewId: uuid, compileId } } };
+    },
+  });
+  channel.port2.addEventListener("message", endpoint.handle);
+  channel.port2.start();
+  const assembly = standaloneBuffer(new Uint8Array([77, 90, 0, 0]));
+  const pdb = standaloneBuffer(new Uint8Array([66, 83, 74, 66]));
+  const proofData = {
+    assemblySha256: digest, pdbSha256: digest,
+    assemblyByteLength: 4, pdbByteLength: 4,
+    assemblyName: "Test", sourcePaths: ["a.cs"], primarySourcePath: "a.cs",
+  };
+  const request = {
+    protocolVersion: 1, correlationId: uuid, type: "preview.load.request",
+    payload: { previewId: uuid, compileId, assembly, pdb, binaryProof: proofData },
+  };
+  channel.port1.postMessage(request, [assembly, pdb]);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(loadCalls, 1);
+  // Second message with same correlationId — should be rejected as duplicate
+  const assembly2 = standaloneBuffer(new Uint8Array([77, 90, 0, 0]));
+  const pdb2 = standaloneBuffer(new Uint8Array([66, 83, 74, 66]));
+  const duplicateRequest = {
+    ...request,
+    payload: { ...request.payload, assembly: assembly2, pdb: pdb2 },
+  };
+  channel.port1.postMessage(duplicateRequest, [assembly2, pdb2]);
+  await new Promise(resolve => setTimeout(resolve, 50));
+  assert.equal(loadCalls, 1); // execute must not be called again
+  assert.equal(endpoint.completed.has(uuid), true);
+  endpoint.close("test");
+  channel.port1.close();
+});
+
+test("036: endpoint rejects forged envelope errors without crash or amplification", async () => {
+  const channel = new MessageChannel();
+  let loadCalls = 0;
+  const proof = { errors: [] as string[], terminals: [] as string[], closes: [] as string[], events: [] as unknown[], duplicateControls: [] as string[] };
+  const endpoint = createPreviewEndpoint({
+    port: channel.port2,
+    previewId: uuid,
+    execute: async () => {
+      loadCalls += 1;
+      return { result: { success: true, data: { previewId: uuid, compileId } } };
+    },
+    proof,
+  });
+  channel.port2.addEventListener("message", endpoint.handle);
+  channel.port2.start();
+
+  // 1. Missing protocolVersion
+  channel.port1.postMessage({ correlationId: uuid, type: "preview.load.request", payload: {} });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // 2. Wrong version
+  channel.port1.postMessage({ protocolVersion: 99, correlationId: uuid, type: "preview.load.request", payload: {} });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // 3. Unknown type
+  channel.port1.postMessage({ protocolVersion: 1, correlationId: uuid, type: "attack.evil", payload: {} });
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // 4. Non-object
+  channel.port1.postMessage("just a string");
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  // 5. Null
+  channel.port1.postMessage(null);
+  await new Promise(resolve => setTimeout(resolve, 20));
+
+  assert.equal(loadCalls, 0); // No execute call from any forged message
+  assert.equal(endpoint.closed, false); // Endpoint survived all attacks
+  endpoint.close("test");
+  channel.port1.close();
+});
+
+test("036: bootstrap rejects wrong source, wrong origin, missing ports, and bad data", () => {
+  const originalWindow = globalThis.window;
+  const fakeWindow = new EventTarget();
+  Object.assign(globalThis, { window: fakeWindow });
+  const expectedSource = {};
+  const wrongSource = {};
+  const channel = new MessageChannel();
+  let accepted = 0;
+  try {
+    const observations = installPrivatePortBootstrap({
+      expectedSource, expectedOrigin: "tauri://localhost",
+      onPort: () => { accepted += 1; },
+    });
+    const dispatch = (source: object, origin: string, data: object, ports: MessagePort[]) => {
+      const event = new Event("message");
+      Object.defineProperties(event, {
+        source: { value: source }, origin: { value: origin },
+        data: { value: data }, ports: { value: ports },
+      });
+      fakeWindow.dispatchEvent(event);
+    };
+    // Wrong source
+    dispatch(wrongSource, "tauri://localhost",
+      { type: "protocol.bootstrap", contextGeneration: uuid }, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 1);
+
+    // Wrong origin
+    dispatch(expectedSource, "https://evil.example",
+      { type: "protocol.bootstrap", contextGeneration: uuid }, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 2);
+
+    // Missing contextGeneration
+    dispatch(expectedSource, "tauri://localhost",
+      { type: "protocol.bootstrap" }, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 3);
+
+    // No ports
+    dispatch(expectedSource, "tauri://localhost",
+      { type: "protocol.bootstrap", contextGeneration: uuid }, []);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 4);
+
+    // Wrong type
+    dispatch(expectedSource, "tauri://localhost",
+      { type: "evil.bootstrap", contextGeneration: uuid }, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 5);
+
+    // Non-object data
+    dispatch(expectedSource, "tauri://localhost",
+      "just a string" as unknown as object, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 6);
+
+    // Null data
+    dispatch(expectedSource, "tauri://localhost", null as unknown as object, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 7);
+
+    // Non-plain-object prototype
+    const exotic = Object.create(EventTarget.prototype);
+    exotic.type = "protocol.bootstrap";
+    exotic.contextGeneration = uuid;
+    dispatch(expectedSource, "tauri://localhost", exotic, [channel.port1]);
+    assert.equal(accepted, 0);
+    assert.equal(observations.invalidBootstrapMessages, 8);
+
+    // Valid bootstrap still works after rejections
+    const goodChannel = new MessageChannel();
+    dispatch(expectedSource, "tauri://localhost",
+      { type: "protocol.bootstrap", contextGeneration: uuid }, [goodChannel.port1]);
+    assert.equal(accepted, 1);
+    assert.equal(observations.acceptedBootstrapMessages, 1);
+
+    // Post-bootstrap message from correct source closes port
+    dispatch(expectedSource, "tauri://localhost", { type: "late.attack" }, []);
+    assert.equal(observations.postBootstrapRejectedMessages, 1);
+
+    goodChannel.port2.close();
+  } finally {
+    channel.port2.close();
+    Object.assign(globalThis, { window: originalWindow });
+  }
+});
+
+test("036: ProtocolPortClient rejects malformed port messages without crash", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+
+  // Non-UUID correlation — closes client
+  channel.port2.postMessage({ correlationId: "bad", type: "preview.load.response", result: {} });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(client.isClosed, true);
+  assert.match(client.closeReason ?? "", /MALFORMED/);
+  channel.port2.close();
+});
+
+test("036: ProtocolPortClient discards protocol.error control events without crashing", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: uuid, type: "protocol.error",
+    payload: { error: { code: "UNSUPPORTED_PROTOCOL_VERSION", message: "test" } },
+  });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(client.isClosed, false);
+  assert.equal(client.observations.protocolControls, 1);
+  assert.equal(client.controlEvents.length, 1);
+  client.close("test");
+  channel.port2.close();
+});
+
+test("036: endpoint issues protocol.error for wrong version then continues", async () => {
+  const channel = new MessageChannel();
+  const responses: unknown[] = [];
+  channel.port1.addEventListener("message", event => responses.push(event.data));
+  channel.port1.start();
+
+  const endpoint = createPreviewEndpoint({
+    port: channel.port2,
+    previewId: uuid,
+    execute: async () => ({
+      result: { success: true, data: { previewId: uuid, compileId } },
+    }),
+  });
+  channel.port2.addEventListener("message", endpoint.handle);
+  channel.port2.start();
+
+  // Send wrong version
+  channel.port1.postMessage({
+    protocolVersion: 99, correlationId: uuid, type: "preview.load.request", payload: {},
+  });
+  await new Promise(resolve => setTimeout(resolve, 30));
+
+  // Expect a protocol.error response (not a terminal response)
+  assert.equal(responses.length >= 1, true);
+  const errorResponse = responses[0] as Record<string, unknown>;
+  assert.equal(errorResponse.type, "protocol.error");
+  assert.equal(
+    ((errorResponse.payload as Record<string, unknown>)?.error as Record<string, unknown>)?.code,
+    "UNSUPPORTED_PROTOCOL_VERSION",
+  );
+
+  // Endpoint is not closed — can still process valid requests
+  assert.equal(endpoint.closed, false);
+  endpoint.close("test");
+  channel.port1.close();
+});
+
+test("036: unpaired surrogates in string values are rejected by utf8Length", () => {
+  assert.throws(() => inspectClone({ text: "\uD800" }), /MALFORMED_PAYLOAD/);
+  assert.throws(() => inspectClone({ text: "\uDC00" }), /MALFORMED_PAYLOAD/);
+  assert.throws(() => inspectClone({ text: "valid\uD800trailing" }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: stale response after timeout is discarded by ProtocolPortClient", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+
+  const request = {
+    protocolVersion: 1, correlationId: uuid, type: "preview.start.request",
+    payload: { previewId: uuid },
+  };
+  const promise = client.request(request, "preview.start.response",
+    value => validatePreviewStartResponse(value, uuid, uuid), [], 50);
+  await assert.rejects(promise, /TIMEOUT/);
+
+  // Late response arrives after timeout
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: uuid, type: "preview.start.response",
+    result: { success: true, data: { previewId: uuid, accepted: true } },
+  });
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(client.observations.discardedUnknownOrLate, 1);
+  assert.equal(client.completed.has(uuid), true);
+  client.close("test");
+  channel.port2.close();
+});
+
+test("036: Infinity and NaN numbers are rejected by inspectClone", () => {
+  assert.throws(() => inspectClone({ n: Infinity }), /MALFORMED_PAYLOAD/);
+  assert.throws(() => inspectClone({ n: -Infinity }), /MALFORMED_PAYLOAD/);
+  assert.throws(() => inspectClone({ n: NaN }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: BigInt values are rejected by inspectClone", () => {
+  assert.throws(() => inspectClone({ n: BigInt(42) }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: sparse array is rejected by requireDenseOwnArray via validateCompileRequest", () => {
+  const sparse = new Array(3);
+  sparse[0] = { path: "a.cs", text: "x" };
+  sparse[2] = { path: "b.cs", text: "y" };
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, correlationId: uuid, type: "compile.request",
+    payload: { compileId, assemblyName: "Test", sources: sparse, primarySourcePath: "a.cs" },
+  }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: path traversal in source paths is rejected", () => {
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, correlationId: uuid, type: "compile.request",
+    payload: {
+      compileId, assemblyName: "Test",
+      sources: [{ path: "../etc/passwd", text: "x" }],
+      primarySourcePath: "../etc/passwd",
+    },
+  }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: oversized output text is rejected as MALFORMED_PAYLOAD", () => {
+  assert.throws(() => validatePreviewOutputEvent({
+    protocolVersion: 1, correlationId: uuid, type: "preview.output",
+    payload: {
+      previewId: uuid, sequence: 1, source: "managed",
+      stream: "stdout", category: "console",
+      text: "x".repeat(LIMITS.outputText + 1),
+    },
+  }, uuid, uuid), /MALFORMED_PAYLOAD/);
+});
+
+test("036: timeout above maximum is rejected", () => {
+  assert.throws(() => validateCompileRequest({
+    protocolVersion: 1, correlationId: uuid, type: "compile.request",
+    payload: {
+      compileId, assemblyName: "Test",
+      sources: [{ path: "a.cs", text: "x" }],
+      primarySourcePath: "a.cs",
+      timeoutMs: MAX_TIMEOUTS_MS["compile.request"] + 1,
+    },
+  }), /MALFORMED_PAYLOAD/);
+});
+
+test("036: message size uses actual ArrayBuffer.byteLength, not JSON approximation", () => {
+  const smallBuf = new ArrayBuffer(64);
+  const observation = inspectClone({ binary: smallBuf });
+  assert.equal(observation.binaryCount, 1);
+  assert.ok(observation.measuredBytes >= 64);
 });

@@ -51,6 +51,8 @@ const APP_COMMANDS: &[&str] = &[
     "issue034_emit_report",
     "issue035_is_proof_enabled",
     "issue035_emit_report",
+    "issue036_is_proof_enabled",
+    "issue036_emit_report",
 ];
 
 fn collect_files(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) {
@@ -464,8 +466,8 @@ fn validate_generated_acl(root: &Path) {
     }
     assert_eq!(
         1 + 1 + generated_files.len(),
-        49,
-        "effective ACL must contain one capability, one composite permission, and 47 generated permissions"
+        51,
+        "effective ACL must contain one capability, one composite permission, and 49 generated permissions"
     );
 }
 

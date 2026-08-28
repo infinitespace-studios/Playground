@@ -1296,6 +1296,7 @@ export async function compileLoadStartIssue23(input: {
     issue033Proof?: boolean;
     issue034Proof?: boolean;
     issue035Proof?: boolean;
+    issue036Proof?: boolean;
     onOutput?: (event: PreviewOutput) => void;
   }): Promise<Issue23RunningPreview> {
     await ensureIssue21Contexts(false, true);
@@ -1380,6 +1381,7 @@ export async function compileLoadStartIssue23(input: {
           issue033Proof: input.issue033Proof === true,
           issue034Proof: input.issue034Proof === true,
           issue035Proof: input.issue035Proof === true,
+          issue036Proof: input.issue036Proof === true,
           runGamePipeline: true,
           issue023Case: input.runtimeCase ?? "normal",
         }, "*", [channel.port2, bridge.childPort]);
