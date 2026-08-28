@@ -74,6 +74,7 @@ globalThis.previewIssue028Proof = { enabled: false };
 globalThis.previewIssue030Proof = { enabled: false, samples: [], errors: [] };
 globalThis.previewIssue033Proof = { enabled: false };
 globalThis.previewIssue034Proof = { enabled: false };
+globalThis.previewIssue035Proof = { enabled: false };
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -503,6 +504,77 @@ async function executeBridgeAction(action, payload) {
       managedFileSystem: JSON.parse(exports.Issue034FileSystemProbe()),
     };
   }
+  if (action === "issue035-security" && globalThis.previewIssue035Proof.enabled) {
+    const violations = [];
+    const onViolation = event => violations.push({
+      effectiveDirective: event.effectiveDirective,
+      blockedUri: event.blockedURI,
+      disposition: event.disposition,
+    });
+    addEventListener("securitypolicyviolation", onViolation);
+
+    // Probe 1: External fetch — must trigger CSP connect-src violation
+    let fetchBlocked = false;
+    let fetchError = null;
+    try {
+      await fetch("https://example.com/issue035-probe");
+    } catch (error) {
+      fetchBlocked = true;
+      fetchError = error instanceof Error ? error.message : String(error);
+    }
+
+    // Probe 2: Top navigation — sandbox blocks this
+    let topLocationBefore = null;
+    let topLocationDenied = false;
+    try { topLocationBefore = parent.location.href; } catch { topLocationBefore = "cross-origin-denied"; }
+    try {
+      parent.location.href = "https://example.com/issue035-top-nav";
+      topLocationDenied = false;
+    } catch {
+      topLocationDenied = true;
+    }
+    let topLocationAfter = null;
+    try { topLocationAfter = parent.location.href; } catch { topLocationAfter = "cross-origin-denied"; }
+
+    // Probe 3: window.open — sandbox blocks popups
+    let windowOpenResult = null;
+    try {
+      windowOpenResult = window.open("https://example.com/issue035-popup", "_blank");
+    } catch {
+      windowOpenResult = "exception";
+    }
+    const popupDenied = windowOpenResult === null || windowOpenResult === "exception";
+
+    // Probe 4: window.open with _top target
+    let windowOpenTopResult = null;
+    try {
+      windowOpenTopResult = window.open("https://example.com/issue035-popup-top", "_top");
+    } catch {
+      windowOpenTopResult = "exception";
+    }
+    const popupTopDenied = windowOpenTopResult === null || windowOpenTopResult === "exception";
+
+    await new Promise(resolve => setTimeout(resolve, 100));
+    removeEventListener("securitypolicyviolation", onViolation);
+
+    const connectViolation = violations.find(item =>
+      item.effectiveDirective.startsWith("connect-src") &&
+      item.blockedUri === "https://example.com/issue035-probe");
+
+    return {
+      fetchBlocked,
+      fetchError,
+      connectSrcViolationObserved: !!connectViolation,
+      topLocationBefore,
+      topLocationAfter,
+      topLocationDenied,
+      topLocationUnchanged: topLocationBefore === topLocationAfter,
+      popupDenied,
+      popupTopDenied,
+      violations,
+      serializedOrigin: location.origin,
+    };
+  }
   if (action === "wait-animation-frame") {
     return await boundedAnimationFrame("wait-animation-frame");
   }
@@ -624,6 +696,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue030Proof") || typeof data.issue030Proof === "boolean") &&
     (!Object.hasOwn(data, "issue033Proof") || typeof data.issue033Proof === "boolean") &&
     (!Object.hasOwn(data, "issue034Proof") || typeof data.issue034Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue035Proof") || typeof data.issue035Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -644,6 +717,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue030Proof.enabled = data.issue030Proof === true;
     globalThis.previewIssue033Proof.enabled = data.issue033Proof === true;
     globalThis.previewIssue034Proof.enabled = data.issue034Proof === true;
+    globalThis.previewIssue035Proof.enabled = data.issue035Proof === true;
     installPreviewBridge(additionalPorts[0], data.issue021Proof === true);
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");

@@ -1,6 +1,6 @@
 # Preview security model
 
-## Version 1 (issues 033–034)
+## Version 2 (issues 033–035)
 
 Every production game-preview iframe is created with exactly:
 
@@ -129,8 +129,8 @@ matrix covers appended permission tables, plugin/all-frame initialization,
 second handler macros, extra runtime/build/plugin dependencies, and dependency
 feature drift. Protocol tests cover second/remote/wildcard capabilities,
 `webviews`, `local: false`, and extra permissions. It also validates all
-generated files. The effective 47-file ACL scope is exactly one capability,
-one composite `main-commands` permission, and 45 Tauri-generated per-command
+generated files. The effective 49-file ACL scope is exactly one capability,
+one composite `main-commands` permission, and 47 Tauri-generated per-command
 allow/deny permission files. The generated directory is intentionally ignored
 by Git: `tauri_build` reproducibly creates it from `APP_COMMANDS`, then
 `build.rs` rejects missing, extra, renamed, non-file, or malformed entries.
@@ -211,14 +211,88 @@ Capability labels cannot distinguish an iframe from its containing webview:
 both belong to `main`. The nested-frame boundary therefore additionally
 depends on Tauri's supported main-frame-only initialization behavior, the
 unavailable invoke key/transforms, opaque-origin sandbox, CSP, and the absence
-of plugin scripts. Issue 034 does not claim arbitrary-code OS isolation or
-network/navigation denial; those remain issues 035–038.
+of plugin scripts. Issue 034 does not claim arbitrary-code OS isolation;
+those remain issues 036–038.
+
+## Navigation and network denial (issue 035)
+
+The preview iframe cannot navigate the trusted top-level window, open new
+windows/tabs, or make arbitrary outbound network requests. Three independent
+enforcement layers provide this:
+
+### Layer 1: iframe sandbox
+
+The `sandbox="allow-scripts"` attribute intentionally omits
+`allow-top-navigation`, `allow-top-navigation-by-user-activation`, and
+`allow-popups`. Assigning `parent.location.href` or calling
+`window.open(url, "_top")` from within the preview iframe throws a
+`SecurityError`. Popup `window.open()` calls return `null`.
+
+### Layer 2: Content Security Policy
+
+The preview CSP restricts `connect-src` to `playground-preview:` only. Any
+`fetch()` or `XMLHttpRequest` to an `https:`, `http:`, or any other scheme
+triggers a `securitypolicyviolation` event with `effectiveDirective` beginning
+with `connect-src`. The request never reaches the network.
+
+### Layer 3: Shell-level Tauri hooks
+
+The main window is created programmatically in Tauri's `setup` hook with
+`"create": false` in `tauri.conf.json` (preventing auto-construction) so that
+`on_navigation` and `on_new_window` hooks can be installed:
+
+- **`on_navigation`** allows only URLs with scheme `tauri`,
+  `playground-preview`, or `about` (needed for `srcdoc` iframe initialization).
+  All other schemes (including `https`, `http`, `data`, `file`) return `false`
+  and are rejected by Wry before the webview navigates.
+- **`on_new_window`** unconditionally returns `Deny`, preventing any new
+  browser window from being opened regardless of the request source.
+
+These shell hooks operate at the Wry/webview level and apply to the entire
+`main` webview, including its embedded iframes. They are defense-in-depth: the
+sandbox and CSP independently block the same attack vectors from the preview
+iframe. The shell hooks would also block a hypothetical bypass of the sandbox
+layer.
+
+### Packaged proof evidence
+
+The packaged proof (`MONOGAME_ISSUE035_PROOF=1`) runs inside two sequential
+preview iframe generations and verifies:
+
+1. `fetch("https://example.com/issue035-probe")` throws a network error and
+   produces a `securitypolicyviolation` event with `connect-src` as the
+   effective directive — establishing CSP policy denial, not DNS/offline
+   coincidence.
+2. `parent.location.href = "https://example.com/issue035-top-nav"` throws a
+   `SecurityError` and the trusted top-level window's URL and title remain
+   unchanged.
+3. `window.open("https://example.com/...", "_blank")` and
+   `window.open("https://example.com/...", "_top")` both return `null`,
+   confirming sandbox popup denial.
+4. The preview still successfully loads its bundled `playground-preview:`
+   assets and renders CornflowerBlue at the expected WebGL pixel values —
+   regression check against issue 023.
+5. All assertions are repeated in a second preview generation to confirm
+   isolation survives iframe restart.
+6. The top-level trusted window URL is sampled before the first probe, between
+   probes, and after the second generation; all three observations are
+   identical.
+
+### Limitations
+
+The `on_navigation` and `on_new_window` hooks operate on the webview container
+and do not distinguish the top-level page from its nested iframes at the Tauri
+capability level. The iframe's own sandbox and CSP are the primary enforcement
+for preview isolation. The shell hooks are a second layer that would catch a
+sandbox bypass but cannot independently attribute denial to a specific iframe
+origin. Issue 034's observation that Tauri capability labels do not distinguish
+an iframe from its containing webview remains true.
 
 ## Limits and follow-up
 
-Sandbox, CSP, API analyzers, opaque origin, and private ports are
-defense-in-depth product boundaries, not a complete security sandbox for arbitrary
-hostile code. They do not by themselves provide process, OS, CPU, or memory
-isolation. Issues 035–038 add process boundary, protocol hardening, network
-denial, resource limits, and adversarial validation. No claim here supersedes
-those remaining controls.
+Sandbox, CSP, shell navigation hooks, API analyzers, opaque origin, and
+private ports are defense-in-depth product boundaries, not a complete security
+sandbox for arbitrary hostile code. They do not by themselves provide process,
+OS, CPU, or memory isolation. Issues 036–038 add process boundary, protocol
+hardening, resource limits, and adversarial validation. No claim here
+supersedes those remaining controls.

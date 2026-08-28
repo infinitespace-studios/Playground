@@ -317,6 +317,15 @@ fn issue034_trusted_marker_calls(webview: tauri::WebviewWindow) -> Result<usize,
     Ok(ISSUE034_TRUSTED_MARKER_CALLS.load(std::sync::atomic::Ordering::SeqCst))
 }
 
+fn issue035_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE035_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue035_is_proof_enabled() -> bool {
+    issue035_proof_enabled()
+}
+
 fn packaged_pipeline_proof_enabled() -> bool {
     issue021_proof_enabled()
         || issue022_proof_enabled()
@@ -332,6 +341,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue033_proof_enabled()
         || issue033_no_wasm_eval_proof_enabled()
         || issue034_proof_enabled()
+        || issue035_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -692,9 +702,9 @@ mod tests {
     use super::packaged_app_bundle;
     use super::{
         MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_TOTAL_BYTES, PREVIEW_ASSET_INVENTORY,
-        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, preview_asset, preview_content_type,
-        preview_protocol_response, proof_activation_target_allowed, proof_window_ready,
-        require_packaged_pipeline_proof,
+        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, navigation_allowed, preview_asset,
+        preview_content_type, preview_protocol_response, proof_activation_target_allowed,
+        proof_window_ready, require_packaged_pipeline_proof,
     };
     use tauri::http::{Method, Response};
 
@@ -716,6 +726,29 @@ mod tests {
     fn native_activation_is_rejected_without_packaged_proof_authorization() {
         assert!(require_packaged_pipeline_proof(false).is_err());
         assert!(require_packaged_pipeline_proof(true).is_ok());
+    }
+
+    #[test]
+    fn navigation_allows_only_trusted_schemes() {
+        let parse = |s: &str| s.parse::<tauri::Url>().unwrap();
+        assert!(navigation_allowed(&parse("tauri://localhost")));
+        assert!(navigation_allowed(&parse("tauri://localhost/index.html")));
+        assert!(navigation_allowed(
+            &parse("playground-preview://localhost/preview.js")
+        ));
+        assert!(navigation_allowed(&parse("about:blank")));
+        assert!(navigation_allowed(&parse("about:srcdoc")));
+        assert!(!navigation_allowed(&parse("https://example.com")));
+        assert!(!navigation_allowed(&parse("http://example.com")));
+        assert!(!navigation_allowed(&parse("http://ipc.localhost")));
+        assert!(!navigation_allowed(&parse("file:///etc/passwd")));
+        assert!(!navigation_allowed(&parse("data:text/html,test")));
+    }
+
+    #[test]
+    fn issue035_config_creates_window_manually() {
+        let config = include_str!("../tauri.conf.json");
+        assert!(config.contains("\"create\": false"));
     }
 
     #[test]
@@ -1041,6 +1074,20 @@ fn issue034_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+fn issue035_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue035_proof_enabled() {
+        return Err("issue 035 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE035_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+fn navigation_allowed(url: &tauri::Url) -> bool {
+    matches!(url.scheme(), "tauri" | "playground-preview" | "about")
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -1058,6 +1105,19 @@ pub fn run() {
             preview_protocol_response(request.method(), &request.uri().to_string())
         })
         .setup(|app| {
+            let window_config = app
+                .config()
+                .app
+                .windows
+                .iter()
+                .find(|w| w.label == "main")
+                .cloned()
+                .ok_or("main window configuration is missing")?;
+            tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
+                .on_navigation(|url| navigation_allowed(url))
+                .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+                .build()?;
+
             if packaged_pipeline_proof_enabled() {
                 #[cfg(target_os = "macos")]
                 {
@@ -1142,7 +1202,9 @@ pub fn run() {
             issue032_emit_report,
             issue033_emit_report,
             issue033_emit_no_wasm_eval_report,
-            issue034_emit_report
+            issue034_emit_report,
+            issue035_is_proof_enabled,
+            issue035_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");
