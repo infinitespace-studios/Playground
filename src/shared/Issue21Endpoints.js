@@ -4,6 +4,7 @@ import {
   validateCompileRequest,
   validatePreviewLoadRequest,
   validatePreviewStartRequest,
+  validatePreviewStopRequest,
 } from "./ProtocolRuntime.js";
 
 const envelopeErrors = new Set([
@@ -215,6 +216,7 @@ function createEndpoint({
       for (const delayed of outcome.delayedEvents ?? []) {
         globalThis.setTimeout(() => {
           try {
+            if (delayed.shouldPost && !delayed.shouldPost()) return;
             post(delayed.event);
             proof?.events?.push({
               type: delayed.event.type,
@@ -227,7 +229,9 @@ function createEndpoint({
         }, delayed.delayMs);
       }
       outcome.afterPost?.();
-      if (outcome.closeAfterResponse) setTimeout(() => close("post-mutation-taint"), 25);
+      if (outcome.closeAfterResponse) {
+        setTimeout(() => close(outcome.closeReason ?? "post-mutation-taint"), 25);
+      }
     } catch (error) {
       const code = errorCode(error, activeFallbackCode);
       if (terminalSent) {
@@ -257,6 +261,8 @@ function createEndpoint({
               ? "Compiler protocol request rejected."
               : activeResponseType === "preview.start.response"
                 ? "Preview start request rejected."
+                : activeResponseType === "preview.stop.response"
+                  ? "Preview stop request rejected."
                 : "Preview load request rejected."));
           proof?.terminals?.push(terminalCorrelation);
           if (code === "MESSAGE_SOURCE_REJECTED") close("message-source-rejected");
@@ -310,6 +316,14 @@ export function createPreviewEndpoint(options) {
           execute: options.executeStart ?? (() => { throw new Error("INVALID_STATE"); }),
           fallbackCode: "PREVIEW_START_FAILED",
         }
+      : raw?.type === "preview.stop.request"
+        ? {
+            requestType: "preview.stop.request",
+            responseType: "preview.stop.response",
+            validate: value => validatePreviewStopRequest(value, options.previewId),
+            execute: options.executeStop ?? (() => { throw new Error("INVALID_STATE"); }),
+            fallbackCode: "PREVIEW_STOP_FAILED",
+          }
       : {
           requestType: "preview.load.request",
           responseType: "preview.load.response",

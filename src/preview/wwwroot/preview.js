@@ -10,6 +10,7 @@ import {
   createProofExpectationRegistry,
 } from "./Issue21Endpoints.js";
 import { createPreviewStartExecutor } from "./PreviewStartRuntime.js";
+import { createPreviewStopExecutor } from "./PreviewStopRuntime.js";
 
 const status = document.querySelector("#status");
 const pingButton = document.querySelector("#ping");
@@ -60,6 +61,14 @@ globalThis.previewIssue023Proof = {
   queries: [],
   errors: [],
 };
+globalThis.previewIssue024Proof = {
+  enabled: false,
+  stop: null,
+  animationFrameCancellations: 0,
+  webglDeleteCalls: 0,
+  audioCloseCalls: 0,
+  errors: [],
+};
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -72,6 +81,7 @@ let runGamePipeline = false;
 let lifecycleSequence = 0;
 let issue023Case = "normal";
 let startExecutor = null;
+let stopExecutor = null;
 const bootstrapObservations = installPrivatePortBootstrap({
   expectedSource: parent,
   expectedOrigin: window.location.origin,
@@ -79,6 +89,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean" &&
     (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean") &&
     (!Object.hasOwn(data, "issue023Proof") || typeof data.issue023Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue024Proof") || typeof data.issue024Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -94,6 +105,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     constructAfterLoad = data.issue022Proof === true || runGamePipeline;
     globalThis.previewIssue22Proof.enabled = data.issue022Proof === true;
     globalThis.previewIssue023Proof.enabled = issue023ProofEnabled;
+    globalThis.previewIssue024Proof.enabled = data.issue024Proof === true;
     protocolPort = port;
     const expectationRegistry = createProofExpectationRegistry({
       authorized: data.issue021Proof,
@@ -121,6 +133,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
       previewId: expectedPreviewId,
       execute: executeLoadRequest,
       executeStart: executeStartRequest,
+      executeStop: executeStopRequest,
       expectations: data.issue021Proof ? expectationRegistry : undefined,
       contextGeneration: data.contextGeneration,
       portIdentity: bootstrapObservations.portIdentity,
@@ -356,6 +369,20 @@ function executeStartRequest(message) {
   return startExecutor(message);
 }
 
+function executeStopRequest(message) {
+  stopExecutor ??= createPreviewStopExecutor({
+    getState: () => loadState,
+    setState: state => {
+      loadState = state;
+      globalThis.previewIssue21Proof.state = state;
+    },
+    getExports: () => exportsPromise,
+    createLifecycleEvent: lifecycleEvent,
+    recordStop: stop => { globalThis.previewIssue024Proof.stop = stop; },
+  });
+  return stopExecutor(message);
+}
+
 function lifecycleEvent(type, correlationId, extra = {}) {
   return {
     protocolVersion: 1,
@@ -407,6 +434,11 @@ globalThis.previewIssue023EndpointSnapshot = () => {
     ]),
   });
 };
+globalThis.previewIssue024Snapshot = () => Object.freeze({
+  ...globalThis.previewIssue024Proof,
+  state: loadState,
+  endpointClosed: previewEndpoint?.closed === true,
+});
 globalThis.previewIssue22Teardown = async () => {
   const exports = await exportsPromise;
   if (typeof exports.TeardownGame !== "function") throw new Error("INTERNAL_ERROR");
@@ -419,6 +451,42 @@ globalThis.previewIssue22Teardown = async () => {
 window.addEventListener("pagehide", () => {
   if (loadState !== "disposed") void globalThis.previewIssue22Teardown();
 }, { once: true });
+
+const originalCancelAnimationFrame = globalThis.cancelAnimationFrame.bind(globalThis);
+globalThis.cancelAnimationFrame = handle => {
+  if (globalThis.previewIssue024Proof.enabled && loadState === "stopping") {
+    globalThis.previewIssue024Proof.animationFrameCancellations++;
+  }
+  return originalCancelAnimationFrame(handle);
+};
+
+for (const name of [
+  "deleteBuffer", "deleteFramebuffer", "deleteProgram", "deleteQuery",
+  "deleteRenderbuffer", "deleteSampler", "deleteShader", "deleteTexture",
+  "deleteTransformFeedback", "deleteVertexArray",
+]) {
+  const original = WebGL2RenderingContext.prototype[name];
+  if (typeof original !== "function") continue;
+  WebGL2RenderingContext.prototype[name] = function (...args) {
+    if (globalThis.previewIssue024Proof.enabled && loadState === "stopping") {
+      globalThis.previewIssue024Proof.webglDeleteCalls++;
+    }
+    return original.apply(this, args);
+  };
+}
+
+for (const AudioContextType of [globalThis.AudioContext, globalThis.webkitAudioContext]) {
+  if (!AudioContextType?.prototype || AudioContextType.prototype.__playgroundStopInstrumented) continue;
+  const originalClose = AudioContextType.prototype.close;
+  if (typeof originalClose !== "function") continue;
+  Object.defineProperty(AudioContextType.prototype, "__playgroundStopInstrumented", { value: true });
+  AudioContextType.prototype.close = function (...args) {
+    if (globalThis.previewIssue024Proof.enabled && loadState === "stopping") {
+      globalThis.previewIssue024Proof.audioCloseCalls++;
+    }
+    return originalClose.apply(this, args);
+  };
+}
 
 pingButton.addEventListener("click", async event => {
   pingButton.disabled = true;

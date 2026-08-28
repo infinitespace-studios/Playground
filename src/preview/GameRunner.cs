@@ -184,11 +184,12 @@ internal sealed class GameRunner : IDisposable
             }
 
             _disposed = true;
-            _state = RunnerState.Disposed;
+            _state = RunnerState.Stopping;
             var game = _game;
             _game = null;
             if (game is null)
             {
+                _state = RunnerState.Disposed;
                 return new DisposalResult(true, false, _disposeAttempts, false, null);
             }
 
@@ -196,10 +197,12 @@ internal sealed class GameRunner : IDisposable
             try
             {
                 game.Dispose();
+                _state = RunnerState.Disposed;
                 return new DisposalResult(true, true, _disposeAttempts, false, null);
             }
             catch (Exception exception) when (!IsFatal(exception))
             {
+                _state = RunnerState.Failed;
                 return new DisposalResult(
                     false, true, _disposeAttempts, false,
                     new RunnerError("PREVIEW_STOP_FAILED", "The game failed during cooperative preview teardown."));
@@ -462,6 +465,7 @@ internal sealed class GameRunner : IDisposable
         Loaded,
         Starting,
         Running,
+        Stopping,
         Failed,
         Disposed,
     }

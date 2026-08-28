@@ -1,6 +1,7 @@
 import type {
   CompileRequest, CompileResponse, PreviewLoadRequest, PreviewLoadResponse,
   PreviewStartRequest, PreviewStartResponse, PreviewStarted, PreviewFailed, PreviewStopped,
+  PreviewStopRequest, PreviewStopResponse,
 } from "./MessageContracts";
 export const PROTOCOL_VERSION: 1;
 export const LIMITS: Readonly<Record<string, number>>;
@@ -18,6 +19,8 @@ export function validatePreviewLoadRequest(value: unknown, previewId: string): {
 export function validatePreviewLoadResponse(value: unknown, correlationId: string, previewId: string, compileId: string): { message: PreviewLoadResponse; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewStartRequest(value: unknown, previewId: string): { message: PreviewStartRequest; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewStartResponse(value: unknown, correlationId: string, previewId: string): { message: PreviewStartResponse; observation: ReturnType<typeof inspectClone> };
+export function validatePreviewStopRequest(value: unknown, previewId: string): { message: PreviewStopRequest; observation: ReturnType<typeof inspectClone> };
+export function validatePreviewStopResponse(value: unknown, correlationId: string, previewId: string): { message: PreviewStopResponse; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewLifecycleEvent(value: unknown, previewId: string, expectedCorrelationId?: string): { message: PreviewStarted | PreviewFailed | PreviewStopped; observation: ReturnType<typeof inspectClone> };
 export function validateBinaryPair(assembly: unknown, pdb: unknown): void;
 export function standaloneBuffer(bytes: Uint8Array): ArrayBuffer;

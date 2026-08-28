@@ -44,10 +44,22 @@ export function createPreviewStartExecutor({
   return async message => {
     if (getState() !== "loaded") throw new Error("INVALID_STATE");
     setState("starting");
+    const cancelled = () => getState() !== "starting";
+    const cancelledOutcome = () => ({
+      result: {
+        success: false,
+        error: {
+          code: "CANCELLED",
+          message: "Preview start was cancelled by teardown.",
+        },
+      },
+    });
     const timeoutMs = message.payload.timeoutMs ?? 10_000;
     const startedAt = performance.now();
     if (beforeRunDelayMs > 0) await wait(beforeRunDelayMs);
+    if (cancelled()) return cancelledOutcome();
     const exports = await getExports();
+    if (cancelled()) return cancelledOutcome();
     if (typeof exports.RunLoadedGame !== "function") throw new UnexpectedStartBoundaryError();
 
     let managed;
@@ -76,6 +88,7 @@ export function createPreviewStartExecutor({
       callDurationMilliseconds: returnedAt - startedAt,
       managed,
     });
+    if (cancelled()) return cancelledOutcome();
     if (returnedAt - startedAt > timeoutMs) {
       return fail(exports, message, {
         code: "TIMEOUT",
@@ -94,7 +107,13 @@ export function createPreviewStartExecutor({
     return {
       result: { success: true, data: { previewId: message.payload.previewId, accepted: true } },
       ...(startedEventDelayMs > 0
-        ? { delayedEvents: [{ event: started, delayMs: startedEventDelayMs }] }
+        ? {
+            delayedEvents: [{
+              event: started,
+              delayMs: startedEventDelayMs,
+              shouldPost: () => getState() === "running",
+            }],
+          }
         : { events: [started] }),
     };
   };

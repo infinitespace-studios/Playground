@@ -12,12 +12,13 @@ namespace Playground.Preview;
 
 public static partial class PreviewExports
 {
-    private const string MonoGameSourceSha256 = "9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836";
+    private const string MonoGameSourceSha256 = "a84677fb75b20be1559803ce8f3afb72f88a7dc63afda5ff2d0c5a6e1e27a251";
     private static readonly string RuntimeIdentity = Guid.NewGuid().ToString("D");
     private static readonly object LifecycleGate = new();
     private static int _callCount;
     private static int _loadState;
     private static GameRunner? _gameRunner;
+    private static Type? _lastStoppedGameType;
 
     [JSExport]
     public static string Ping()
@@ -286,6 +287,13 @@ public static partial class PreviewExports
 
     [JSExport]
     public static string TeardownGame()
+        => StopGameCore();
+
+    [JSExport]
+    public static string StopGame()
+        => StopGameCore();
+
+    private static string StopGameCore()
     {
         lock (LifecycleGate)
         {
@@ -294,11 +302,14 @@ public static partial class PreviewExports
             if (runner is null)
             {
                 return JsonSerializer.Serialize(
-                    new GameTeardownResult(true, false, 0, false, null, previousState == 4),
+                    new GameTeardownResult(
+                        true, false, 0, false, null, previousState == 4, null, null),
                     PreviewJsonContext.Default.GameTeardownResult);
             }
 
+            var gameType = runner.Snapshot().GameType;
             var disposal = runner.Teardown();
+            _lastStoppedGameType = gameType;
             return JsonSerializer.Serialize(
                 new GameTeardownResult(
                     disposal.Success,
@@ -306,9 +317,27 @@ public static partial class PreviewExports
                     disposal.DisposeAttempts,
                     disposal.RetainedGame,
                     disposal.Error is null ? null : new LoadError(disposal.Error.Code, disposal.Error.Message),
-                    false),
+                    false,
+                    gameType is null ? null : ReadProofCounter(gameType, "FrameCount"),
+                    gameType is null ? null : ReadProofCounter(gameType, "DisposeCount")),
                 PreviewJsonContext.Default.GameTeardownResult);
         }
+    }
+
+    [JSExport]
+    public static string QueryStoppedGameProof()
+    {
+        var gameType = _lastStoppedGameType;
+        return JsonSerializer.Serialize(
+            new GameStoppedProof(
+                gameType is null ? null : ReadProofCounter(gameType, "FrameCount"),
+                gameType is null ? null : ReadProofCounter(gameType, "UpdateCount"),
+                gameType is null ? null : ReadProofCounter(gameType, "DisposeCount"),
+                gameType is null ? null : ReadProofCounter(gameType, "CallbackAfterDisposedCount"),
+                gameType is null ? null : ReadProofCounter(gameType, "AudioCreateCount"),
+                gameType is null ? null : ReadProofCounter(gameType, "AudioPlayCount"),
+                gameType is null ? null : ReadProofCounter(gameType, "AudioDisposeCount")),
+            PreviewJsonContext.Default.GameStoppedProof);
     }
 
     private static bool IsExpectedAssemblyLoadFailure(Exception exception) =>
@@ -530,7 +559,9 @@ public static partial class PreviewExports
         int DisposeAttempts,
         bool RetainedGame,
         LoadError? Error,
-        bool AlreadyTornDown);
+        bool AlreadyTornDown,
+        int? FrameCount,
+        int? ProofDisposeCount);
     internal sealed record GameStartResult(
         bool Success,
         string State,
@@ -562,6 +593,14 @@ public static partial class PreviewExports
         bool RepeatedTeardownHadGame,
         int GameDisposeCount,
         Dictionary<string, bool> FatalClassifications);
+    internal sealed record GameStoppedProof(
+        int? FrameCount,
+        int? UpdateCount,
+        int? DisposeCount,
+        int? CallbackAfterDisposedCount,
+        int? AudioCreateCount,
+        int? AudioPlayCount,
+        int? AudioDisposeCount);
     private sealed class RunnerSelfTestGame : Game
     {
         public int DisposeCount { get; private set; }
@@ -593,5 +632,6 @@ public static partial class PreviewExports
 [JsonSerializable(typeof(PreviewExports.GameStartResult))]
 [JsonSerializable(typeof(PreviewExports.GameRunStateResult))]
 [JsonSerializable(typeof(PreviewExports.RunnerBehavioralSelfTest))]
+[JsonSerializable(typeof(PreviewExports.GameStoppedProof))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class PreviewJsonContext : JsonSerializerContext;

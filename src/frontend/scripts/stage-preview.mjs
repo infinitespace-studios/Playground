@@ -65,6 +65,10 @@ await cp(
   path.join(repositoryRoot, "src/shared/PreviewStartRuntime.js"),
   path.join(publishRoot, "PreviewStartRuntime.js"),
 );
+await cp(
+  path.join(repositoryRoot, "src/shared/PreviewStopRuntime.js"),
+  path.join(publishRoot, "PreviewStopRuntime.js"),
+);
 
 const frameworkRoot = path.join(publishRoot, "_framework");
 const frameworkFiles = await readdir(frameworkRoot);
@@ -75,6 +79,7 @@ const requiredFiles = [
   "ProtocolRuntime.js",
   "Issue21Endpoints.js",
   "PreviewStartRuntime.js",
+  "PreviewStopRuntime.js",
   "_framework/dotnet.js",
   "_framework/blazor.boot.json",
 ];

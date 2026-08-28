@@ -470,6 +470,47 @@ export function validatePreviewStartResponse(value, correlationId, previewId) {
   return { message, observation };
 }
 
+export function validatePreviewStopRequest(value, previewId) {
+  const { message, observation } = validateEnvelope(value, "preview.stop.request");
+  rejectUnexpected(message, ["protocolVersion", "correlationId", "type", "payload"], "MALFORMED_ENVELOPE");
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["payload"], "MALFORMED_ENVELOPE");
+  const payload = requireObject(message.payload);
+  requireOwn(payload, ["previewId", "reason"]);
+  rejectUnexpected(payload, ["previewId", "reason", "timeoutMs"]);
+  if (payload.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (!["user", "restart", "exit-cleanup", "failure-cleanup"].includes(payload.reason)) {
+    throw new Error("MALFORMED_PAYLOAD");
+  }
+  validateTimeout(ownOptional(payload, "timeoutMs"), MAX_TIMEOUTS_MS["preview.stop.request"]);
+  return { message, observation };
+}
+
+export function validatePreviewStopResponse(value, correlationId, previewId) {
+  const { message, observation } = validateEnvelope(value, "preview.stop.response", correlationId);
+  rejectUnexpected(message, ["protocolVersion", "correlationId", "type", "result"], "MALFORMED_ENVELOPE");
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["result"], "MALFORMED_ENVELOPE");
+  const result = requireObject(message.result);
+  requireOwn(result, ["success"]);
+  if (typeof result.success !== "boolean") throw new Error("MALFORMED_PAYLOAD");
+  if (!result.success) {
+    requireOwn(result, ["error"]);
+    validateError(result.error);
+    return { message, observation };
+  }
+  requireOwn(result, ["data"]);
+  const data = requireObject(result.data);
+  requireOwn(data, ["previewId", "accepted", "alreadyStopped"]);
+  rejectUnexpected(data, ["previewId", "accepted", "alreadyStopped"]);
+  if (data.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (typeof data.accepted !== "boolean" || typeof data.alreadyStopped !== "boolean" ||
+      data.accepted === data.alreadyStopped) {
+    throw new Error("MALFORMED_PAYLOAD");
+  }
+  return { message, observation };
+}
+
 export function validatePreviewLifecycleEvent(value, previewId, expectedCorrelationId) {
   const expectedType = value?.type;
   if (!["preview.started", "preview.failed", "preview.stopped"].includes(expectedType)) {
@@ -603,6 +644,9 @@ export class ProtocolPortClient {
       if (value.type !== pending.responseType) throw new Error("Wrong terminal response type.");
       const validated = pending.validate(value);
       if (value.type === "preview.start.response") {
+        this.lifecycleEligible.add(value.correlationId);
+      }
+      if (value.type === "preview.stop.response") {
         this.lifecycleEligible.add(value.correlationId);
       }
       globalThis.clearTimeout(pending.timer);

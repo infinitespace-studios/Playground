@@ -58,10 +58,17 @@ if not isinstance(commit_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", commit_s
 
 toolchain_sha = toolchain.get("monogame", {}).get("commitSha")
 if commit_sha != toolchain_sha:
-    fail(
-        "MonoGame commit SHA mismatch: "
-        f"artifact inventory has {commit_sha!r}, toolchain manifest has {toolchain_sha!r}."
-    )
+    retained_for = inventory.get("retainedFor")
+    if (
+        not isinstance(retained_for, dict)
+        or retained_for.get("commitSha") != toolchain_sha
+        or not isinstance(retained_for.get("reason"), str)
+        or not retained_for["reason"].strip()
+    ):
+        fail(
+            "MonoGame artifact source differs from the toolchain without explicit retained-artifact "
+            f"provenance: inventory has {commit_sha!r}, toolchain has {toolchain_sha!r}."
+        )
 
 build_configuration = inventory.get("buildConfiguration")
 if not isinstance(build_configuration, str) or not build_configuration:
@@ -109,6 +116,8 @@ if provenance_path.is_file():
             "MonoGame commit SHA mismatch: "
             f"artifact inventory has {commit_sha!r}, artifact provenance has {provenance_sha!r}."
         )
+    if "retainedFor" in provenance:
+        fail("Artifact build provenance must identify only its source commit; compatibility belongs in the tracked inventory.")
 
     recorded_status_hash = provenance.get("preBuildStatusSha256")
     status = provenance.get("preBuildStatus")

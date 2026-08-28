@@ -4,6 +4,7 @@ import {
   type CompileRequest,
   type PreviewLoadRequest,
   type PreviewStartRequest,
+  type PreviewStopRequest,
   type UuidV4,
 } from "../../shared/MessageContracts";
 import {
@@ -15,6 +16,7 @@ import {
   validatePreviewLoadResponse,
   validatePreviewLifecycleEvent,
   validatePreviewStartResponse,
+  validatePreviewStopResponse,
 } from "./protocol";
 import {
   createIssue21LoadController,
@@ -126,6 +128,8 @@ declare global {
     previewIssue023Query?: () => Promise<Record<string, unknown>>;
     previewIssue023RunnerSelfTest?: () => Promise<Record<string, unknown>>;
     previewIssue023EndpointSnapshot?: () => Record<string, unknown>;
+    previewIssue024Proof?: Record<string, unknown>;
+    previewIssue024Snapshot?: () => Record<string, unknown>;
   }
 
 }
@@ -148,6 +152,7 @@ export interface Issue23RunningPreview {
   probes: Record<string, unknown>;
   client: ProtocolPortClient;
   query(): Promise<Record<string, unknown>>;
+  stop(reason?: "user" | "restart"): Promise<Record<string, unknown>>;
   teardown(): Promise<unknown>;
 }
 
@@ -260,54 +265,74 @@ export async function preparePackagedProofRuntime(): Promise<Record<string, unkn
   if (!invoke) throw new Error("Tauri proof runtime is unavailable.");
   const requestedAt = performance.now();
   const framesBefore = window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved;
-  const native = await invoke<
-    [string, boolean, boolean, boolean, boolean, boolean, boolean, boolean, boolean, number, number]
-  >("prepare_packaged_proof_window");
-  const [
-    platform,
-    activationPolicyRegular,
-    unhideRequested,
-    runningActivationRequested,
-    applicationActive,
-    nativeWindowFocused,
-    visible,
-    focused,
-    minimized,
-    nativeAttempts,
-    nativeElapsedMilliseconds,
-  ] = native;
-  const nativeActivation = {
-    platform,
-    activationPolicyRegular,
-    unhideRequested,
-    runningActivationRequested,
-    applicationActive,
-    nativeWindowFocused,
-    visible,
-    focused,
-    minimized,
-    attempts: nativeAttempts,
-    elapsedMilliseconds: nativeElapsedMilliseconds,
+  type NativeProofWindow = [
+    string, boolean, boolean, boolean, boolean, boolean,
+    boolean, boolean, boolean, number, number,
+  ];
+  const activate = async () => {
+    const native = await invoke<NativeProofWindow>("prepare_packaged_proof_window");
+    window.focus();
+    const [
+      platform,
+      activationPolicyRegular,
+      unhideRequested,
+      runningActivationRequested,
+      applicationActive,
+      nativeWindowFocused,
+      visible,
+      focused,
+      minimized,
+      nativeAttempts,
+      nativeElapsedMilliseconds,
+    ] = native;
+    return {
+      platform,
+      activationPolicyRegular,
+      unhideRequested,
+      runningActivationRequested,
+      applicationActive,
+      nativeWindowFocused,
+      visible,
+      focused,
+      minimized,
+      attempts: nativeAttempts,
+      elapsedMilliseconds: nativeElapsedMilliseconds,
+    };
   };
-  const readinessDeadline = performance.now() + 10_000;
+  let nativeActivation = await activate();
+  let activationRounds = 1;
+  const readinessDeadline = performance.now() + 20_000;
+  let nextActivationAt = performance.now() + 1_000;
   let animationFrameBefore: number | null = null;
   let animationFrameAfter: number | null = null;
+  const nextAnimationFrame = () => Promise.race([
+    new Promise<number>(resolve => window.requestAnimationFrame(resolve)),
+    new Promise<null>(resolve => window.setTimeout(() => resolve(null), 500)),
+  ]);
   while (performance.now() < readinessDeadline) {
-    if (document.visibilityState === "visible" && visible && focused && !minimized) {
-      animationFrameBefore = await new Promise<number>(resolve =>
-        window.requestAnimationFrame(resolve));
-      animationFrameAfter = await new Promise<number>(resolve =>
-        window.requestAnimationFrame(resolve));
-      if (window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved > framesBefore) break;
+    if (document.visibilityState === "visible" &&
+        nativeActivation.visible && nativeActivation.focused && !nativeActivation.minimized) {
+      animationFrameBefore = await nextAnimationFrame();
+      animationFrameAfter = animationFrameBefore === null ? null : await nextAnimationFrame();
+      if (animationFrameBefore !== null && animationFrameAfter !== null &&
+          window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved > framesBefore) break;
+    }
+    if (performance.now() >= nextActivationAt && activationRounds < 3) {
+      nativeActivation = await activate();
+      activationRounds += 1;
+      nextActivationAt = performance.now() + 1_000;
     }
     await new Promise(resolve => window.setTimeout(resolve, 50));
   }
   const framesAfter = window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved;
-  if (document.visibilityState !== "visible" || !visible || !focused || minimized ||
+  if (document.visibilityState !== "visible" ||
+      !nativeActivation.applicationActive || !nativeActivation.nativeWindowFocused ||
+      !nativeActivation.visible || !nativeActivation.focused || nativeActivation.minimized ||
       animationFrameBefore === null || animationFrameAfter === null ||
       animationFrameAfter <= animationFrameBefore || framesAfter <= framesBefore) {
     throw new Error(`Packaged proof readiness failed: ${JSON.stringify({
       nativeActivation,
+      activationRounds,
       documentVisibility: document.visibilityState,
       animationFrameBefore,
       animationFrameAfter,
@@ -320,6 +345,7 @@ export async function preparePackagedProofRuntime(): Promise<Record<string, unkn
     requestedAt,
     readyAt: performance.now(),
     nativeActivation,
+    activationRounds,
     visibilityState: document.visibilityState,
     animationFrameProgressMilliseconds: animationFrameAfter - animationFrameBefore,
     renderedFramesObserved: framesAfter,
@@ -1058,6 +1084,7 @@ export async function compileLoadStartIssue23(input: {
     auxiliary?: boolean;
     timeoutRetirementGraceMs?: number;
     expectedStartCode?: "INTERNAL_ERROR";
+    issue024Proof?: boolean;
   }): Promise<Issue23RunningPreview> {
     await ensureIssue21Contexts(false, true);
     const compileId = createUuid();
@@ -1122,6 +1149,7 @@ export async function compileLoadStartIssue23(input: {
           issue021Proof: input.expectedStartCode !== undefined,
           issue022Proof: false,
           issue023Proof: input.proofMode,
+          issue024Proof: input.issue024Proof === true,
           runGamePipeline: true,
           issue023Case: input.runtimeCase ?? "normal",
         }, window.location.origin, [channel.port2]);
@@ -1398,6 +1426,105 @@ export async function compileLoadStartIssue23(input: {
       ) as ReturnType<typeof validatePreviewStartResponse>).message;
     }
 
+    const generatedObjectUrls = new Set<string>();
+    if (input.issue024Proof) {
+      generatedObjectUrls.add(URL.createObjectURL(new Blob(
+        [input.sourceText], { type: "text/plain" })));
+    }
+    let stopOperation: Promise<Record<string, unknown>> | null = null;
+    const stop = (reason: "user" | "restart" = "user") => {
+      if (stopOperation) return stopOperation;
+      stopOperation = (async () => {
+        const correlationId = createUuid();
+        const requestedAt = performance.now();
+        const orderBefore = wireOrder.length;
+        let stoppedEvent: ReturnType<typeof validatePreviewLifecycleEvent>["message"] | null = null;
+        let resolveStopped!: (message: ReturnType<typeof validatePreviewLifecycleEvent>["message"]) => void;
+        const stopped = new Promise<ReturnType<typeof validatePreviewLifecycleEvent>["message"]>(
+          resolve => { resolveStopped = resolve; });
+        const removeStopListener = client.onLifecycleEvent(message => {
+          if (message.correlationId !== correlationId || message.type !== "preview.stopped") return;
+          const validated = validatePreviewLifecycleEvent(
+            message, isolatedPreviewId, correlationId);
+          wireOrder.push(validated.message.type);
+          stoppedEvent = validated.message;
+          resolveStopped(validated.message);
+        });
+        const request: PreviewStopRequest = {
+          protocolVersion: PROTOCOL_VERSION,
+          correlationId,
+          type: "preview.stop.request",
+          payload: { previewId: isolatedPreviewId, reason, timeoutMs: 2_000 },
+        };
+        try {
+          const response = await client.request(
+            request,
+            "preview.stop.response",
+            value => validatePreviewStopResponse(value, correlationId, isolatedPreviewId),
+            [],
+            2_000,
+          ) as ReturnType<typeof validatePreviewStopResponse>;
+          wireOrder.push(response.message.type);
+          if (!response.message.result.success) {
+            await Promise.race([
+              stopped,
+              new Promise<never>((_, reject) =>
+                window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+            ]);
+            throw new Error(
+              `${response.message.result.error.code}: ${response.message.result.error.message}`);
+          }
+          if (response.message.result.data.accepted) {
+            await Promise.race([
+              stopped,
+              new Promise<never>((_, reject) =>
+                window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+            ]);
+          }
+          const runtime = frame.contentWindow?.previewIssue024Snapshot?.() ?? null;
+          const wasConnectedAtStopped = frame.isConnected;
+          removeStopListener();
+          client.close(new Error("Cooperative preview stop completed."));
+          const urlsToRevoke = [...generatedObjectUrls];
+          for (const url of urlsToRevoke) URL.revokeObjectURL(url);
+          const revokedObjectUrls = generatedObjectUrls.size;
+          generatedObjectUrls.clear();
+          const objectUrlsUnavailable = (await Promise.all(urlsToRevoke.map(async url => {
+            try {
+              await fetch(url);
+              return false;
+            } catch {
+              return true;
+            }
+          }))).every(Boolean);
+          frame.remove();
+          return {
+            correlationId,
+            response: response.message,
+            stoppedEvent,
+            runtime,
+            requestedAt,
+            completedAt: performance.now(),
+            elapsedMilliseconds: performance.now() - requestedAt,
+            wasConnectedAtStopped,
+            iframeConnected: frame.isConnected,
+            portClosed: client.isClosed,
+            revokedObjectUrls,
+            objectUrlsUnavailable,
+            wireOrder: wireOrder.slice(orderBefore),
+          };
+        } catch (error) {
+          removeStopListener();
+          client.close(error);
+          for (const url of generatedObjectUrls) URL.revokeObjectURL(url);
+          generatedObjectUrls.clear();
+          frame.remove();
+          throw error;
+        }
+      })();
+      return stopOperation;
+    };
+
     return {
       frame,
       compileId,
@@ -1423,13 +1550,9 @@ export async function compileLoadStartIssue23(input: {
         if (typeof query !== "function") throw new Error("Issue 023 managed query is unavailable.");
         return query();
       },
+      stop,
       async teardown() {
-        const teardown = frame.contentWindow?.previewIssue22Teardown;
-        if (typeof teardown !== "function") throw new Error("Issue 022 teardown is unavailable.");
-        const result = await teardown();
-        client.close(new Error("Issue 023 proof teardown."));
-        frame.remove();
-        return result;
+        return stop("user");
       },
     };
 }

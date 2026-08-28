@@ -19,6 +19,8 @@ import {
   validatePreviewLifecycleEvent,
   validatePreviewStartRequest,
   validatePreviewStartResponse,
+  validatePreviewStopRequest,
+  validatePreviewStopResponse,
 } from "./protocol.ts";
 import { installPrivatePortBootstrap } from "../../shared/ProtocolRuntime.js";
 import {
@@ -31,6 +33,7 @@ import {
   createPreviewStartExecutor,
   UnexpectedStartBoundaryError,
 } from "../../shared/PreviewStartRuntime.js";
+import { createPreviewStopExecutor } from "../../shared/PreviewStopRuntime.js";
 import {
   createIssue21LoadController,
   verifyIssue21ProofOutcomes,
@@ -39,6 +42,7 @@ import {
   createIssue023RunController,
   withForcedPreviewRetirement,
 } from "./issue23-controller.ts";
+import { createIssue024RunStopController } from "./issue24-controller.ts";
 
 const uuid = "00112233-4455-4677-8899-aabbccddeeff";
 const compileId = "12345678-1234-4abc-8def-123456789abc";
@@ -136,6 +140,35 @@ test("requester timeout immediately retires its preview and discards delayed com
     setTimeout(() => reject(new Error("TIMEOUT")), 5));
   await assert.rejects(withForcedPreviewRetirement(delayed, () => { retired += 1; }), /TIMEOUT/);
   assert.equal(retired, 1);
+});
+
+test("run/stop controller coalesces concurrent stops and recovers controls", async () => {
+  const runDisabled: boolean[] = [];
+  const stopDisabled: boolean[] = [];
+  const statuses: string[] = [];
+  let stopCalls = 0;
+  let release!: () => void;
+  const stopping = new Promise<void>(resolve => { release = resolve; });
+  const controller = createIssue024RunStopController({
+    start: async () => ({ previewId: uuid }),
+    stop: async () => { stopCalls++; await stopping; return { stopped: true }; },
+    setRunDisabled: value => { runDisabled.push(value); },
+    setStopDisabled: value => { stopDisabled.push(value); },
+    setStatus: (_state, text) => { statuses.push(text); },
+    reportError: () => {},
+  });
+  await controller.run();
+  const first = controller.stop();
+  const duplicate = controller.stop();
+  assert.equal(first, duplicate);
+  assert.equal(controller.state, "stopping");
+  assert.equal(stopCalls, 1);
+  release();
+  assert.deepEqual(await first, { stopped: true });
+  assert.equal(controller.state, "idle");
+  assert.equal(runDisabled.at(-1), false);
+  assert.equal(stopDisabled.at(-1), true);
+  assert.equal(statuses.at(-1), "Preview stopped; editor controls recovered.");
 });
 
 test("proof outcome matching excludes the primary successful load", () => {
@@ -895,6 +928,189 @@ function startRequest(correlationId = uuid, previewId = uuid, timeoutMs = 10_000
   };
 }
 
+function stopRequest(correlationId = uuid, previewId = uuid) {
+  return {
+    protocolVersion: 1,
+    correlationId,
+    type: "preview.stop.request",
+    payload: { previewId, reason: "user", timeoutMs: 2_000 },
+  };
+}
+
+test("validates exact stop request and response contracts", () => {
+  assert.equal(validatePreviewStopRequest(stopRequest(), uuid).message.type,
+    "preview.stop.request");
+  const response = {
+    protocolVersion: 1,
+    correlationId: uuid,
+    type: "preview.stop.response",
+    result: {
+      success: true,
+      data: { previewId: uuid, accepted: true, alreadyStopped: false },
+    },
+  };
+  assert.equal(validatePreviewStopResponse(response, uuid, uuid).message, response);
+  assert.throws(
+    () => validatePreviewStopRequest({
+      ...stopRequest(), payload: { previewId: uuid, reason: "manual" },
+    }, uuid),
+    /MALFORMED_PAYLOAD/,
+  );
+  assert.throws(
+    () => validatePreviewStopResponse({
+      ...response,
+      result: {
+        success: true,
+        data: { previewId: uuid, accepted: true, alreadyStopped: true },
+      },
+    }, uuid, uuid),
+    /MALFORMED_PAYLOAD/,
+  );
+});
+
+test("stop executor disposes once and emits one stopped completion", async () => {
+  let state = "running";
+  let stopCalls = 0;
+  let records = 0;
+  let sequence = 1;
+  const execute = createPreviewStopExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => ({
+      StopGame: () => {
+        stopCalls++;
+        return JSON.stringify({
+          success: true, hadGame: true, disposeAttempts: 1,
+          proofDisposeCount: 1, frameCount: 4,
+        });
+      },
+      QueryStoppedGameProof: () => JSON.stringify({
+        frameCount: 4, updateCount: 4, disposeCount: 1,
+        callbackAfterDisposedCount: 0,
+      }),
+    }),
+    createLifecycleEvent: (type, correlationId, extra = {}) => ({
+      protocolVersion: 1,
+      correlationId,
+      type,
+      payload: { previewId: uuid, sequence: ++sequence, ...extra },
+    }),
+    recordStop: () => { records++; },
+  });
+  const first = execute(stopRequest());
+  const concurrent = execute(stopRequest(compileId));
+  const [firstOutcome, concurrentOutcome] = await Promise.all([first, concurrent]);
+  assert.equal(stopCalls, 1);
+  assert.equal(state, "disposed");
+  assert.equal(records, 2);
+  assert.deepEqual(firstOutcome.events.map(event => event.type), ["preview.stopped"]);
+  assert.equal(firstOutcome.events[0].payload.reason, "requested");
+  assert.equal(concurrentOutcome.events, undefined);
+  const already = await execute(stopRequest(crypto.randomUUID()));
+  assert.deepEqual(already.result.data, {
+    previewId: uuid, accepted: false, alreadyStopped: true,
+  });
+});
+
+test("actual endpoint makes stop win during awaited start with one stopped event", async () => {
+  const posted: Array<Record<string, any>> = [];
+  let state = "loaded";
+  let sequence = 0;
+  let disposeCalls = 0;
+  const exports = {
+    RunLoadedGame: () => {
+      throw new Error("RunLoadedGame must not execute after stop wins.");
+    },
+    StopGame: () => {
+      disposeCalls++;
+      return JSON.stringify({ success: true, disposeAttempts: 1 });
+    },
+    QueryStoppedGameProof: () => JSON.stringify({
+      frameCount: 0, updateCount: 0, disposeCount: 1, callbackAfterDisposedCount: 0,
+    }),
+  };
+  const lifecycleEvent = (type: string, correlationId: string, extra = {}) => ({
+    protocolVersion: 1,
+    correlationId,
+    type,
+    payload: { previewId: uuid, sequence: ++sequence, ...extra },
+  });
+  const executeStart = createPreviewStartExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => exports,
+    createLifecycleEvent: lifecycleEvent,
+    recordStart: () => {},
+    recordFailureTeardown: () => {},
+    recordUnexpected: () => {},
+    beforeRunDelayMs: 150,
+  });
+  const executeStop = createPreviewStopExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => exports,
+    createLifecycleEvent: lifecycleEvent,
+    recordStop: () => {},
+  });
+  const endpoint = createPreviewEndpoint({
+    port: {
+      postMessage(message: Record<string, any>) { posted.push(message); },
+      close() {},
+    },
+    previewId: uuid,
+    proof: { errors: [], terminals: [], closes: [], events: [] },
+    execute: async () => { throw new Error("INVALID_STATE"); },
+    executeStart,
+    executeStop,
+  });
+  const starting = endpoint.handle({ data: startRequest(uuid) });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  const stopCorrelation = crypto.randomUUID();
+  const stopping = endpoint.handle({ data: stopRequest(stopCorrelation) });
+  await Promise.all([starting, stopping]);
+
+  assert.equal(disposeCalls, 1);
+  assert.equal(state, "disposed");
+  assert.deepEqual(posted.map(message => message.type), [
+    "preview.stop.response",
+    "preview.stopped",
+    "preview.start.response",
+  ]);
+  assert.equal(posted.filter(message => message.type === "preview.stopped").length, 1);
+  assert.equal(posted.some(message => message.type === "preview.failed"), false);
+  assert.equal(posted.at(-1)?.result.error.code, "CANCELLED");
+  assert.equal(posted[1].payload.sequence, 1);
+  assert.equal(posted[1].correlationId, stopCorrelation);
+});
+
+test("already-stopped stop posts response before retiring actual endpoint", async () => {
+  const order: string[] = [];
+  let state = "stopped";
+  const executeStop = createPreviewStopExecutor({
+    getState: () => state,
+    setState: value => { state = value; },
+    getExports: async () => ({}),
+    createLifecycleEvent: () => { throw new Error("must not emit"); },
+    recordStop: () => {},
+  });
+  const endpoint = createPreviewEndpoint({
+    port: {
+      postMessage(message: Record<string, any>) { order.push(message.type); },
+      close() { order.push("close"); },
+    },
+    previewId: uuid,
+    proof: { errors: [], terminals: [], closes: [], events: [] },
+    execute: async () => { throw new Error("INVALID_STATE"); },
+    executeStop,
+  });
+  await endpoint.handle({ data: stopRequest() });
+  assert.deepEqual(order, ["preview.stop.response"]);
+  assert.equal(endpoint.closed, false);
+  await new Promise(resolve => setTimeout(resolve, 35));
+  assert.deepEqual(order, ["preview.stop.response", "close"]);
+  assert.equal(endpoint.closed, true);
+});
+
 test("start validators reject wrong version, type, source, payload, and timeout", () => {
   assert.equal(validatePreviewStartRequest(startRequest(), uuid).message.type, "preview.start.request");
   assert.throws(
@@ -930,7 +1146,7 @@ test("actual start endpoint rejects wrong version, type, and preview identity be
       code: "UNSUPPORTED_PROTOCOL_VERSION",
     },
     {
-      message: { ...startRequest(), type: "preview.stop.request" },
+      message: { ...startRequest(), type: "preview.started" },
       responseType: "protocol.error",
       code: "MESSAGE_ROUTE_REJECTED",
     },

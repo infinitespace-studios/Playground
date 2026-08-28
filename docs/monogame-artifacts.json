@@ -1,6 +1,10 @@
 {
   "schemaVersion": 1,
   "monogameCommitSha": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+  "retainedFor": {
+    "commitSha": "ecf06ee240dcc5524e82b656b4682e22b4c91175",
+    "reason": "The retained Debug Example.Web fingerprints and native archives predate ecf06ee; that commit changes only managed Native GamePlatform code consumed by the separately rebuilt preview assembly."
+  },
   "buildConfiguration": "Debug",
   "provenanceFile": "provenance.json",
   "inventorySource": {

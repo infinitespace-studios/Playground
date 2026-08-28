@@ -136,18 +136,40 @@ def validate_contract(manifest, toolchain, assets):
             expected = {
                 "path": "external/MonoGame/Artifacts/MonoGame.Framework/Native/Release/MonoGame.Framework.dll",
                 "version": commit_sha,
-                "informationalVersion": f"{version}+{commit_sha}",
                 "project": "MonoGame.Framework/MonoGame.Framework.Native.csproj",
                 "profile": "Native",
                 "configuration": "Release",
             }
-            if name != "MonoGame.Framework" or any(source.get(key) != value for key, value in expected.items()):
+            if (
+                name != "MonoGame.Framework"
+                or any(source.get(key) != value for key, value in expected.items())
+                or not isinstance(source.get("informationalVersion"), str)
+                or not source["informationalVersion"].endswith(f"+{commit_sha}")
+            ):
                 fail("MonoGame source metadata must identify the Native Release project output.")
         else:
             fail(f"Unsupported source kind for {name}: {source.get('kind')!r}.")
 
     if len(names) != len(set(names)):
         fail("Reference allowlist contains duplicate physical assembly names.")
+    monogame_entry = next(
+        (entry for entry in assemblies if entry["simpleName"] == "MonoGame.Framework"),
+        None,
+    )
+    pinned_monogame = toolchain.get("preview", {}).get("monoGameAssembly")
+    if monogame_entry is None or not isinstance(pinned_monogame, dict):
+        fail("MonoGame assembly identity is missing from the reference or toolchain manifest.")
+    expected_pin = {
+        "simpleName": monogame_entry["simpleName"],
+        "version": monogame_entry["version"],
+        "sha256": monogame_entry["sha256"],
+        "source": "src/compiler/References/MonoGame.Framework.dll",
+        "sourceProject": monogame_entry["source"]["project"],
+        "sourceProfile": monogame_entry["source"]["profile"],
+        "sourceCommitSha": commit_sha,
+    }
+    if pinned_monogame != expected_pin:
+        fail("MonoGame assembly identity has drifted between the toolchain and reference manifests.")
     if len(capabilities) != len(set(capabilities)):
         fail("Reference allowlist contains duplicate capabilities.")
 

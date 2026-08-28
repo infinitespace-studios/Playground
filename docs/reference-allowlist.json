@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "monogameCommitSha": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+  "monogameCommitSha": "ecf06ee240dcc5524e82b656b4682e22b4c91175",
   "target": {
     "framework": "net9.0",
     "runtimeIdentifier": "browser-wasm",
@@ -182,14 +182,14 @@
     },
     {
       "simpleName": "MonoGame.Framework",
-      "version": "3.8.3.1",
+      "version": "3.8.5.1",
       "publicKeyToken": null,
-      "sha256": "9d2845d17767ffa295aed45f52d57bf9bc0f73b4e02cee8ac3cbe7502a0be836",
+      "sha256": "a84677fb75b20be1559803ce8f3afb72f88a7dc63afda5ff2d0c5a6e1e27a251",
       "source": {
         "kind": "monogame-submodule-build-output",
         "path": "external/MonoGame/Artifacts/MonoGame.Framework/Native/Release/MonoGame.Framework.dll",
-        "version": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
-        "informationalVersion": "3.8.3.1+eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
+        "version": "ecf06ee240dcc5524e82b656b4682e22b4c91175",
+        "informationalVersion": "3.8.5.1-develop+ecf06ee240dcc5524e82b656b4682e22b4c91175",
         "project": "MonoGame.Framework/MonoGame.Framework.Native.csproj",
         "profile": "Native",
         "configuration": "Release"

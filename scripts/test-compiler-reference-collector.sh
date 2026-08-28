@@ -88,6 +88,25 @@ import sys
 path = sys.argv[1]
 with open(path, encoding="utf-8") as source:
     manifest = json.load(source)
+for entry in manifest["assemblies"]:
+    if entry["simpleName"] == "MonoGame.Framework":
+        entry["version"] = "3.8.3.1"
+with open(path, "w", encoding="utf-8") as destination:
+    json.dump(manifest, destination, indent=2)
+    destination.write("\n")
+PY
+expect_failure monogame-version-drift "identity has drifted between the toolchain and reference manifests" \
+    "$VERIFY" --verify --manifest "$FIXTURE_MANIFEST" \
+    --references-dir "$FIXTURE_REFERENCES"
+cp "$REPO_ROOT/docs/reference-allowlist.json" "$FIXTURE_MANIFEST"
+
+python3 - "$FIXTURE_MANIFEST" <<'PY'
+import json
+import sys
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as source:
+    manifest = json.load(source)
 manifest["monogameCommitSha"] = "0" * 40
 with open(path, "w", encoding="utf-8") as destination:
     json.dump(manifest, destination, indent=2)

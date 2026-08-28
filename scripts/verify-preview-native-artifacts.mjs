@@ -14,6 +14,9 @@ const artifactRoot = argumentIndex < 0
 const manifest = JSON.parse(
   await readFile(path.join(repositoryRoot, "docs/toolchain-manifest.json"), "utf8"),
 );
+const inventory = JSON.parse(
+  await readFile(path.join(repositoryRoot, "docs/monogame-artifacts.json"), "utf8"),
+);
 const contract = manifest.preview?.nativeBuild;
 if (!contract || contract.wasmBuildNative !== true ||
     contract.wasmAllowUndefinedSymbols !== false ||
@@ -22,7 +25,12 @@ if (!contract || contract.wasmBuildNative !== true ||
 }
 
 const provenance = JSON.parse(await readFile(path.join(artifactRoot, "provenance.json"), "utf8"));
-if (provenance.commitSha !== manifest.monogame.commitSha ||
+const retainedForCurrentCommit =
+  provenance.commitSha === inventory.monogameCommitSha &&
+  inventory.retainedFor?.commitSha === manifest.monogame.commitSha &&
+  typeof inventory.retainedFor?.reason === "string" &&
+  inventory.retainedFor.reason.trim().length > 0;
+if ((provenance.commitSha !== manifest.monogame.commitSha && !retainedForCurrentCommit) ||
     provenance.emscriptenVersion !== manifest.emscripten.version ||
     provenance.nativeBuildConfiguration !== contract.configuration) {
   throw new Error("Staged native artifact provenance does not match the pinned toolchain.");
