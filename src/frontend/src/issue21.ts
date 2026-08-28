@@ -3,6 +3,7 @@ import {
   type BinaryProof,
   type CompileRequest,
   type PreviewLoadRequest,
+  type PreviewOutput,
   type PreviewStartRequest,
   type PreviewStopRequest,
   type UuidV4,
@@ -15,6 +16,7 @@ import {
   validateCompileResponse,
   validatePreviewLoadResponse,
   validatePreviewLifecycleEvent,
+  validatePreviewOutputEvent,
   validatePreviewStartResponse,
   validatePreviewStopResponse,
 } from "./protocol";
@@ -130,6 +132,7 @@ declare global {
     previewIssue023EndpointSnapshot?: () => Record<string, unknown>;
     previewIssue024Proof?: Record<string, unknown>;
     previewIssue024Snapshot?: () => Record<string, unknown>;
+    previewIssue027WriterSelfTest?: () => Promise<Record<string, unknown>>;
   }
 
 }
@@ -155,6 +158,7 @@ export interface Issue23RunningPreview {
   startedEvent: unknown;
   transfer: { assemblySenderDetached: boolean; pdbSenderDetached: boolean };
   wireOrder: string[];
+  outputEvents: PreviewOutput[];
   probes: Record<string, unknown>;
   client: ProtocolPortClient;
   query(): Promise<Record<string, unknown>>;
@@ -1140,6 +1144,7 @@ export async function compileLoadStartIssue23(input: {
     timeoutRetirementGraceMs?: number;
     expectedStartCode?: "INTERNAL_ERROR";
     issue024Proof?: boolean;
+    onOutput?: (event: PreviewOutput) => void;
   }): Promise<Issue23RunningPreview> {
     await ensureIssue21Contexts(false, true);
     const compileId = createUuid();
@@ -1295,6 +1300,15 @@ export async function compileLoadStartIssue23(input: {
 
     const startCorrelationId = createUuid();
     const wireOrder: string[] = [];
+    const outputEvents: PreviewOutput[] = [];
+    const removeOutputListener = client.onOutputEvent(message => {
+      if (message.correlationId !== startCorrelationId) return;
+      const validated = validatePreviewOutputEvent(
+        message, isolatedPreviewId, startCorrelationId);
+      wireOrder.push(validated.message.type);
+      outputEvents.push(validated.message);
+      input.onOutput?.(validated.message);
+    });
     let removeListener = () => {};
     let lifecycleTimer = 0;
     let resolveStopped!: (message: unknown) => void;
@@ -1374,6 +1388,7 @@ export async function compileLoadStartIssue23(input: {
             firstStart,
             error => {
               removeListener();
+              removeOutputListener();
               client.close(error);
               frame.remove();
             },
@@ -1399,6 +1414,7 @@ export async function compileLoadStartIssue23(input: {
         portClosed: client.isClosed,
       };
       removeListener();
+      removeOutputListener();
       window.clearTimeout(lifecycleTimer);
       client.close(failure);
       frame.remove();
@@ -1460,6 +1476,7 @@ export async function compileLoadStartIssue23(input: {
           beforeRetirement,
         };
         removeListener();
+        removeOutputListener();
         client.close(new Error("Failed preview retired."));
         frame.remove();
         Object.assign(failureProof, {
@@ -1556,6 +1573,7 @@ export async function compileLoadStartIssue23(input: {
           const runtime = frame.contentWindow?.previewIssue024Snapshot?.() ?? null;
           const wasConnectedAtStopped = frame.isConnected;
           removeStopListener();
+          removeOutputListener();
           client.close(new Error("Cooperative preview stop completed."));
           const urlsToRevoke = [...generatedObjectUrls];
           for (const url of urlsToRevoke) URL.revokeObjectURL(url);
@@ -1587,6 +1605,7 @@ export async function compileLoadStartIssue23(input: {
           };
         } catch (error) {
           removeStopListener();
+          removeOutputListener();
           client.close(error);
           for (const url of generatedObjectUrls) URL.revokeObjectURL(url);
           generatedObjectUrls.clear();
@@ -1621,6 +1640,7 @@ export async function compileLoadStartIssue23(input: {
         pdbSenderDetached: pdb.byteLength === 0,
       },
       wireOrder,
+      outputEvents,
       probes,
       client,
       async query() {

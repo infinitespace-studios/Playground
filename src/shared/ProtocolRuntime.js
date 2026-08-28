@@ -546,6 +546,30 @@ export function validatePreviewLifecycleEvent(value, previewId, expectedCorrelat
   return { message, observation };
 }
 
+export function validatePreviewOutputEvent(value, previewId, expectedCorrelationId) {
+  const { message, observation } =
+    validateEnvelope(value, "preview.output", expectedCorrelationId);
+  rejectUnexpected(
+    message,
+    ["protocolVersion", "correlationId", "type", "payload"],
+    "MALFORMED_ENVELOPE",
+  );
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["payload"], "MALFORMED_ENVELOPE");
+  const payload = requireObject(message.payload);
+  requireOwn(payload, ["previewId", "sequence", "source", "stream", "category", "text"]);
+  if (payload.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (!Number.isSafeInteger(payload.sequence) || payload.sequence < 1 ||
+      !["managed", "native"].includes(payload.source) ||
+      !["stdout", "stderr"].includes(payload.stream) ||
+      !["console", "startup", "runtime", "content", "shader"].includes(payload.category) ||
+      typeof payload.text !== "string" ||
+      utf8Length(payload.text) > LIMITS.outputText) {
+    throw new Error("MALFORMED_PAYLOAD");
+  }
+  return { message, observation };
+}
+
 export function standaloneBuffer(bytes) {
   if (!(bytes instanceof Uint8Array)) throw new Error("MALFORMED_PAYLOAD");
   const copy = new Uint8Array(bytes.byteLength);
@@ -572,10 +596,12 @@ export class ProtocolPortClient {
       closes: 0,
       senderDetachFailures: 0,
       lifecycleEvents: 0,
+      outputEvents: 0,
       discardedEventRegressions: 0,
       protocolControls: 0,
     };
     this.eventListeners = new Set();
+    this.outputListeners = new Set();
     this.controlEvents = [];
     this.lifecycleEligible = new Set();
     this.isClosed = false;
@@ -621,9 +647,20 @@ export class ProtocolPortClient {
         return;
       }
       if (value.type === "preview.started" || value.type === "preview.failed" ||
-          value.type === "preview.stopped") {
+          value.type === "preview.stopped" || value.type === "preview.output") {
         if (!this.lifecycleEligible.has(value.correlationId)) {
           this.observations.discardedUnknownOrLate += 1;
+          return;
+        }
+        if (value.type === "preview.output") {
+          const validated = validatePreviewOutputEvent(value, value.payload?.previewId);
+          if (validated.message.payload.sequence <= this.lastSequence) {
+            this.observations.discardedEventRegressions += 1;
+            return;
+          }
+          this.lastSequence = validated.message.payload.sequence;
+          this.observations.outputEvents += 1;
+          for (const listener of this.outputListeners) listener(validated.message);
           return;
         }
         const validated = validatePreviewLifecycleEvent(value, value.payload?.previewId);
@@ -663,6 +700,12 @@ export class ProtocolPortClient {
     if (typeof listener !== "function") throw new TypeError("listener must be a function");
     this.eventListeners.add(listener);
     return () => this.eventListeners.delete(listener);
+  }
+
+  onOutputEvent(listener) {
+    if (typeof listener !== "function") throw new TypeError("listener must be a function");
+    this.outputListeners.add(listener);
+    return () => this.outputListeners.delete(listener);
   }
 
   retransmitForDuplicateCheck(message) {

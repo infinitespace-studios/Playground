@@ -17,6 +17,7 @@ import {
   validateCompileResponse,
   validatePreviewLoadRequest,
   validatePreviewLifecycleEvent,
+  validatePreviewOutputEvent,
   validatePreviewStartRequest,
   validatePreviewStartResponse,
   validatePreviewStopRequest,
@@ -1493,6 +1494,130 @@ test("validates correlated monotonic start lifecycle event shape", () => {
     () => validatePreviewLifecycleEvent(event, compileId, uuid),
     /MESSAGE_SOURCE_REJECTED/,
   );
+});
+
+test("validates compatible output enums, additive fields, and UTF-8 byte limit", () => {
+  const event = {
+    protocolVersion: 1,
+    correlationId: uuid,
+    type: "preview.output",
+    payload: {
+      previewId: uuid,
+      sequence: 1,
+      source: "managed",
+      stream: "stdout",
+      category: "console",
+      text: "",
+    },
+  };
+  assert.equal(validatePreviewOutputEvent(event, uuid, uuid).message, event);
+  assert.equal(validatePreviewOutputEvent({
+    ...event,
+    payload: { ...event.payload, stream: "stderr", text: "🙂".repeat(4096) },
+  }, uuid, uuid).message.type, "preview.output");
+  for (const source of ["managed", "native"]) {
+    for (const category of ["console", "startup", "runtime", "content", "shader"]) {
+      const compatible = {
+        ...event,
+        payload: {
+          ...event.payload,
+          source,
+          category,
+          additiveScalar: 42,
+          additiveObject: { future: true },
+        },
+      };
+      assert.equal(
+        validatePreviewOutputEvent(compatible, uuid, uuid).message,
+        compatible,
+      );
+    }
+  }
+  for (const payload of [
+    { ...event.payload, source: "browser" },
+    { ...event.payload, source: 1 },
+    { ...event.payload, stream: "debug" },
+    { ...event.payload, stream: false },
+    { ...event.payload, category: "trace" },
+    { ...event.payload, category: null },
+    { ...event.payload, sequence: 1.5 },
+    { ...event.payload, text: 1 },
+    { ...event.payload, text: `${"🙂".repeat(4096)}x` },
+  ]) {
+    assert.throws(
+      () => validatePreviewOutputEvent({ ...event, payload }, uuid, uuid),
+      /MALFORMED_PAYLOAD/,
+    );
+  }
+  assert.throws(
+    () => validatePreviewOutputEvent(event, compileId, uuid),
+    /MESSAGE_SOURCE_REJECTED/,
+  );
+});
+
+test("port admits ordered output only for an accepted live preview", async () => {
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, uuid);
+  const received: string[] = [];
+  client.onOutputEvent(message => {
+    validatePreviewOutputEvent(message, uuid, uuid);
+    received.push(message.payload.text);
+  });
+  channel.port2.onmessage = event => {
+    channel.port2.postMessage({
+      protocolVersion: 1,
+      correlationId: event.data.correlationId,
+      type: "preview.start.response",
+      result: { success: true, data: { previewId: uuid, accepted: true } },
+    });
+    channel.port2.postMessage({
+      protocolVersion: 1,
+      correlationId: event.data.correlationId,
+      type: "preview.output",
+      payload: {
+        previewId: uuid, sequence: 1, source: "managed",
+        stream: "stdout", category: "console", text: "first",
+      },
+    });
+    channel.port2.postMessage({
+      protocolVersion: 1,
+      correlationId: event.data.correlationId,
+      type: "preview.output",
+      payload: {
+        previewId: uuid, sequence: 2, source: "managed",
+        stream: "stderr", category: "console", text: "second",
+      },
+    });
+  };
+  await client.request(
+    startRequest(),
+    "preview.start.response",
+    value => validatePreviewStartResponse(value, uuid, uuid),
+  );
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.deepEqual(received, ["first", "second"]);
+  assert.equal(client.observations.outputEvents, 2);
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: uuid, type: "preview.output",
+    payload: {
+      previewId: uuid, sequence: 2, source: "managed",
+      stream: "stdout", category: "console", text: "regressed",
+    },
+  });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(received, ["first", "second"]);
+  assert.equal(client.observations.discardedEventRegressions, 1);
+  client.close("retired");
+  channel.port2.postMessage({
+    protocolVersion: 1, correlationId: uuid, type: "preview.output",
+    payload: {
+      previewId: uuid, sequence: 3, source: "managed",
+      stream: "stdout", category: "console", text: "stale",
+    },
+  });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  assert.deepEqual(received, ["first", "second"]);
+  channel.port2.close();
 });
 
 test("invalid bootstrap does not consume valid bootstrap and parent traffic later closes port", () => {

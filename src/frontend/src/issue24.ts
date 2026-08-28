@@ -80,21 +80,31 @@ public sealed class CooperativeStopGame : Game
     }
 }`;
 
-const start = (proofMode: boolean) => compileLoadStartIssue23({
+const start = (proofMode: boolean, onOutput?: Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]) =>
+  compileLoadStartIssue23({
   assemblyName: proofMode ? "Issue024ProofGame" : "Issue024Game",
   sourcePath: "src/CooperativeStopGame.cs",
   sourceText,
   proofMode,
   issue024Proof: proofMode,
+  onOutput,
 });
 
 function createRunStopController(proofMode: boolean) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
   const status = document.querySelector<HTMLElement>("#run-clear-color-status");
-  if (!runButton || !stopButton || !status) throw new Error("Issue 024 Run/Stop control is missing.");
+  const output = document.querySelector<HTMLElement>("#preview-managed-output");
+  if (!runButton || !stopButton || !status || !output)
+    throw new Error("Issue 024 Run/Stop control is missing.");
   const controller = createIssue024RunStopController({
-    start: () => start(proofMode),
+    start: () => {
+      output.textContent = "";
+      return start(proofMode, event => {
+        output.append(document.createTextNode(
+          `[${event.payload.source} ${event.payload.stream}] ${event.payload.text}\n`));
+      });
+    },
     stop: (preview, reason) => preview.stop(reason),
     setRunDisabled: disabled => { runButton.disabled = disabled; },
     setStopDisabled: disabled => { stopButton.disabled = disabled; },

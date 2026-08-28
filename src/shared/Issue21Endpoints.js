@@ -223,6 +223,7 @@ function createEndpoint({
               correlationId: delayed.event.correlationId,
               sequence: delayed.event.payload?.sequence,
             });
+            delayed.afterPost?.();
           } catch {
             close("delayed-event-post-failure");
           }
@@ -283,7 +284,15 @@ function createEndpoint({
       }
     }
   };
-  return { handle, close, completed, inFlight, get closed() { return closed; } };
+  const emitEvent = message => {
+    post(message);
+    proof?.events?.push({
+      type: message.type,
+      correlationId: message.correlationId,
+      sequence: message.payload?.sequence,
+    });
+  };
+  return { handle, close, emitEvent, completed, inFlight, get closed() { return closed; } };
 }
 
 export async function initializeCompilerProofMode(proofAuthorized, runProof) {

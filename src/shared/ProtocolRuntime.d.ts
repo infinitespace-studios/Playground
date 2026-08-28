@@ -1,7 +1,7 @@
 import type {
   CompileRequest, CompileResponse, PreviewLoadRequest, PreviewLoadResponse,
   PreviewStartRequest, PreviewStartResponse, PreviewStarted, PreviewFailed, PreviewStopped,
-  PreviewStopRequest, PreviewStopResponse,
+  PreviewStopRequest, PreviewStopResponse, PreviewOutput,
 } from "./MessageContracts";
 export const PROTOCOL_VERSION: 1;
 export const LIMITS: Readonly<Record<string, number>>;
@@ -22,6 +22,7 @@ export function validatePreviewStartResponse(value: unknown, correlationId: stri
 export function validatePreviewStopRequest(value: unknown, previewId: string): { message: PreviewStopRequest; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewStopResponse(value: unknown, correlationId: string, previewId: string): { message: PreviewStopResponse; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewLifecycleEvent(value: unknown, previewId: string, expectedCorrelationId?: string): { message: PreviewStarted | PreviewFailed | PreviewStopped; observation: ReturnType<typeof inspectClone> };
+export function validatePreviewOutputEvent(value: unknown, previewId: string, expectedCorrelationId?: string): { message: PreviewOutput; observation: ReturnType<typeof inspectClone> };
 export function validateBinaryPair(assembly: unknown, pdb: unknown): void;
 export function standaloneBuffer(bytes: Uint8Array): ArrayBuffer;
 export function sha256(buffer: ArrayBuffer): Promise<string>;
@@ -37,6 +38,7 @@ export class ProtocolPortClient {
   readonly closeReason: string | null;
   request(message: { correlationId: string }, responseType: string, validate: (value: unknown) => unknown, transfer?: ArrayBuffer[], timeoutMs?: number): Promise<unknown>;
   onLifecycleEvent(listener: (message: PreviewStarted | PreviewFailed | PreviewStopped) => void): () => void;
+  onOutputEvent(listener: (message: PreviewOutput) => void): () => void;
   retransmitForDuplicateCheck(message: unknown): void;
   close(reason: unknown): void;
 }

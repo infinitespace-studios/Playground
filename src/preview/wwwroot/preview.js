@@ -82,6 +82,24 @@ let lifecycleSequence = 0;
 let issue023Case = "normal";
 let startExecutor = null;
 let stopExecutor = null;
+let outputCorrelationId = null;
+let outputLive = false;
+let pendingOutputEvents = [];
+globalThis.__playgroundForwardManagedOutput = (stream, text) => {
+  if (!outputCorrelationId || !["stdout", "stderr"].includes(stream) ||
+      typeof text !== "string") return;
+  const event = lifecycleEvent("preview.output", outputCorrelationId, {
+    source: "managed",
+    stream,
+    category: "console",
+    text,
+  });
+  if (outputLive && previewEndpoint && !previewEndpoint.closed) {
+    previewEndpoint.emitEvent(event);
+  } else {
+    pendingOutputEvents.push(event);
+  }
+};
 const bootstrapObservations = installPrivatePortBootstrap({
   expectedSource: parent,
   expectedOrigin: window.location.origin,
@@ -102,7 +120,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     issue023ProofEnabled = data.issue023Proof === true;
     issue023Case = issue023ProofEnabled ? data.issue023Case ?? "normal" : "normal";
     runGamePipeline = data.runGamePipeline === true;
-    constructAfterLoad = data.issue022Proof === true || runGamePipeline;
+    constructAfterLoad = data.issue022Proof === true;
     globalThis.previewIssue22Proof.enabled = data.issue022Proof === true;
     globalThis.previewIssue023Proof.enabled = issue023ProofEnabled;
     globalThis.previewIssue024Proof.enabled = data.issue024Proof === true;
@@ -342,7 +360,10 @@ async function executeLoadRequest(message, observation) {
   }
 }
 
-function executeStartRequest(message) {
+async function executeStartRequest(message) {
+  outputCorrelationId = message.correlationId;
+  outputLive = false;
+  pendingOutputEvents = [];
   startExecutor ??= createPreviewStartExecutor({
     getState: () => loadState,
     setState: state => {
@@ -366,10 +387,37 @@ function executeStartRequest(message) {
     startedEventDelayMs: issue023Case === "delay-event" ? 150 : 0,
     throwUnexpectedBeforeExport: issue023Case === "unexpected",
   });
-  return startExecutor(message);
+  const outcome = await startExecutor(message);
+  const outputEvents = pendingOutputEvents;
+  pendingOutputEvents = [];
+  const activateOutput = () => {
+    outputLive = true;
+    const queued = pendingOutputEvents;
+    pendingOutputEvents = [];
+    for (const event of queued)
+      previewEndpoint.emitEvent(event);
+  };
+  const delayedEvents = outcome.delayedEvents?.map(delayed => ({
+    ...delayed,
+    afterPost: () => {
+      delayed.afterPost?.();
+      activateOutput();
+    },
+  }));
+  const afterPost = () => {
+    outcome.afterPost?.();
+    if (!delayedEvents?.length && outcome.result?.success === true)
+      activateOutput();
+  };
+  return {
+    ...outcome,
+    events: [...outputEvents, ...(outcome.events ?? [])],
+    ...(delayedEvents ? { delayedEvents } : {}),
+    afterPost,
+  };
 }
 
-function executeStopRequest(message) {
+async function executeStopRequest(message) {
   stopExecutor ??= createPreviewStopExecutor({
     getState: () => loadState,
     setState: state => {
@@ -380,7 +428,16 @@ function executeStopRequest(message) {
     createLifecycleEvent: lifecycleEvent,
     recordStop: stop => { globalThis.previewIssue024Proof.stop = stop; },
   });
-  return stopExecutor(message);
+  const outcome = await stopExecutor(message);
+  return {
+    ...outcome,
+    afterPost: () => {
+      outcome.afterPost?.();
+      outputLive = false;
+      outputCorrelationId = null;
+      pendingOutputEvents = [];
+    },
+  };
 }
 
 function lifecycleEvent(type, correlationId, extra = {}) {
@@ -412,6 +469,12 @@ globalThis.previewIssue023RunnerSelfTest = async () => {
     throw new Error("INTERNAL_ERROR");
   }
   return JSON.parse(exports.RunGameRunnerBehavioralSelfTest());
+};
+globalThis.previewIssue027WriterSelfTest = async () => {
+  const exports = await exportsPromise;
+  if (typeof exports.RunForwardingTextWriterSelfTest !== "function")
+    throw new Error("INTERNAL_ERROR");
+  return JSON.parse(exports.RunForwardingTextWriterSelfTest());
 };
 globalThis.previewIssue023EndpointSnapshot = () => {
   if (!issue023ProofEnabled) throw new Error("INVALID_STATE");

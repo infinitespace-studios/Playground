@@ -19,6 +19,13 @@ public static partial class PreviewExports
     private static int _loadState;
     private static GameRunner? _gameRunner;
     private static Type? _lastStoppedGameType;
+    private static TextWriter? _originalOut;
+    private static TextWriter? _originalError;
+    private static ForwardingTextWriter? _forwardingOut;
+    private static ForwardingTextWriter? _forwardingError;
+
+    [JSImport("globalThis.__playgroundForwardManagedOutput")]
+    internal static partial void ForwardManagedOutput(string stream, string text);
 
     [JSExport]
     public static string Ping()
@@ -44,6 +51,38 @@ public static partial class PreviewExports
             SafeMetadataType: typeof(Game).FullName!);
 
         return JsonSerializer.Serialize(proof, PreviewJsonContext.Default.PreviewContextProof);
+    }
+
+    [JSExport]
+    public static string RunForwardingTextWriterSelfTest()
+    {
+        var received = new List<string>();
+        ForwardingTextWriter? writer = null;
+        writer = new ForwardingTextWriter(text =>
+        {
+            received.Add(text);
+            if (text == "reenter")
+                writer!.WriteLine("nested");
+        });
+        writer.Write('a');
+        writer.Write("b\r");
+        writer.Write('\n');
+        writer.WriteLine("");
+        writer.Write("partial");
+        writer.Flush();
+        writer.WriteLine("reenter");
+        writer.WriteLine(string.Concat(Enumerable.Repeat("🙂", 5_000)));
+        writer.Dispose();
+        var expected = new[] {
+            "ab", "", "partial", "reenter", "nested",
+            string.Concat(Enumerable.Repeat("🙂", 4_096)),
+            string.Concat(Enumerable.Repeat("🙂", 904)),
+        };
+        return JsonSerializer.Serialize(new {
+            success = received.SequenceEqual(expected),
+            eventCount = received.Count,
+            utf8ByteLengths = received.Select(Encoding.UTF8.GetByteCount).ToArray(),
+        });
     }
 
     [JSExport]
@@ -187,11 +226,21 @@ public static partial class PreviewExports
         lock (LifecycleGate)
         {
             runner = _loadState == 2 ? _gameRunner : null;
+            if (runner is not null)
+                InstallConsoleCapture();
         }
 
         if (runner is null)
             return SerializeStartFailure("INVALID_STATE", "A constructed game must be loaded before start.");
 
+        var discovery = runner.DiscoverGameType();
+        if (!discovery.Success)
+            return SerializeStartFailure("PREVIEW_START_FAILED", "No valid Game subclass was found.");
+        var construction = runner.ConstructGame();
+        if (!construction.Success)
+            return SerializeStartFailure(
+                construction.Error?.Code ?? "PREVIEW_START_FAILED",
+                construction.Error?.Message ?? "The Game subclass could not be constructed.");
         var start = runner.RunGame();
         return JsonSerializer.Serialize(
             new GameStartResult(
@@ -307,6 +356,7 @@ public static partial class PreviewExports
             var previousState = Interlocked.Exchange(ref _loadState, 4);
             if (runner is null)
             {
+                RestoreConsoleCapture();
                 return JsonSerializer.Serialize(
                     new GameTeardownResult(
                         true, false, 0, false, null, previousState == 4, null, null),
@@ -314,8 +364,16 @@ public static partial class PreviewExports
             }
 
             var gameType = runner.Snapshot().GameType;
-            var disposal = runner.Teardown();
-            _lastStoppedGameType = gameType;
+            GameRunner.DisposalResult disposal;
+            try
+            {
+                disposal = runner.Teardown();
+                _lastStoppedGameType = gameType;
+            }
+            finally
+            {
+                RestoreConsoleCapture();
+            }
             return JsonSerializer.Serialize(
                 new GameTeardownResult(
                     disposal.Success,
@@ -328,6 +386,32 @@ public static partial class PreviewExports
                     gameType is null ? null : ReadProofCounter(gameType, "DisposeCount")),
                 PreviewJsonContext.Default.GameTeardownResult);
         }
+    }
+
+    private static void InstallConsoleCapture()
+    {
+        if (_forwardingOut is not null || _forwardingError is not null)
+            return;
+        _originalOut = Console.Out;
+        _originalError = Console.Error;
+        _forwardingOut = new ForwardingTextWriter(text => ForwardManagedOutput("stdout", text));
+        _forwardingError = new ForwardingTextWriter(text => ForwardManagedOutput("stderr", text));
+        Console.SetOut(_forwardingOut);
+        Console.SetError(_forwardingError);
+    }
+
+    private static void RestoreConsoleCapture()
+    {
+        var output = Interlocked.Exchange(ref _forwardingOut, null);
+        var error = Interlocked.Exchange(ref _forwardingError, null);
+        if (_originalOut is not null)
+            Console.SetOut(_originalOut);
+        if (_originalError is not null)
+            Console.SetError(_originalError);
+        _originalOut = null;
+        _originalError = null;
+        output?.Dispose();
+        error?.Dispose();
     }
 
     [JSExport]
