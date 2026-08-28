@@ -52,43 +52,7 @@ const wait = (milliseconds: number) =>
   new Promise(resolve => window.setTimeout(resolve, milliseconds));
 
 async function samplePixels(preview: Issue23RunningPreview): Promise<PixelSample> {
-  const childDocument = preview.frame.contentDocument;
-  const canvas = childDocument?.querySelector<HTMLCanvasElement>("#canvas");
-  if (!canvas) throw new Error("Issue 023 preview canvas is unavailable.");
-  await new Promise<void>(resolve =>
-    preview.frame.contentWindow?.requestAnimationFrame(() => resolve()));
-  const gl = canvas.getContext("webgl2");
-  if (!gl || gl.drawingBufferWidth < 1 || gl.drawingBufferHeight < 1 ||
-      canvas.width < 1 || canvas.height < 1) {
-    throw new Error("Issue 023 preview canvas has no usable WebGL backing store.");
-  }
-  const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.finish();
-  const width = gl.drawingBufferWidth;
-  const height = gl.drawingBufferHeight;
-  const points = [
-    [Math.floor(width / 2), Math.floor(height / 2)],
-    [1, 1],
-    [Math.max(0, width - 2), 1],
-    [1, Math.max(0, height - 2)],
-    [Math.max(0, width - 2), Math.max(0, height - 2)],
-  ];
-  const pixels = points.map(([x, y]) => {
-    const pixel = new Uint8Array(4);
-    gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-    return [...pixel];
-  });
-  const glError = gl.getError();
-  gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
-  return {
-    sampledAt: performance.now(),
-    canvasBacking: { width: canvas.width, height: canvas.height },
-    drawingBuffer: { width, height },
-    pixels,
-    glError,
-    contextLost: gl.isContextLost(),
-  };
+  return preview.proof<PixelSample>("sample-webgl");
 }
 
 function assertCornflowerBlue(sample: PixelSample): void {
@@ -182,7 +146,7 @@ export async function runIssue023AutoProof(): Promise<void> {
   const runtimeLifecycleCases: Record<string, unknown> = {};
   let synchronousFailure: unknown = null;
   try {
-    await startClearColorGame(false, `
+    await startClearColorGame(true, `
 using Microsoft.Xna.Framework;
 public sealed class ThrowingRunGame : Game
 {
@@ -347,7 +311,7 @@ public sealed class ThrowingRunGame : Game
         (proof.elapsedMilliseconds ?? 2_000) >= 2_000 ||
         proof.iframeConnected !== false ||
         proof.portClosed !== true) {
-      throw new Error("Requester timeout did not force retirement within two seconds.");
+      throw new Error(`Requester timeout did not force retirement within two seconds: ${JSON.stringify(proof)}`);
     }
     runtimeLifecycleCases.requesterTimeout = proof;
     await invoke("issue023_emit_checkpoint", {
@@ -397,7 +361,7 @@ public sealed class ThrowingRunGame : Game
     });
   }
 
-  const managedSelfTest = await preview.frame.contentWindow?.previewIssue023RunnerSelfTest?.();
+  const managedSelfTest = await preview.proof<Record<string, unknown>>("issue023-self-test");
   const fatalClassifications = managedSelfTest?.fatalClassifications as
     Record<string, boolean> | undefined;
   if (!managedSelfTest ||
@@ -430,20 +394,16 @@ public sealed class ThrowingRunGame : Game
     throw new Error("Issue 023 asynchronous retention assertions failed.");
   }
 
-  const child = preview.frame.contentWindow as (Window & {
-    previewProof?: { errors: string[] };
-  }) | null;
-  const childProof = child?.previewIssue023Proof;
+  const childProof = await preview.proof<{
+    errors?: string[];
+    events?: unknown[];
+  }>("snapshot", { name: "issue023" });
   const unexpectedErrors = {
     topLevelConsoleErrors: window.__MONOGAME_DIAGNOSTICS__.consoleErrors,
     topLevelUnhandledErrors: window.__MONOGAME_DIAGNOSTICS__.unhandledErrors,
     compilerErrors: document.querySelector<HTMLIFrameElement>("#compiler-frame")
       ?.contentWindow?.compilerIssue21Proof?.errors ?? [],
-    previewErrors: [
-      ...(child?.previewProof?.errors ?? []),
-      ...(child?.previewIssue21Proof?.errors ?? []),
-      ...(childProof?.errors ?? []),
-    ],
+    previewErrors: await preview.proof<string[]>("snapshot", { name: "errors" }),
   };
   if (Object.values(unexpectedErrors).some(errors => errors.length !== 0) ||
       preview.compileDiagnostics.length !== 0) {
@@ -463,6 +423,7 @@ public sealed class ThrowingRunGame : Game
       proofMode: "MONOGAME_ISSUE023_PROOF=1",
       proofWaitSeconds: 20,
       proofRuntimeReadiness,
+      previewFrameReadiness: preview.frameReadiness,
       ids: {
         compileId: preview.compileId,
         previewId: preview.previewId,

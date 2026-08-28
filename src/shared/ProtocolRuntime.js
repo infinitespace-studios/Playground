@@ -735,7 +735,13 @@ export class ProtocolPortClient {
   }
 }
 
-export function installPrivatePortBootstrap({ expectedSource, expectedOrigin, validateData = () => true, onPort }) {
+export function installPrivatePortBootstrap({
+  expectedSource,
+  expectedOrigin,
+  additionalPortCount = 0,
+  validateData = () => true,
+  onPort,
+}) {
   const observations = {
     windowMessagesObserved: 0,
     invalidBootstrapMessages: 0,
@@ -760,7 +766,9 @@ export function installPrivatePortBootstrap({ expectedSource, expectedOrigin, va
     const valid = event.source === expectedSource && event.origin === expectedOrigin &&
       data !== null && typeof data === "object" && Object.getPrototypeOf(data) === Object.prototype &&
       data.type === "protocol.bootstrap" && isUuidV4(data.contextGeneration) &&
-      event.ports.length === 1 && event.ports[0] instanceof MessagePort && validateData(data);
+      event.ports.length === 1 + additionalPortCount &&
+      event.ports.every(port => port instanceof MessagePort) &&
+      validateData(data);
     if (!valid) {
       observations.invalidBootstrapMessages += 1;
       return;
@@ -768,7 +776,7 @@ export function installPrivatePortBootstrap({ expectedSource, expectedOrigin, va
     accepted = true;
     acceptedPort = event.ports[0];
     observations.acceptedBootstrapMessages += 1;
-    onPort(event.ports[0], data);
+    onPort(event.ports[0], data, event.ports.slice(1));
   };
   window.addEventListener("message", listener);
   return observations;

@@ -117,14 +117,16 @@ export async function runIssue030AutoProof(): Promise<void> {
   const preview = await controller.run();
   const deadline = performance.now() + 10_000;
   let state = await preview.query();
-  let pixels = preview.frame.contentWindow?.previewIssue030PixelProof?.();
+  let pixels = await preview.proof<Record<string, unknown>>(
+    "snapshot", { name: "pixels" });
   while ((Number(state.frameCount) < 3 ||
       !(pixels?.samples as number[][] | undefined)?.some(sample =>
         sample.every((value, index) => value === limeGreenRgba[index]))) &&
       performance.now() < deadline) {
     await wait(50);
     state = await preview.query();
-    pixels = preview.frame.contentWindow?.previewIssue030PixelProof?.();
+    pixels = await preview.proof<Record<string, unknown>>(
+      "snapshot", { name: "pixels" });
   }
   const managedLines = preview.outputEvents.filter(event =>
     event.payload.source === "managed" &&
@@ -134,7 +136,8 @@ export async function runIssue030AutoProof(): Promise<void> {
   const acceptanceErrors = {
     console: [...window.__MONOGAME_DIAGNOSTICS__.consoleErrors],
     unhandled: [...window.__MONOGAME_DIAGNOSTICS__.unhandledErrors],
-    preview: [...(preview.frame.contentWindow?.previewIssue21Proof?.errors ?? [])],
+    preview: [...((await preview.proof<{ errors?: string[] }>(
+      "snapshot", { name: "issue21" })).errors ?? [])],
   };
   const sourcePaths = preview.binaryProof.sourcePaths;
   if (preview.compileDiagnostics.length !== 0 ||
@@ -199,6 +202,7 @@ export async function runIssue030AutoProof(): Promise<void> {
         compileId: preview.compileId,
         previewId: preview.previewId,
         compilerRuntimeStarts: preview.compilerRuntimeStarts,
+        frameReadiness: preview.frameReadiness,
         binaryProof: preview.binaryProof,
         managedLoad: preview.managedLoad,
         state,

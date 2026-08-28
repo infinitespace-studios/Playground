@@ -43,4 +43,4 @@ export class ProtocolPortClient {
   retransmitForDuplicateCheck(message: unknown): void;
   close(reason: unknown): void;
 }
-export function installPrivatePortBootstrap(options: { expectedSource: Window; expectedOrigin: string; validateData?(data: any): boolean; onPort(port: MessagePort, data: any): void }): Record<string, number | string>;
+export function installPrivatePortBootstrap(options: { expectedSource: Window; expectedOrigin: string; additionalPortCount?: number; validateData?(data: any): boolean; onPort(port: MessagePort, data: any, additionalPorts: MessagePort[]): void }): Record<string, number | string>;

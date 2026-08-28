@@ -119,7 +119,11 @@ async function runCycle(index: number) {
     await wait(25);
   }
   assertPrefix(preview.outputEvents);
-  const writerSelfTest = await preview.frame.contentWindow?.previewIssue027WriterSelfTest?.();
+  const writerSelfTest = await preview.proof<{
+    success?: boolean;
+    eventCount?: number;
+    utf8ByteLengths?: number[];
+  }>("issue027-writer-test");
   if (writerSelfTest?.success !== true || writerSelfTest.eventCount !== 7 ||
       JSON.stringify(writerSelfTest.utf8ByteLengths) !==
         JSON.stringify([2, 0, 7, 7, 6, 16_384, 3_616]))

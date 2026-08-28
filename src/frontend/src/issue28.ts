@@ -56,7 +56,7 @@ async function runCycle(index: number) {
       standIn.append(document.createTextNode(`${line}\n`));
     },
   });
-  preview.frame.contentWindow?.previewIssue028EmitNativePaths?.();
+  await preview.proof("issue028-emit");
   const deadline = performance.now() + 5_000;
   while ((count(
     preview.outputEvents, "native", "stdout", "Playground native runtime stdout proof.") !== 1 ||
@@ -89,7 +89,15 @@ async function runCycle(index: number) {
     [nativeStdoutText, nativeStderrText].includes(event.payload.text));
   if (!runtimeNative.every(event => event.payload.category === "runtime"))
     throw new Error("Post-start native output was not categorized as runtime.");
-  const snapshot = preview.frame.contentWindow?.previewIssue028Snapshot?.();
+  const snapshot = await preview.proof<{
+    authenticated?: boolean;
+    flushed?: boolean;
+    flushCalls?: number;
+    bufferedMessages?: number;
+    acceptedPrePortMessages?: number;
+    droppedOverflowMessages?: number;
+    teeErrors?: number;
+  }>("snapshot", { name: "native" });
   if (snapshot?.authenticated !== true || snapshot.flushed !== true ||
       snapshot.flushCalls !== 1 || snapshot.bufferedMessages !== 0 ||
       Number(snapshot.acceptedPrePortMessages) < 1 ||

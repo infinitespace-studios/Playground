@@ -23,6 +23,13 @@ import {
   validatePreviewStopRequest,
   validatePreviewStopResponse,
 } from "./protocol.ts";
+import {
+  PREVIEW_CSP,
+  PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL,
+  PREVIEW_DOCUMENT,
+  PREVIEW_SANDBOX,
+  ISSUE033_NO_WASM_EVAL_DOCUMENT,
+} from "./preview-frame.ts";
 
 import { installPrivatePortBootstrap } from "../../shared/ProtocolRuntime.js";
 import {
@@ -2116,4 +2123,47 @@ test("production start executor classifies escaped boundary errors as unexpected
   assert.deepEqual(unexpected, {
     category: "start-boundary", code: "INTERNAL_ERROR", name: "Error",
   });
+});
+test("issue 033 sandbox and CSP remain restrictive", async () => {
+  const frontend = await readFile(new URL("../index.html", import.meta.url), "utf8");
+  const rust = await readFile(
+    new URL("../../desktop/src-tauri/src/lib.rs", import.meta.url), "utf8");
+  const config = await readFile(
+    new URL("../../desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8");
+  const previewRuntime = await readFile(
+    new URL("../../preview/wwwroot/preview.js", import.meta.url), "utf8");
+  const issue21Runtime = await readFile(
+    new URL("./issue21.ts", import.meta.url), "utf8");
+  assert.equal(PREVIEW_SANDBOX, "allow-scripts");
+  assert.match(frontend, /sandbox="allow-scripts"/);
+  assert.doesNotMatch(frontend, /allow-same-origin/);
+  const csp = rust.match(/const PREVIEW_CSP: &str = "([^"]+)"/)?.[1] ?? "";
+  assert.equal(csp, PREVIEW_CSP);
+  assert.match(csp, /^default-src 'none';/);
+  assert.match(csp, /script-src playground-preview: 'wasm-unsafe-eval'/);
+  assert.match(csp, /frame-src 'none'/);
+  assert.match(csp, /object-src 'none'/);
+  assert.match(csp, /form-action 'none'/);
+  for (const directive of ["img-src", "font-src", "media-src", "worker-src"]) {
+    assert.match(csp, new RegExp(`${directive} 'none'`));
+  }
+  assert.doesNotMatch(csp, /https?:|\bdata:|\bblob:|\s\*\s|'unsafe-eval'|allow-same-origin/);
+  assert.equal(
+    PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL,
+    PREVIEW_CSP.replace(" 'wasm-unsafe-eval'", ""));
+  assert.doesNotMatch(PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL, /wasm-unsafe-eval/);
+  assert.equal(
+    PREVIEW_CSP.length - PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL.length,
+    " 'wasm-unsafe-eval'".length);
+  assert.equal(
+    ISSUE033_NO_WASM_EVAL_DOCUMENT,
+    PREVIEW_DOCUMENT.replace(" 'wasm-unsafe-eval'", ""));
+  assert.doesNotMatch(PREVIEW_DOCUMENT, /issue033ForbiddenInlineProbeRan/);
+  assert.doesNotMatch(ISSUE033_NO_WASM_EVAL_DOCUMENT, /issue033ForbiddenInlineProbeRan/);
+  assert.match(config, /frame-src 'self' playground-preview:/);
+  assert.match(previewRuntime, /withResourceLoader/);
+  assert.match(previewRuntime, /credentials:\s*"omit"/);
+  assert.match(previewRuntime, /ANIMATION_FRAME_TIMEOUT/);
+  assert.match(issue21Runtime, /await requireVisiblePreviewFrame\(frame, bridge\)/);
+  assert.match(issue21Runtime, /frame\.scrollIntoView/);
 });

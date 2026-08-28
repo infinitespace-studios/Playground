@@ -4,17 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Preview runtime proof</title>
-    <style>
-      :root { color: #e8ede7; background: #0b100e; font: 12px system-ui, sans-serif; }
-      body { margin: 0; padding: 12px; }
-      button { border: 1px solid #c9ff3d; color: #0b100e; background: #c9ff3d; padding: 7px 10px; font-weight: 700; cursor: pointer; }
-      button:disabled { cursor: wait; opacity: .45; }
-      #status { margin: 9px 0; color: #bdc8c3; }
-      #status[data-state="ready"] { color: #c9ff3d; }
-      #status[data-state="error"] { color: #ff735f; }
-      canvas { display: block; width: 100%; max-width: 640px; aspect-ratio: 16 / 9; background: #000; }
-      pre { max-height: 130px; margin: 0; overflow: auto; white-space: pre-wrap; color: #9da9a4; font: 10px ui-monospace, monospace; }
-    </style>
+    <link rel="stylesheet" href="./preview.css" />
   </head>
   <body>
     <canvas id="canvas" width="640" height="360" aria-label="MonoGame preview render surface"></canvas>

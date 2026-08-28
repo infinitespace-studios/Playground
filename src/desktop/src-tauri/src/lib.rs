@@ -249,6 +249,37 @@ fn issue032_is_proof_enabled() -> bool {
     issue032_proof_enabled()
 }
 
+fn issue033_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE033_PROOF").is_some_and(|value| value == "1")
+}
+
+fn issue033_no_wasm_eval_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE033_NO_WASM_EVAL_PROOF")
+        .is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue033_is_proof_enabled() -> bool {
+    issue033_proof_enabled() && !issue033_no_wasm_eval_proof_enabled()
+}
+
+#[tauri::command]
+fn issue033_is_no_wasm_eval_proof_enabled() -> Result<bool, String> {
+    if issue033_proof_enabled() && issue033_no_wasm_eval_proof_enabled() {
+        return Err("issue 033 proof modes are mutually exclusive".into());
+    }
+    Ok(issue033_no_wasm_eval_proof_enabled())
+}
+
+#[tauri::command]
+fn issue033_emit_checkpoint(checkpoint: String) -> Result<(), String> {
+    if !issue033_proof_enabled() {
+        return Err("issue 033 proof instrumentation is disabled".into());
+    }
+    println!("ISSUE033_CHECKPOINT={checkpoint}");
+    Ok(())
+}
+
 fn packaged_pipeline_proof_enabled() -> bool {
     issue021_proof_enabled()
         || issue022_proof_enabled()
@@ -261,6 +292,8 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue030_proof_enabled()
         || issue031_proof_enabled()
         || issue032_proof_enabled()
+        || issue033_proof_enabled()
+        || issue033_no_wasm_eval_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -620,8 +653,26 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::packaged_app_bundle;
     use super::{
-        proof_activation_target_allowed, proof_window_ready, require_packaged_pipeline_proof,
+        MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_TOTAL_BYTES, PREVIEW_ASSET_INVENTORY,
+        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, preview_asset, preview_content_type,
+        preview_protocol_response, proof_activation_target_allowed, proof_window_ready,
+        require_packaged_pipeline_proof,
     };
+    use tauri::http::{Method, Response};
+
+    fn response(raw_uri: &str) -> Response<Vec<u8>> {
+        preview_protocol_response(&Method::GET, raw_uri)
+    }
+
+    fn assert_security_headers(response: &Response<Vec<u8>>) {
+        let headers = response.headers();
+        assert_eq!(headers["access-control-allow-origin"], "null");
+        assert!(!headers.contains_key("access-control-allow-credentials"));
+        assert_eq!(headers["cross-origin-resource-policy"], "cross-origin");
+        assert_eq!(headers["x-content-type-options"], "nosniff");
+        assert_eq!(headers["cache-control"], "no-store");
+        assert_eq!(headers["content-security-policy"], PREVIEW_CSP);
+    }
 
     #[test]
     fn native_activation_is_rejected_without_packaged_proof_authorization() {
@@ -650,6 +701,123 @@ mod tests {
         assert!(!proof_activation_target_allowed(true, 7, 8, 42, 42));
         assert!(!proof_activation_target_allowed(true, 7, 7, 42, 41));
         assert!(!proof_activation_target_allowed(true, 7, 8, 42, 41));
+    }
+
+    #[test]
+    fn preview_protocol_rejects_every_path_confusion_form() {
+        for uri in [
+            "playground-preview://localhost/../preview.js",
+            "playground-preview://localhost/./preview.js",
+            "playground-preview://localhost//preview.js",
+            "playground-preview://localhost/%2e%2e/preview.js",
+            "playground-preview://localhost/%252e%252e/preview.js",
+            "playground-preview://localhost/%2Fpreview.js",
+            "playground-preview://localhost/%5cpreview.js",
+            "playground-preview://localhost/\\preview.js",
+            "playground-preview://localhost/preview.js\0",
+            "playground-preview://localhost/preview.js?cache=1",
+            "playground-preview://localhost/preview.js#fragment",
+            "playground-preview://evil/preview.js",
+            "playground-preview://localhost:443/preview.js",
+            "playground-preview://user@localhost/preview.js",
+            "tauri://localhost/preview.js",
+            "/preview.js",
+        ] {
+            let result = response(uri);
+            assert_eq!(result.status(), 400, "{uri}");
+            assert_eq!(result.body(), b"Bad Request", "{uri}");
+            assert_security_headers(&result);
+        }
+    }
+
+    #[test]
+    fn preview_protocol_has_closed_status_and_header_matrix() {
+        let success = response("playground-preview://localhost/preview.js");
+        assert_eq!(success.status(), 200);
+        assert_eq!(
+            success.headers()["content-type"],
+            "text/javascript; charset=utf-8"
+        );
+        assert_eq!(
+            success.body().as_slice(),
+            preview_asset("/preview.js").unwrap()
+        );
+
+        let missing = response("playground-preview://localhost/not-present.js");
+        assert_eq!(missing.status(), 404);
+        assert_eq!(missing.body(), b"Not Found");
+
+        let malformed = response("playground-preview://localhost/%00");
+        assert_eq!(malformed.status(), 400);
+        assert_eq!(malformed.body(), b"Bad Request");
+
+        let method =
+            preview_protocol_response(&Method::POST, "playground-preview://localhost/preview.js");
+        assert_eq!(method.status(), 405);
+        assert_eq!(method.body(), b"Method Not Allowed");
+
+        for result in [&success, &missing, &malformed, &method] {
+            assert_security_headers(result);
+        }
+        assert_eq!(
+            missing.headers()["content-type"],
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            malformed.headers()["content-type"],
+            "text/plain; charset=utf-8"
+        );
+        assert_eq!(
+            method.headers()["content-type"],
+            "text/plain; charset=utf-8"
+        );
+        assert!(!String::from_utf8_lossy(missing.body()).contains('/'));
+        assert!(!String::from_utf8_lossy(malformed.body()).contains('/'));
+    }
+
+    #[test]
+    fn embedded_preview_inventory_is_bounded_and_allowlisted() {
+        let mut total = 0usize;
+        for &(path, declared_size) in PREVIEW_ASSET_INVENTORY {
+            let asset = preview_asset(path).expect("inventory path must resolve");
+            assert_eq!(asset.len(), declared_size, "{path}");
+            assert!(declared_size <= MAX_PREVIEW_ASSET_BYTES, "{path}");
+            assert!(path.starts_with('/'));
+            assert!(!path.contains(['%', '\\', '\0']));
+            assert!(
+                [
+                    ".html", ".css", ".js", ".json", ".wasm", ".dat", ".br", ".gz",
+                ]
+                .iter()
+                .any(|extension| path.ends_with(extension)),
+                "{path}"
+            );
+            total = total.checked_add(declared_size).expect("bounded inventory");
+        }
+        assert!(total <= MAX_PREVIEW_TOTAL_BYTES);
+        assert_eq!(total, PREVIEW_ASSET_TOTAL_BYTES);
+        assert!(PREVIEW_ASSET_INVENTORY.len() >= 300);
+    }
+
+    #[test]
+    fn preview_content_types_are_exact_for_every_served_extension() {
+        for (path, expected) in [
+            ("/index.html", "text/html; charset=utf-8"),
+            ("/preview.css", "text/css; charset=utf-8"),
+            ("/preview.js", "text/javascript; charset=utf-8"),
+            ("/preview-build.json", "application/json"),
+            ("/_framework/runtime.wasm", "application/wasm"),
+            ("/_framework/runtime.dat", "application/octet-stream"),
+            ("/_framework/runtime.br", "application/octet-stream"),
+            ("/_framework/runtime.gz", "application/gzip"),
+            ("/future.dll", "application/octet-stream"),
+            ("/future.pdb", "application/octet-stream"),
+        ] {
+            assert_eq!(preview_content_type(path), expected, "{path}");
+        }
+        for &(path, _) in PREVIEW_ASSET_INVENTORY {
+            assert_ne!(preview_content_type(path), "", "{path}");
+        }
     }
 
     #[cfg(target_os = "macos")]
@@ -757,6 +925,7 @@ fn issue031_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     if !issue031_proof_enabled() {
         return Err("issue 031 proof instrumentation is disabled".into());
     }
+
     emit_packaged_proof_report(&format!("ISSUE031_REPORT={report}"))?;
     app.exit(0);
     Ok(())
@@ -767,7 +936,31 @@ fn issue032_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     if !issue032_proof_enabled() {
         return Err("issue 032 proof instrumentation is disabled".into());
     }
+
     emit_packaged_proof_report(&format!("ISSUE032_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn issue033_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue033_proof_enabled() {
+        return Err("issue 033 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE033_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+#[tauri::command]
+fn issue033_emit_no_wasm_eval_report(
+    app: tauri::AppHandle,
+    report: String,
+) -> Result<(), String> {
+    if !issue033_no_wasm_eval_proof_enabled() {
+        return Err("issue 033 no-wasm-eval proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE033_NO_WASM_EVAL_REPORT={report}"))?;
     app.exit(0);
     Ok(())
 }
@@ -785,6 +978,9 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .register_uri_scheme_protocol("playground-preview", |_context, request| {
+            preview_protocol_response(request.method(), &request.uri().to_string())
+        })
         .setup(|app| {
             if packaged_pipeline_proof_enabled() {
                 #[cfg(target_os = "macos")]
@@ -851,6 +1047,9 @@ pub fn run() {
             issue030_is_proof_enabled,
             issue031_is_proof_enabled,
             issue032_is_proof_enabled,
+            issue033_is_proof_enabled,
+            issue033_is_no_wasm_eval_proof_enabled,
+            issue033_emit_checkpoint,
             prepare_packaged_proof_window,
             issue023_emit_checkpoint,
             issue023_emit_report,
@@ -861,8 +1060,111 @@ pub fn run() {
             issue029_emit_report,
             issue030_emit_report,
             issue031_emit_report,
-            issue032_emit_report
+            issue032_emit_report,
+            issue033_emit_report,
+            issue033_emit_no_wasm_eval_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");
+}
+include!(concat!(env!("OUT_DIR"), "/preview_assets.rs"));
+
+const PREVIEW_CSP: &str = "default-src 'none'; script-src playground-preview: 'wasm-unsafe-eval'; style-src playground-preview:; connect-src playground-preview:; img-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+const MAX_PREVIEW_ASSET_BYTES: usize = 8 * 1024 * 1024;
+const MAX_PREVIEW_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+
+fn preview_protocol_response(
+    method: &tauri::http::Method,
+    raw_uri: &str,
+) -> tauri::http::Response<Vec<u8>> {
+    if method != tauri::http::Method::GET {
+        return preview_response(405, "text/plain; charset=utf-8", b"Method Not Allowed");
+    }
+    if raw_uri.contains(['%', '\\', '\0', '#']) {
+        return preview_response(400, "text/plain; charset=utf-8", b"Bad Request");
+    }
+    let uri = match raw_uri.parse::<tauri::http::Uri>() {
+        Ok(uri) => uri,
+        Err(_) => return preview_response(400, "text/plain; charset=utf-8", b"Bad Request"),
+    };
+    if uri.scheme_str() != Some("playground-preview")
+        || uri.authority().map(|value| value.as_str()) != Some("localhost")
+        || uri.query().is_some()
+    {
+        return preview_response(400, "text/plain; charset=utf-8", b"Bad Request");
+    }
+    let path = uri.path();
+    let malformed = !path.starts_with('/')
+        || path == "/"
+        || path.contains('%')
+        || path.contains('\\')
+        || path.contains('\0')
+        || path.contains("//")
+        || path
+            .split('/')
+            .skip(1)
+            .any(|segment| segment.is_empty() || segment == "." || segment == "..")
+        || !path
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._-/".contains(&byte));
+    if malformed {
+        return preview_response(400, "text/plain; charset=utf-8", b"Bad Request");
+    }
+    let declared_size = PREVIEW_ASSET_INVENTORY
+        .iter()
+        .find_map(|(candidate, size)| (*candidate == path).then_some(*size));
+    match (declared_size, preview_asset(path)) {
+        (Some(size), Some(body))
+            if size == body.len()
+                && size <= MAX_PREVIEW_ASSET_BYTES
+                && PREVIEW_ASSET_TOTAL_BYTES <= MAX_PREVIEW_TOTAL_BYTES =>
+        {
+            preview_response(200, preview_content_type(path), body)
+        }
+        (Some(_), Some(_)) => preview_response(404, "text/plain; charset=utf-8", b"Not Found"),
+        _ => preview_response(404, "text/plain; charset=utf-8", b"Not Found"),
+    }
+}
+
+fn preview_response(
+    status: u16,
+    content_type: &'static str,
+    body: &[u8],
+) -> tauri::http::Response<Vec<u8>> {
+    tauri::http::Response::builder()
+        .status(status)
+        .header("Content-Type", content_type)
+        .header("Access-Control-Allow-Origin", "null")
+        .header("Cross-Origin-Resource-Policy", "cross-origin")
+        .header("Content-Security-Policy", PREVIEW_CSP)
+        .header("X-Content-Type-Options", "nosniff")
+        .header("Cache-Control", "no-store")
+        .body(body.to_vec())
+        .expect("valid preview protocol response")
+}
+
+fn preview_content_type(path: &str) -> &'static str {
+    if path.ends_with(".html") {
+        "text/html; charset=utf-8"
+    } else if path.ends_with(".js") {
+        "text/javascript; charset=utf-8"
+    } else if path.ends_with(".css") {
+        "text/css; charset=utf-8"
+    } else if path.ends_with(".json") {
+        "application/json"
+    } else if path.ends_with(".wasm") {
+        "application/wasm"
+    } else if path.ends_with(".dll") {
+        "application/octet-stream"
+    } else if path.ends_with(".pdb") {
+        "application/octet-stream"
+    } else if path.ends_with(".dat") {
+        "application/octet-stream"
+    } else if path.ends_with(".br") {
+        "application/octet-stream"
+    } else if path.ends_with(".gz") {
+        "application/gzip"
+    } else {
+        "application/octet-stream"
+    }
 }

@@ -72,6 +72,7 @@ globalThis.previewIssue024Proof = {
 };
 globalThis.previewIssue028Proof = { enabled: false };
 globalThis.previewIssue030Proof = { enabled: false, samples: [], errors: [] };
+globalThis.previewIssue033Proof = { enabled: false };
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -90,7 +91,19 @@ let outputLive = false;
 let pendingOutputEvents = [];
 let terminationCause = null;
 let runtimeFailureCorrelationId = null;
+let bridgePort = null;
+let bridgeReadySent = false;
+let bridgeProofAuthorized = false;
 const nativeOutput = createNativeOutputCapture();
+dotnet.withConfig({ cacheBootResources: false });
+dotnet.withResourceLoader((type, _name, defaultUri, integrity) => {
+  if (type === "dotnetjs") return defaultUri;
+  return fetch(defaultUri, {
+    cache: "no-cache",
+    credentials: "omit",
+    ...(integrity ? { integrity } : {}),
+  });
+});
 dotnet.withModuleConfig({
   print: nativeOutput.print,
   printErr: nativeOutput.printErr,
@@ -99,6 +112,10 @@ dotnet.withModuleConfig({
 // product-neutral diagnostic through the configured native callback.
 const nativeBootstrapDiagnostic = "Playground native runtime bootstrap.";
 nativeOutput.print(nativeBootstrapDiagnostic);
+const trustedParentOrigin =
+  document.querySelector('meta[name="playground-parent-origin"]')?.content;
+if (!trustedParentOrigin)
+  throw new Error("Preview parent origin configuration is missing.");
 
 globalThis.__playgroundForwardOutput = (source, stream, category, text) => {
   if (!outputCorrelationId || !["managed", "native"].includes(source) ||
@@ -187,9 +204,236 @@ globalThis.__playgroundCompleteManagedRuntimeFailure = reportJson => {
   pendingOutputEvents = [];
   nativeOutput.retire(protocolGeneration);
 };
+
+function sendBridgeReady() {
+  if (!bridgePort || !proofState.ready || bridgeReadySent) return;
+  bridgeReadySent = true;
+  bridgePort.postMessage({
+    type: "preview.bridge.ready",
+    payload: {
+      runtimeStarts: globalThis.previewIssue21Proof.runtimeStarts,
+      realmToken,
+      opaqueOrigin: location.origin === "null",
+    },
+  });
+}
+
+async function executeBridgeAction(action, payload) {
+  if (action === "snapshot") {
+    const name = payload?.name;
+    if (name === "proof") return globalThis.previewProof;
+    if (name === "issue21") return globalThis.previewIssue21Proof;
+    if (name === "issue22") return globalThis.previewIssue22Proof;
+    if (name === "issue023") return globalThis.previewIssue023Proof;
+    if (name === "issue024") return globalThis.previewIssue024Snapshot?.() ?? null;
+    if (name === "endpoint") return globalThis.previewIssue023EndpointSnapshot?.() ?? null;
+    if (name === "native") return globalThis.previewIssue028Snapshot?.() ?? null;
+    if (name === "pixels") return globalThis.previewIssue030PixelProof?.() ?? null;
+    if (name === "errors") {
+      return [
+        ...(globalThis.previewProof?.errors ?? []),
+        ...(globalThis.previewIssue21Proof?.errors ?? []),
+        ...(globalThis.previewIssue023Proof?.errors ?? []),
+      ];
+    }
+    throw new Error("Unknown preview snapshot.");
+  }
+  if (action === "issue023-query") return globalThis.previewIssue023Query();
+  if (action === "issue023-self-test") return globalThis.previewIssue023RunnerSelfTest();
+  if (action === "issue027-writer-test") return globalThis.previewIssue027WriterSelfTest();
+  if (action === "issue029-quiescent") return globalThis.previewIssue029QuiescentProof();
+  if (action === "issue028-emit") {
+    globalThis.previewIssue028EmitNativePaths();
+    return true;
+  }
+  if (action === "issue22-teardown") return globalThis.previewIssue22Teardown();
+  if (action === "issue033-security" && globalThis.previewIssue033Proof.enabled) {
+    const violations = [];
+    const onViolation = event => violations.push({
+      effectiveDirective: event.effectiveDirective,
+      blockedUri: event.blockedURI,
+    });
+    addEventListener("securitypolicyviolation", onViolation);
+    let parentDomDenied = false;
+    try { void parent.document.body; } catch { parentDomDenied = true; }
+    let evalDenied = false;
+    try { globalThis.eval("1 + 1"); } catch { evalDenied = true; }
+    const inlineScript = document.createElement("script");
+    inlineScript.textContent = "globalThis.__issue033InlineRan = true";
+    document.body.append(inlineScript);
+    const inlineStyle = document.createElement("style");
+    inlineStyle.textContent = "body { outline: 1px solid red; }";
+    document.head.append(inlineStyle);
+    const frame = document.createElement("iframe");
+    frame.src = "data:text/html,blocked";
+    document.body.append(frame);
+    const object = document.createElement("object");
+    object.data = "data:text/html,blocked";
+    document.body.append(object);
+    const base = document.createElement("base");
+    base.href = "https://example.invalid/issue033-base/";
+    document.head.append(base);
+    const popupDenied = window.open("https://example.invalid/issue033-navigation") === null;
+    const form = document.createElement("form");
+    form.action = "https://example.invalid/issue033-form";
+    form.target = "_self";
+    let formSubmitEventObserved = false;
+    form.addEventListener("submit", () => { formSubmitEventObserved = true; });
+    document.body.append(form);
+    form.requestSubmit();
+    let fetchDenied = false;
+    try { await fetch("https://example.invalid/issue033"); } catch { fetchDenied = true; }
+    await new Promise(resolve => setTimeout(resolve, 50));
+    removeEventListener("securitypolicyviolation", onViolation);
+    const baseUriDenied =
+      !document.baseURI.startsWith("https://example.invalid/issue033-base");
+    const formRemainedInDocument = document.contains(form);
+    const formCspViolationObserved = violations.some(item =>
+      item.effectiveDirective === "form-action" &&
+      item.blockedUri === "https://example.invalid/issue033-form");
+    frame.remove();
+    object.remove();
+    base.remove();
+    form.remove();
+    inlineScript.remove();
+    inlineStyle.remove();
+    const audio = new AudioContext();
+    const oscillator = audio.createOscillator();
+    oscillator.connect(audio.destination);
+    oscillator.start();
+    oscillator.stop();
+    await audio.close();
+    return {
+      serializedOrigin: location.origin,
+      parentDomDenied,
+      evalDenied,
+      inlineScriptDenied: globalThis.__issue033InlineRan !== true,
+      fetchDenied,
+      audioClosed: audio.state === "closed",
+      baseUriDenied,
+      popupSandboxDenied: popupDenied,
+      formSubmitEventObserved,
+      formRemainedInDocument,
+      formCspViolationObserved,
+      formSandboxBlockedBeforeCsp:
+        formSubmitEventObserved && formRemainedInDocument && !formCspViolationObserved,
+      evalViolationObserved: violations.some(item =>
+        item.effectiveDirective.startsWith("script-src") && item.blockedUri === "eval"),
+      violations,
+    };
+  }
+  if (action === "wait-animation-frame") {
+    return await boundedAnimationFrame("wait-animation-frame");
+  }
+  if (action === "frame-readiness") {
+    const first = await boundedAnimationFrame("frame-readiness:first");
+    const second = await boundedAnimationFrame("frame-readiness:second");
+    const canvas = document.querySelector("#canvas");
+    const rect = canvas?.getBoundingClientRect();
+    return {
+      first,
+      second,
+      progressed: second > first,
+      visibilityState: document.visibilityState,
+      innerWidth,
+      innerHeight,
+      canvasWidth: rect?.width ?? 0,
+      canvasHeight: rect?.height ?? 0,
+    };
+  }
+  if (action === "sample-webgl") {
+    const canvas = document.querySelector("#canvas");
+    const gl = canvas?.getContext("webgl2");
+    if (!canvas || !gl) throw new Error("Preview canvas WebGL2 context is unavailable.");
+    await boundedAnimationFrame("sample-webgl");
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.finish();
+    const width = gl.drawingBufferWidth;
+    const height = gl.drawingBufferHeight;
+    const points = [
+      [Math.floor(width / 2), Math.floor(height / 2)],
+      [1, 1],
+      [Math.max(0, width - 2), 1],
+      [1, Math.max(0, height - 2)],
+      [Math.max(0, width - 2), Math.max(0, height - 2)],
+    ];
+    const pixels = points.map(([x, y]) => {
+      const pixel = new Uint8Array(4);
+      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+      return [...pixel];
+    });
+    const glError = gl.getError();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+    return {
+      sampledAt: performance.now(),
+      canvasBacking: { width: canvas.width, height: canvas.height },
+      drawingBuffer: { width, height },
+      pixels,
+      glError,
+      contextLost: gl.isContextLost(),
+    };
+  }
+
+  function boundedAnimationFrame(label, timeoutMilliseconds = 5_000) {
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error(
+        `ANIMATION_FRAME_TIMEOUT:${JSON.stringify({
+          label,
+          timeoutMilliseconds,
+          visibilityState: document.visibilityState,
+          innerWidth,
+          innerHeight,
+          hasFocus: document.hasFocus(),
+          canvasConnected: document.querySelector("#canvas")?.isConnected === true,
+        })}`)), timeoutMilliseconds);
+      requestAnimationFrame(timestamp => {
+        clearTimeout(timer);
+        resolve(timestamp);
+      });
+    });
+  }
+  if (action === "register-expectation" && bridgeProofAuthorized)
+    return globalThis.previewIssue21RegisterExpectation?.(payload);
+  if (action === "remove-expectation" && bridgeProofAuthorized)
+    return globalThis.previewIssue21RemoveExpectation?.(payload?.correlationId);
+  throw new Error("Preview bridge action is not authorized.");
+}
+
+function installPreviewBridge(port, proofAuthorized) {
+  bridgePort = port;
+  bridgeProofAuthorized = proofAuthorized;
+  port.addEventListener("message", async event => {
+    const message = event.data;
+    if (!message || typeof message !== "object" ||
+        message.type !== "preview.bridge.request" ||
+        typeof message.id !== "string" ||
+        typeof message.action !== "string") return;
+    try {
+      const result = await executeBridgeAction(message.action, message.payload);
+      port.postMessage({
+        type: "preview.bridge.response",
+        id: message.id,
+        success: true,
+        result,
+      });
+    } catch (error) {
+      port.postMessage({
+        type: "preview.bridge.response",
+        id: message.id,
+        success: false,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  });
+  port.start();
+  sendBridgeReady();
+}
+
 const bootstrapObservations = installPrivatePortBootstrap({
   expectedSource: parent,
-  expectedOrigin: window.location.origin,
+  expectedOrigin: trustedParentOrigin,
+  additionalPortCount: 1,
   validateData: data => isUuidV4(data.previewId) &&
     Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean" &&
     (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean") &&
@@ -197,12 +441,13 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue024Proof") || typeof data.issue024Proof === "boolean") &&
     (!Object.hasOwn(data, "issue028Proof") || typeof data.issue028Proof === "boolean") &&
     (!Object.hasOwn(data, "issue030Proof") || typeof data.issue030Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue033Proof") || typeof data.issue033Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
       ["normal", "delay-run", "delay-run-late", "delay-run-long", "delay-event", "unexpected"]
         .includes(data.issue023Case)),
-  onPort: (port, data) => {
+  onPort: (port, data, additionalPorts) => {
     if (protocolPort) return;
     protocolGeneration = data.contextGeneration;
     expectedPreviewId = data.previewId;
@@ -215,6 +460,8 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue024Proof.enabled = data.issue024Proof === true;
     globalThis.previewIssue028Proof.enabled = data.issue028Proof === true;
     globalThis.previewIssue030Proof.enabled = data.issue030Proof === true;
+    globalThis.previewIssue033Proof.enabled = data.issue033Proof === true;
+    installPreviewBridge(additionalPorts[0], data.issue021Proof === true);
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");
     protocolPort = port;
@@ -267,12 +514,15 @@ async function sha256Response(response) {
 }
 
 async function verifyRuntimeAsset() {
-  const metadataResponse = await fetch("./preview-build.json");
+  const metadataResponse = await fetch("playground-preview://localhost/preview-build.json");
   if (!metadataResponse.ok) {
     throw new Error(`Preview build metadata returned HTTP ${metadataResponse.status}.`);
   }
   const metadata = await metadataResponse.json();
-  const assetResponse = await fetch(metadata.monoGame.runtimeAssetPath);
+  const assetResponse = await fetch(new URL(
+    metadata.monoGame.runtimeAssetPath,
+    "playground-preview://localhost/",
+  ));
   if (!assetResponse.ok) {
     throw new Error(`MonoGame runtime asset returned HTTP ${assetResponse.status}.`);
   }
@@ -320,6 +570,7 @@ async function startRuntime() {
   status.textContent = "Ready: click for trusted in-realm Ping.";
   pingButton.disabled = false;
   render();
+  sendBridgeReady();
   return exports;
 }
 

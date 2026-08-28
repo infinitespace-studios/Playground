@@ -10,6 +10,7 @@ import { issue029PartialEvidence, runIssue029AutoProof } from "./issue29";
 import { runIssue030AutoProof } from "./issue30";
 import { runIssue031AutoProof } from "./issue31";
 import { runIssue032AutoProof } from "./issue32";
+import { runIssue033AutoProof, runIssue033NoWasmEvalProof } from "./issue33";
 
 interface RuntimeBuild {
   buildConfiguration: string;
@@ -130,14 +131,21 @@ let issue020ReadyCheckpointSent = false;
 let issue020RenderingCheckpointSent = false;
 
 const readPreviewProof = (): PreviewFrameProof | null => {
-  const child = previewFrame.contentWindow as (Window & { previewProof?: PreviewFrameProof }) | null;
-  return child?.previewProof ?? null;
+  try {
+    const child = previewFrame.contentWindow as
+      (Window & { previewProof?: PreviewFrameProof }) | null;
+    return child?.previewProof ?? null;
+  } catch {
+    return null;
+  }
 };
 
 const previewDiagnosticsSnapshot = () => {
   const child = previewFrame.contentWindow;
   const childProof = readPreviewProof();
-  const assetUrl = child ? new URL("/preview/index.html", child.location.href) : null;
+  const assetUrl = child
+    ? new URL(previewFrame.dataset.src ?? "playground-preview://localhost/index.html")
+    : null;
   return {
     protocolVersion: 1,
     iframeWindowDistinct: child !== null && child !== window,
@@ -1325,4 +1333,26 @@ void runIssue032AutoProof().catch((error: unknown) => {
     }),
   });
   console.error("Issue 032 proof instrumentation failed", error);
+});
+void runIssue033AutoProof().catch((error: unknown) => {
+  void window.__TAURI_INTERNALS__?.invoke("issue033_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: error instanceof Error ? error.message : String(error),
+      diagnostics,
+    }),
+  });
+  console.error("Issue 033 proof instrumentation failed", error);
+});
+void runIssue033NoWasmEvalProof().catch((error: unknown) => {
+  void window.__TAURI_INTERNALS__?.invoke("issue033_emit_no_wasm_eval_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: error instanceof Error ? error.message : String(error),
+      diagnostics,
+    }),
+  });
+  console.error("Issue 033 no-wasm proof instrumentation failed", error);
 });

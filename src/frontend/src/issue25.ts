@@ -143,11 +143,11 @@ function assertCleanup(stop: Record<string, unknown>) {
   }
 }
 
-function identity(preview: Issue23RunningPreview, managed: Record<string, unknown>) {
-  const child = preview.frame.contentWindow as (Window & {
-    previewProof?: { autoReadyPing?: { runtimeIdentity?: unknown }; errors?: string[] };
-  }) | null;
-  const runtimeIdentity = child?.previewProof?.autoReadyPing?.runtimeIdentity;
+async function identity(preview: Issue23RunningPreview, managed: Record<string, unknown>) {
+  const proof = await preview.proof<{
+    autoReadyPing?: { runtimeIdentity?: unknown };
+  }>("snapshot", { name: "proof" });
+  const runtimeIdentity = proof.autoReadyPing?.runtimeIdentity;
   if (typeof runtimeIdentity !== "string") {
     throw new Error("Fresh preview runtime identity is unavailable.");
   }
@@ -164,11 +164,7 @@ function identity(preview: Issue23RunningPreview, managed: Record<string, unknow
     runCount: managed.runCount,
     staticConstructorCount: managed.staticConstructorCount,
     frameCount: managed.frameCount,
-    errors: [
-      ...(child?.previewProof?.errors ?? []),
-      ...(child?.previewIssue21Proof?.errors ?? []),
-      ...(child?.previewIssue023Proof?.errors ?? []),
-    ],
+    errors: await preview.proof<string[]>("snapshot", { name: "errors" }),
   };
 }
 
@@ -190,7 +186,7 @@ export async function runIssue025AutoProof(): Promise<void> {
   const duplicateRunCoalesced = firstRun === duplicateFirstRun;
   const first = await firstRun;
   const firstManaged = await waitForFrames(first);
-  const identities = [identity(first, firstManaged)];
+  const identities = [await identity(first, firstManaged)];
   const stopped: Record<string, unknown>[] = [];
   const staleChecks: Record<string, unknown>[] = [];
 
@@ -215,7 +211,7 @@ export async function runIssue025AutoProof(): Promise<void> {
 
   const second = await controller.run();
   const secondManaged = await waitForFrames(second);
-  identities.push(identity(second, secondManaged));
+  identities.push(await identity(second, secondManaged));
   const secondStop = controller.stop();
   const thirdRun = controller.run();
   const duplicateThirdRun = controller.run();
@@ -223,7 +219,7 @@ export async function runIssue025AutoProof(): Promise<void> {
   await stopAndObserve(second, secondStop);
   const third = await thirdRun;
   const thirdManaged = await waitForFrames(third);
-  identities.push(identity(third, thirdManaged));
+  identities.push(await identity(third, thirdManaged));
   await stopAndObserve(third, controller.stop());
 
   const distinct = (key: keyof typeof identities[number]) =>
