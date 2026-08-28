@@ -258,17 +258,21 @@ public static partial class PreviewExports
         {
             return JsonSerializer.Serialize(
                 new GameRunStateResult(
-                    "stopped", 0, 0, false, null, false, true, 0, null, null),
+                    "stopped", 0, 0, false, null, false, true, 0, null, null, null, null),
                 PreviewJsonContext.Default.GameRunStateResult);
         }
 
         var snapshot = runner.Snapshot();
         int? frameCount = null;
         int? proofDisposeCount = null;
+        int? runCount = null;
+        int? staticConstructorCount = null;
         if (includeProofGameCounters && snapshot.GameType is not null)
         {
             frameCount = ReadProofCounter(snapshot.GameType, "FrameCount");
             proofDisposeCount = ReadProofCounter(snapshot.GameType, "DisposeCount");
+            runCount = ReadProofCounter(snapshot.GameType, "RunCount");
+            staticConstructorCount = ReadProofCounter(snapshot.GameType, "StaticConstructorCount");
         }
         return JsonSerializer.Serialize(
             new GameRunStateResult(
@@ -281,7 +285,9 @@ public static partial class PreviewExports
                 snapshot.Disposed,
                 snapshot.DisposeAttempts,
                 frameCount,
-                proofDisposeCount),
+                proofDisposeCount,
+                runCount,
+                staticConstructorCount),
             PreviewJsonContext.Default.GameRunStateResult);
     }
 
@@ -582,7 +588,9 @@ public static partial class PreviewExports
         bool Disposed,
         int DisposeAttempts,
         int? FrameCount,
-        int? ProofDisposeCount);
+        int? ProofDisposeCount,
+        int? RunCount,
+        int? StaticConstructorCount);
     internal sealed record RunnerBehavioralSelfTest(
         int RunCallbacks,
         int RunAttempts,

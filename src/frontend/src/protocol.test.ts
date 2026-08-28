@@ -171,6 +171,77 @@ test("run/stop controller coalesces concurrent stops and recovers controls", asy
   assert.equal(statuses.at(-1), "Preview stopped; editor controls recovered.");
 });
 
+test("restart waits for retirement and coalesces duplicate run requests", async () => {
+  const order: string[] = [];
+  let starts = 0;
+  let releaseStop!: () => void;
+  const stopping = new Promise<void>(resolve => { releaseStop = resolve; });
+  const controller = createIssue024RunStopController({
+    start: async () => {
+      const preview = { id: ++starts };
+      order.push(`start:${preview.id}`);
+      return preview;
+    },
+    stop: async (preview, reason) => {
+      order.push(`stop:${preview.id}:${reason}`);
+      await stopping;
+      order.push(`retired:${preview.id}`);
+    },
+    setRunDisabled() {},
+    setStopDisabled() {},
+    setStatus() {},
+    reportError() {},
+  });
+  assert.deepEqual(await controller.run(), { id: 1 });
+  const restart = controller.run();
+  const duplicate = controller.run();
+  assert.equal(restart, duplicate);
+  assert.equal(starts, 1);
+  assert.deepEqual(order, ["start:1", "stop:1:restart"]);
+  releaseStop();
+  assert.deepEqual(await restart, { id: 2 });
+  assert.deepEqual(order, ["start:1", "stop:1:restart", "retired:1", "start:2"]);
+});
+
+test("rapid run stop run serializes startup cleanup and fresh start", async () => {
+  let resolveFirst!: (preview: { id: number }) => void;
+  const firstStart = new Promise<{ id: number }>(resolve => { resolveFirst = resolve; });
+  let releaseStop!: () => void;
+  const stopping = new Promise<void>(resolve => { releaseStop = resolve; });
+  const order: string[] = [];
+  let starts = 0;
+  const controller = createIssue024RunStopController({
+    start: () => {
+      starts += 1;
+      order.push(`start:${starts}`);
+      return starts === 1 ? firstStart : Promise.resolve({ id: starts });
+    },
+    stop: async preview => {
+      order.push(`stop:${preview.id}`);
+      await stopping;
+      order.push(`retired:${preview.id}`);
+    },
+    setRunDisabled() {},
+    setStopDisabled() {},
+    setStatus() {},
+    reportError() {},
+  });
+  const run = controller.run();
+  assert.equal(run, controller.run());
+  const stop = controller.stop();
+  assert.equal(stop, controller.stop());
+  const restart = controller.run();
+  assert.equal(restart, controller.run());
+  resolveFirst({ id: 1 });
+  await run;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.deepEqual(order, ["start:1", "stop:1"]);
+  releaseStop();
+  await stop;
+  assert.deepEqual(await restart, { id: 2 });
+  assert.deepEqual(order, ["start:1", "stop:1", "retired:1", "start:2"]);
+});
+
 test("proof outcome matching excludes the primary successful load", () => {
   const rejections = [
     { probePhase: "preMutationInvalid", expectedCode: "PREVIEW_LOAD_FAILED", observedCode: "PREVIEW_LOAD_FAILED" },

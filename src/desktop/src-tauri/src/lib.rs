@@ -186,11 +186,21 @@ fn issue024_is_proof_enabled() -> bool {
     issue024_proof_enabled()
 }
 
+fn issue025_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE025_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue025_is_proof_enabled() -> bool {
+    issue025_proof_enabled()
+}
+
 fn packaged_pipeline_proof_enabled() -> bool {
     issue021_proof_enabled()
         || issue022_proof_enabled()
         || issue023_proof_enabled()
         || issue024_proof_enabled()
+        || issue025_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -224,7 +234,7 @@ fn relay_packaged_proof_through_launch_services() -> Result<bool, String> {
         .arg(bundle)
         .spawn()
         .map_err(|error| format!("failed to launch packaged proof with LaunchServices: {error}"))?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
     let mut stream = loop {
         match listener.accept() {
             Ok((stream, _)) => break stream,
@@ -233,7 +243,7 @@ fn relay_packaged_proof_through_launch_services() -> Result<bool, String> {
                     return Err(format!("packaged proof exited before reporting: {status}"));
                 }
                 if std::time::Instant::now() >= deadline {
-                    return Err("packaged proof did not report within 60 seconds".into());
+                    return Err("packaged proof did not report within 180 seconds".into());
                 }
                 std::thread::sleep(std::time::Duration::from_millis(50));
             }
@@ -632,6 +642,16 @@ fn issue024_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[tauri::command]
+fn issue025_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue025_proof_enabled() {
+        return Err("issue 025 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE025_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "macos")]
@@ -704,10 +724,12 @@ pub fn run() {
             issue022_emit_report,
             issue023_is_proof_enabled,
             issue024_is_proof_enabled,
+            issue025_is_proof_enabled,
             prepare_packaged_proof_window,
             issue023_emit_checkpoint,
             issue023_emit_report,
-            issue024_emit_report
+            issue024_emit_report,
+            issue025_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

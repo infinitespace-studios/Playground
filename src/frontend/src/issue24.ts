@@ -95,7 +95,7 @@ function createRunStopController(proofMode: boolean) {
   if (!runButton || !stopButton || !status) throw new Error("Issue 024 Run/Stop control is missing.");
   const controller = createIssue024RunStopController({
     start: () => start(proofMode),
-    stop: preview => preview.stop("user"),
+    stop: (preview, reason) => preview.stop(reason),
     setRunDisabled: disabled => { runButton.disabled = disabled; },
     setStopDisabled: disabled => { stopButton.disabled = disabled; },
     setStatus: (state, text) => {

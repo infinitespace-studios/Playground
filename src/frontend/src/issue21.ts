@@ -136,6 +136,12 @@ declare global {
 
 export interface Issue23RunningPreview {
   frame: HTMLIFrameElement;
+  contextGeneration: UuidV4;
+  portIdentity: string;
+  frameDomIdentity: number;
+  contentWindowIdentity: number;
+  previousIframeRemovedBeforeCreation: boolean;
+  documentUrl: string;
   compileId: UuidV4;
   previewId: UuidV4;
   compileCorrelationId: UuidV4;
@@ -163,6 +169,22 @@ function requiredElement<T extends Element>(selector: string): T {
 }
 
 const createUuid = () => crypto.randomUUID() as UuidV4;
+const frameIdentities = new WeakMap<HTMLIFrameElement, number>();
+const windowIdentities = new WeakMap<Window, number>();
+let nextFrameIdentity = 1;
+let nextWindowIdentity = 1;
+let lastPrimaryRunFrame: HTMLIFrameElement | null = null;
+const identityFor = <T extends object>(
+  values: WeakMap<T, number>,
+  value: T,
+  allocate: () => number,
+) => {
+  const existing = values.get(value);
+  if (existing !== undefined) return existing;
+  const identity = allocate();
+  values.set(value, identity);
+  return identity;
+};
 const compilerFrame = requiredElement<HTMLIFrameElement>("#compiler-frame");
 const previewFrame = requiredElement<HTMLIFrameElement>("#preview-frame");
 const loadButton = requiredElement<HTMLButtonElement>("#compile-load");
@@ -201,6 +223,8 @@ window.addEventListener("message", event => {
 });
 let compilerBootstrapped = false;
 let previewBootstrapped = false;
+let initialPreviewRetired = false;
+let initialPreviewRetirement: Promise<void> | null = null;
 let operationActive = false;
 let proofModeAuthorized = false;
 const proofInvocationToken = Symbol("issue021-proof");
@@ -224,6 +248,7 @@ function bootstrap(
   generation: UuidV4,
   kind: "compiler" | "preview",
 ) {
+  if (kind === "preview" && initialPreviewRetired) return;
   if ((kind === "compiler" && compilerBootstrapped) || (kind === "preview" && previewBootstrapped)) return;
   const target = frame.contentWindow;
   if (!target) throw new Error(`${kind} contentWindow is unavailable.`);
@@ -234,6 +259,36 @@ function bootstrap(
   hostTransport.bootstrapMessagesSent += 1;
   if (kind === "compiler") compilerBootstrapped = true;
   else previewBootstrapped = true;
+}
+
+function retireInitialPreviewContext() {
+  if (initialPreviewRetirement) return initialPreviewRetirement;
+  initialPreviewRetirement = (async () => {
+    if (!previewFrame.isConnected) return;
+    initialPreviewRetired = true;
+    try {
+      if (previewBootstrapped) {
+        const correlationId = createUuid();
+        const request: PreviewStopRequest = {
+          protocolVersion: PROTOCOL_VERSION,
+          correlationId,
+          type: "preview.stop.request",
+          payload: { previewId, reason: "restart", timeoutMs: 2_000 },
+        };
+        await previewClient.request(
+          request,
+          "preview.stop.response",
+          value => validatePreviewStopResponse(value, correlationId, previewId),
+          [],
+          2_000,
+        );
+      }
+    } finally {
+      previewClient.close(new Error("Initial preview context retired before Game run."));
+      previewFrame.remove();
+    }
+  })();
+  return initialPreviewRetirement;
 }
 
 compilerFrame.addEventListener("load", () => {
@@ -1126,6 +1181,12 @@ export async function compileLoadStartIssue23(input: {
     const data = compiled.message.result.data;
     const assembly = standaloneBuffer(new Uint8Array(data.assembly));
     const pdb = standaloneBuffer(new Uint8Array(data.pdb));
+    if (!input.auxiliary) await retireInitialPreviewContext();
+    const previousIframeRemovedBeforeCreation =
+      input.auxiliary === true || lastPrimaryRunFrame === null || !lastPrimaryRunFrame.isConnected;
+    if (!previousIframeRemovedBeforeCreation) {
+      throw new Error("The previous preview must be stopped and removed before restart.");
+    }
     const frame = document.createElement("iframe");
     frame.className = "issue23-run-frame";
     frame.title = "Running clear-color Game preview";
@@ -1156,7 +1217,9 @@ export async function compileLoadStartIssue23(input: {
         resolve();
       }, { once: true });
     });
-    frame.src = previewFrame.dataset.src ?? "/preview/index.html";
+    const previewUrl = new URL(previewFrame.dataset.src ?? "/preview/index.html", window.location.href);
+    previewUrl.searchParams.set("previewGeneration", generation);
+    frame.src = previewUrl.href;
     const existingPreview = document.querySelector<HTMLIFrameElement>("#preview-frame");
     if (input.auxiliary) {
       frame.classList.add("issue23-runtime-test-frame");
@@ -1168,8 +1231,17 @@ export async function compileLoadStartIssue23(input: {
       const status = document.querySelector("#preview-context-status");
       status?.parentElement?.insertBefore(frame, status);
     }
-    if (!input.auxiliary) frame.id = "preview-frame";
+    if (!input.auxiliary) {
+      frame.id = "preview-frame";
+      lastPrimaryRunFrame = frame;
+    }
     await loaded;
+    const contentWindow = frame.contentWindow;
+    if (!contentWindow) throw new Error("Issue 023 preview contentWindow is unavailable after load.");
+    const frameDomIdentity = identityFor(
+      frameIdentities, frame, () => nextFrameIdentity++);
+    const contentWindowIdentity = identityFor(
+      windowIdentities, contentWindow, () => nextWindowIdentity++);
 
     const runtimeDeadline = performance.now() + 180_000;
     while (frame.contentWindow?.previewIssue21Proof?.runtimeStarts !== 1 &&
@@ -1527,6 +1599,12 @@ export async function compileLoadStartIssue23(input: {
 
     return {
       frame,
+      contextGeneration: generation,
+      portIdentity: client.portIdentity,
+      frameDomIdentity,
+      contentWindowIdentity,
+      previousIframeRemovedBeforeCreation,
+      documentUrl: frame.src,
       compileId,
       previewId: isolatedPreviewId,
       compileCorrelationId,
