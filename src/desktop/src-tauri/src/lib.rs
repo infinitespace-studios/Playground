@@ -346,6 +346,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue037_proof_enabled()
         || issue038_proof_enabled()
         || issue039_proof_enabled()
+        || issue040_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -1331,6 +1332,61 @@ mod tests {
         assert!(js.contains("internals.invoke"));
         // Must not store or log rejection text that may contain keys
         assert!(!js.contains("capturedKey"));
+    }
+
+    #[test]
+    fn issue040_input_kinds_are_restricted_to_play_and_stop_gestures() {
+        assert_eq!(
+            super::issue040_input_kind("space-down"),
+            Some(super::Issue040Input::KeyDown {
+                key_code: 49,
+                characters: " "
+            })
+        );
+        assert_eq!(
+            super::issue040_input_kind("escape-down"),
+            Some(super::Issue040Input::KeyDown {
+                key_code: 53,
+                characters: "\u{1b}"
+            })
+        );
+        assert_eq!(
+            super::issue040_input_kind("click"),
+            Some(super::Issue040Input::LeftMouseClick)
+        );
+        for rejected in ["", "cmd-q", "space", "keydown", "space-down "] {
+            assert!(
+                super::issue040_input_kind(rejected).is_none(),
+                "{rejected} must not be dispatchable"
+            );
+        }
+    }
+
+    #[test]
+    fn issue040_dispatch_requires_proof_active_generation_and_preview_label() {
+        let label = super::issue038_preview_label("gen-1");
+        assert!(super::issue040_dispatch_allowed(true, &label, true));
+        assert!(!super::issue040_dispatch_allowed(false, &label, true));
+        assert!(!super::issue040_dispatch_allowed(true, &label, false));
+        assert!(!super::issue040_dispatch_allowed(true, "main", true));
+    }
+
+    #[test]
+    fn issue040_commands_are_registered_in_every_inventory() {
+        let build = include_str!("../build.rs");
+        let permission = include_str!("../permissions/main.toml");
+        for command in [
+            "issue040_is_proof_enabled",
+            "issue040_emit_checkpoint",
+            "issue040_emit_report",
+            "issue040_dispatch_preview_input",
+        ] {
+            assert!(build.contains(command), "{command} missing from build.rs");
+            assert!(
+                permission.contains(command),
+                "{command} missing from main permission"
+            );
+        }
     }
 
     #[test]
@@ -2437,6 +2493,272 @@ fn issue039_transfer_state(token: String) -> Result<String, String> {
     serde_json::to_string(&result).map_err(|e| e.to_string())
 }
 
+fn issue040_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE040_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue040_is_proof_enabled() -> bool {
+    issue040_proof_enabled()
+}
+
+#[tauri::command]
+fn issue040_emit_checkpoint(checkpoint: String) -> Result<(), String> {
+    if !issue040_proof_enabled() {
+        return Err("issue 040 proof instrumentation is disabled".into());
+    }
+    if checkpoint.len() > 4096 {
+        return Err("proof checkpoint exceeds 4096 byte limit".into());
+    }
+    println!("ISSUE040_CHECKPOINT={checkpoint}");
+    Ok(())
+}
+
+#[tauri::command]
+fn issue040_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue040_proof_enabled() {
+        return Err("issue 040 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE040_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+/// One real platform input event the issue 040 proof may deliver to an isolated
+/// preview window. Nothing here fabricates DOM events: the AppKit event is
+/// handed to `NSApplication::sendEvent`, so WebKit routes it through its normal
+/// input path and marks the resulting DOM event trusted and user-activating.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum Issue040Input {
+    LeftMouseClick,
+    KeyDown { key_code: u16, characters: &'static str },
+    KeyUp { key_code: u16, characters: &'static str },
+}
+
+/// Space (49) plays and Escape (53) stops, matching the issue 040 test game.
+fn issue040_input_kind(kind: &str) -> Option<Issue040Input> {
+    match kind {
+        "click" => Some(Issue040Input::LeftMouseClick),
+        "space-down" => Some(Issue040Input::KeyDown {
+            key_code: 49,
+            characters: " ",
+        }),
+        "space-up" => Some(Issue040Input::KeyUp {
+            key_code: 49,
+            characters: " ",
+        }),
+        "escape-down" => Some(Issue040Input::KeyDown {
+            key_code: 53,
+            characters: "\u{1b}",
+        }),
+        "escape-up" => Some(Issue040Input::KeyUp {
+            key_code: 53,
+            characters: "\u{1b}",
+        }),
+        _ => None,
+    }
+}
+
+fn issue040_dispatch_allowed(proof_enabled: bool, label: &str, generation_active: bool) -> bool {
+    proof_enabled && generation_active && label.starts_with(ISSUE038_PREVIEW_LABEL_PREFIX)
+}
+
+/// Deliver one trusted platform input event to an isolated preview window so the
+/// packaged issue 040 proof can unlock audio and drive play/stop exactly as a
+/// person pressing Space and Escape would.
+#[tauri::command]
+async fn issue040_dispatch_preview_input(
+    app: tauri::AppHandle,
+    generation: String,
+    kind: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+
+    if !issue040_proof_enabled() {
+        return Err("issue 040 proof instrumentation is disabled".into());
+    }
+    if generation.is_empty()
+        || generation.len() > 64
+        || !generation
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Err("generation must be 1-64 alphanumeric/hyphen chars".into());
+    }
+    let input = issue040_input_kind(&kind).ok_or_else(|| format!("unsupported input kind: {kind}"))?;
+    let label = issue038_preview_label(&generation);
+    let generation_active = {
+        let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+        state.active_generations.contains(&generation)
+    };
+    if !issue040_dispatch_allowed(issue040_proof_enabled(), &label, generation_active) {
+        return Err("issue 040 input dispatch target is not an active preview window".into());
+    }
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("preview window not found: {label}"))?;
+    issue040_send_native_input(&window, input).await
+}
+
+#[cfg(target_os = "macos")]
+async fn issue040_send_native_input(
+    window: &tauri::WebviewWindow,
+    input: Issue040Input,
+) -> Result<String, String> {
+    use objc2::MainThreadMarker;
+    use objc2::Message;
+    use objc2::rc::Retained;
+    use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow};
+    use objc2_foundation::{NSPoint, NSString};
+    use std::sync::mpsc;
+    use std::time::Duration;
+
+    // wry nests the WKWebView inside the window's content view, and only the
+    // WKWebView forwards key events into the web content process.
+    fn find_web_view(view: &NSView) -> Option<Retained<NSView>> {
+        for subview in view.subviews().iter() {
+            let class_name = subview.class().name().to_string_lossy().into_owned();
+            // wry's WKWebView subclass is named `WryWebView`; its container is
+            // `WryWebViewParent`, which never forwards key events.
+            if class_name.contains("WebView") && !class_name.contains("Parent") {
+                return Some(subview.retain());
+            }
+            if let Some(found) = find_web_view(&subview) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    let ns_window = window.ns_window().map_err(|error| error.to_string())? as usize;
+    let (sender, receiver) = mpsc::sync_channel(1);
+    window
+        .run_on_main_thread(move || {
+            let result: Result<(isize, f64, f64, bool, bool, bool, String), String> = (|| {
+                let mtm = MainThreadMarker::new()
+                    .ok_or_else(|| "issue 040 input dispatch did not run on the main thread".to_string())?;
+                let app = NSApplication::sharedApplication(mtm);
+                // SAFETY: Tauri owns this NSWindow for the command lifetime and this
+                // closure executes on AppKit's main thread.
+                let native_window = unsafe { &*(ns_window as *mut NSWindow) };
+                native_window.orderFrontRegardless();
+                native_window.makeKeyAndOrderFront(None);
+                app.activate();
+                let content_view = native_window.contentView();
+                let web_view = content_view.as_deref().and_then(find_web_view);
+                let responder_target = web_view.as_deref().or(content_view.as_deref());
+                let first_responder_set = match responder_target {
+                    Some(view) => native_window.makeFirstResponder(Some(view)),
+                    None => false,
+                };
+                let responder_class = native_window
+                    .firstResponder()
+                    .map(|responder| responder.class().name().to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "none".to_string());
+                let web_view_found = web_view.is_some();
+                let key_window = native_window.isKeyWindow();
+                let window_number = native_window.windowNumber();
+                let size = native_window.frame().size;
+                // Aim at the middle of the preview canvas, which occupies the top of
+                // the content area (AppKit window coordinates start bottom-left).
+                let location = NSPoint::new(size.width / 2.0, size.height * 0.62);
+                let event = match input {
+                    Issue040Input::LeftMouseClick => None,
+                    Issue040Input::KeyDown { key_code, characters }
+                    | Issue040Input::KeyUp { key_code, characters } => {
+                        let event_type = match input {
+                            Issue040Input::KeyDown { .. } => NSEventType::KeyDown,
+                            _ => NSEventType::KeyUp,
+                        };
+                        let keys = NSString::from_str(characters);
+                        NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
+                            event_type,
+                            location,
+                            NSEventModifierFlags::empty(),
+                            0.0,
+                            window_number,
+                            None,
+                            &keys,
+                            &keys,
+                            false,
+                            key_code,
+                        )
+                    }
+                };
+                match input {
+                    Issue040Input::LeftMouseClick => {
+                        let make_event = |event_type| {
+                            NSEvent::mouseEventWithType_location_modifierFlags_timestamp_windowNumber_context_eventNumber_clickCount_pressure(
+                                event_type,
+                                location,
+                                NSEventModifierFlags::empty(),
+                                0.0,
+                                window_number,
+                                None,
+                                0,
+                                1,
+                                1.0,
+                            )
+                            .ok_or_else(|| "failed to create preview mouse event".to_string())
+                        };
+                        let down = make_event(NSEventType::LeftMouseDown)?;
+                        let up = make_event(NSEventType::LeftMouseUp)?;
+                        if down.windowNumber() != window_number || up.windowNumber() != window_number
+                        {
+                            return Err("preview mouse event target mismatch".into());
+                        }
+                        // Deliver straight to the addressed window's responder chain so the
+                        // event cannot land on any other window.
+                        native_window.sendEvent(&down);
+                        native_window.sendEvent(&up);
+                    }
+                    _ => {
+                        let event = event.ok_or_else(|| "failed to create preview key event".to_string())?;
+                        if event.windowNumber() != window_number {
+                            return Err("preview key event target mismatch".into());
+                        }
+                        native_window.sendEvent(&event);
+                    }
+                }
+                Ok((
+                    window_number,
+                    location.x,
+                    location.y,
+                    first_responder_set,
+                    key_window,
+                    web_view_found,
+                    responder_class,
+                ))
+            })();
+            let _ = sender.send(result);
+        })
+        .map_err(|error| error.to_string())?;
+    let (window_number, x, y, first_responder_set, key_window, web_view_found, responder_class) =
+        tauri::async_runtime::spawn_blocking(move || receiver.recv_timeout(Duration::from_secs(5)))
+            .await
+            .map_err(|error| error.to_string())?
+            .map_err(|error| format!("issue 040 input dispatch timed out: {error}"))??;
+    Ok(serde_json::json!({
+        "dispatched": true,
+        "windowNumber": window_number,
+        "locationX": x,
+        "locationY": y,
+        "firstResponderSet": first_responder_set,
+        "keyWindow": key_window,
+        "webViewFound": web_view_found,
+        "firstResponderClass": responder_class,
+    })
+    .to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+async fn issue040_send_native_input(
+    _window: &tauri::WebviewWindow,
+    _input: Issue040Input,
+) -> Result<String, String> {
+    Err("issue 040 native input dispatch is only implemented for macOS".into())
+}
+
 /// Proof-only: create an isolated preview window with 'wasm-unsafe-eval' removed.
 /// Used by issue033 negative proof to verify WASM instantiation fails under CSP.
 #[tauri::command]
@@ -2929,7 +3251,11 @@ pub fn run() {
             issue039_store_asset,
             issue039_asset_manifest,
             issue039_clear_assets,
-            issue039_transfer_state
+            issue039_transfer_state,
+            issue040_is_proof_enabled,
+            issue040_emit_checkpoint,
+            issue040_emit_report,
+            issue040_dispatch_preview_input
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

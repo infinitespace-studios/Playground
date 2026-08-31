@@ -799,7 +799,7 @@ header before writing to the virtual filesystem:
 | `PG0203_CONTENT_COMPRESSED` | Compressed content (LZ4 or LZX); initial subset requires uncompressed |
 | `PG0204_CONTENT_SIZE_MISMATCH` | Declared file size mismatches actual byte length |
 | `PG0205_CONTENT_MALFORMED_READERS` | Truncated or malformed reader metadata |
-| `PG0206_CONTENT_UNSUPPORTED_TYPE` | Unsupported content type reader (only Texture2D is supported) |
+| `PG0206_CONTENT_UNSUPPORTED_TYPE` | Unsupported content type reader or payload format (only uncompressed `Texture2D` and non-streaming PCM `SoundEffect` are supported) |
 
 ### Virtual filesystem mounting
 
@@ -818,7 +818,37 @@ recursively before writing. The mounted path matches what
 
 ### Supported content subset
 
-The initial v1 subset supports only uncompressed `Texture2D` content (reader
-type `Microsoft.Xna.Framework.Content.Texture2DReader`). `SoundEffect` is
-planned for a future issue. All other content types are rejected with
-`PG0206_CONTENT_UNSUPPORTED_TYPE` before the game starts.
+The initial v1 subset supports uncompressed `Texture2D` content (reader type
+`Microsoft.Xna.Framework.Content.Texture2DReader`) and non-streaming
+`SoundEffect` content (reader type
+`Microsoft.Xna.Framework.Content.SoundEffectReader`), matching PRD section 15.
+Both reader type strings are pinned to the exact
+`MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null`
+identity, a single reader, zero shared resources, and root reader selector 1.
+All other content types are rejected with `PG0206_CONTENT_UNSUPPORTED_TYPE`
+before the game starts.
+
+`SoundEffect` payloads are validated field by field against the pinned
+`SoundEffectWriter` layout (`int32` format size, `WAVEFORMATEX`, `int32` data
+size, PCM data, `int32` loop start, `int32` loop length, `int32` duration in
+milliseconds):
+
+| Field | Accepted values |
+|-------|-----------------|
+| Format size | exactly 18 (`WAVEFORMATEX` including `cbSize`) |
+| `wFormatTag` | 1 (uncompressed PCM) |
+| `nChannels` | 1 or 2 |
+| `wBitsPerSample` | 8 or 16 |
+| `nSamplesPerSec` | 8,000–48,000 Hz |
+| `nBlockAlign` | `nChannels * wBitsPerSample / 8` |
+| `nAvgBytesPerSec` | `nSamplesPerSec * nBlockAlign` |
+| `cbSize` | 0 |
+| Data size | > 0, ≤ 8 MiB, block aligned, within the remaining bytes |
+| Loop start/length | ≥ 0 and within the decoded sample count |
+| Duration | > 0 and within 50 ms of `samples * 1000 / sampleRate` |
+| Trailing bytes | none |
+
+Anything outside these bounds fails closed with
+`PG0206_CONTENT_UNSUPPORTED_TYPE` (unsupported shape) or
+`PG0205_CONTENT_MALFORMED_READERS` (structural inconsistency) before the game
+is started.

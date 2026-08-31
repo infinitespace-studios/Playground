@@ -83,6 +83,10 @@ const APP_COMMANDS: &[&str] = &[
     "issue039_asset_manifest",
     "issue039_clear_assets",
     "issue039_transfer_state",
+    "issue040_is_proof_enabled",
+    "issue040_emit_checkpoint",
+    "issue040_emit_report",
+    "issue040_dispatch_preview_input",
 ];
 
 fn collect_files(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) {
@@ -202,7 +206,7 @@ objc2-app-kit = { version = "=0.3.2", features = [
   "NSRunningApplication",
   "NSWindow",
 ] }
-objc2-foundation = { version = "=0.3.2", features = ["NSGeometry"] }
+objc2-foundation = { version = "=0.3.2", features = ["NSGeometry", "NSString"] }
 "#
     .parse::<toml::Value>()
     .expect("expected dependency policy must be valid TOML");
@@ -497,8 +501,8 @@ fn validate_generated_acl(root: &Path) {
     }
     assert_eq!(
         1 + 1 + generated_files.len(),
-        81,
-        "effective ACL must contain one capability, one composite permission, and 79 generated permissions"
+        85,
+        "effective ACL must contain one capability, one composite permission, and 83 generated permissions"
     );
 }
 

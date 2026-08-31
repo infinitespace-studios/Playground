@@ -75,3 +75,77 @@ This pattern is chosen so that:
 - `external/MonoGame/MonoGame.Framework/Content/ContentReaders/Texture2DReader.cs` — Runtime reader that will consume this fixture
 - `external/MonoGame/MonoGame.Framework/Content/ContentManager.cs` — Path resolution: `RootDirectory + "/" + assetName + ".xnb"`
 - `external/MonoGame/MonoGame.Framework.Content.Pipeline/TargetPlatform.cs` — `Web` enum member at index 12
+
+## audio/blip.xnb
+
+- **SHA-256**: `247f196aa6e26aa2982286d20dbd8a91a40beaa90b76e445bf70fda6ba4a70eb`
+- **Size**: 44,280 bytes
+- **Platform**: Web (`b` = TargetPlatform.Web, index 12)
+- **XNB Version**: 5 (MonoGame 3.8.x format)
+- **Profile**: Reach (flags byte 0x00)
+- **Compression**: None (uncompressed, non-streaming)
+- **Audio format**: WAVEFORMATEX, `wFormatTag` 1 (PCM), mono, 22,050 Hz, 16-bit,
+  `nBlockAlign` 2, `nAvgBytesPerSec` 44,100, `cbSize` 0
+- **Payload**: 22,050 samples (44,100 bytes) — exactly 1.000 s
+- **Declared duration**: 1,000 ms; loop start 0, loop length 22,050 samples
+- **Reader**: `Microsoft.Xna.Framework.Content.SoundEffectReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null`
+
+### Build method
+
+Programmatic binary construction matching the pinned MonoGame
+`SoundEffectWriter`/`SoundEffectReader` contract at `external/MonoGame`, for the
+same reason as `textures/player.xnb`: `external/MonoGame` is a read-only
+submodule (per its `AGENTS.md`), so MGCB was not executed. The generator is
+committed at `scripts/build-issue040-sound-fixture.mjs`, which shares its
+assembler with the packaged proof
+(`src/frontend/src/issue040-fixture.ts`):
+
+```
+node scripts/build-issue040-sound-fixture.mjs          # rewrite the fixture
+node scripts/build-issue040-sound-fixture.mjs --check  # verify the committed bytes
+```
+
+The sample data is produced from a 50-entry integer sine table with an
+integer-only fade envelope, never `Math.sin`, so Node and the WebView emit
+byte-identical output. The packaged issue 040 proof rebuilds these exact bytes
+inside the preview, asserts the SHA-256 above, mounts them, and loads them with
+the real `SoundEffectReader.Read()` path in the pinned MonoGame runtime.
+
+### XNB binary layout
+
+| Offset | Length | Field | Value |
+|--------|--------|-------|-------|
+| 0 | 3 | Magic | `XNB` (0x58 0x4E 0x42) |
+| 3 | 1 | Platform | `b` (0x62 = Web) |
+| 4 | 1 | Version | 5 |
+| 5 | 1 | Flags | 0x00 (Reach, uncompressed) |
+| 6 | 4 | File size | 44,280 (LE int32) |
+| 10 | 1 | Reader count | 1 (7-bit encoded) |
+| 11 | 1 | Reader type length | 124 (7-bit encoded) |
+| 12 | 124 | Reader type | `Microsoft.Xna.Framework.Content.SoundEffectReader, …` |
+| 136 | 4 | Reader version | 0 (LE int32) |
+| 140 | 1 | Shared resources | 0 (7-bit encoded) |
+| 141 | 1 | Type reader index | 1 (7-bit encoded, 1-based) |
+| 142 | 4 | Format size | 18 (LE int32) |
+| 146 | 18 | WAVEFORMATEX | PCM/mono/22,050 Hz/16-bit |
+| 164 | 4 | Data size | 44,100 (LE int32) |
+| 168 | 44,100 | PCM data | 441 Hz tone, peak 8,192 (≈ −12 dBFS) |
+| 44,268 | 4 | Loop start | 0 |
+| 44,272 | 4 | Loop length | 22,050 |
+| 44,276 | 4 | Duration (ms) | 1,000 |
+
+### Audio characteristics
+
+- 441 Hz (22,050 / 50) so the single-cycle table repeats exactly 441 times
+- Peak amplitude 8,192 of 32,767 (≈ −12 dBFS) — clearly audible but not loud
+- 10 ms linear fade in and out so playback starts and ends at silence with no click
+- Content is intentionally short and looped by the test games so playback can be
+  observed and then explicitly stopped
+
+### Source references
+
+- `external/MonoGame/MonoGame.Framework.Content.Pipeline/Serialization/Compiler/SoundEffectContentWriter.cs` — format/data/loop/duration write order
+- `external/MonoGame/MonoGame.Framework.Content.Pipeline/Audio/AudioFormat.cs` — 18-byte WAVEFORMATEX layout written by MGCB
+- `external/MonoGame/MonoGame.Framework/Content/ContentReaders/SoundEffectReader.cs` — runtime reader that consumes this fixture
+- `external/MonoGame/MonoGame.Framework/Audio/SoundEffect.cs` — PCM branch (`wFormatTag == 1`) used by this fixture
+- `external/MonoGame/MonoGame.Framework/Platform/Native/SoundEffect.Native.cs` — FAudio buffer creation used by the Web (Native profile) runtime

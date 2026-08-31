@@ -548,9 +548,48 @@ public static partial class PreviewExports
         }
     }
 
+    /// Reports the loaded game's own audio lifecycle counters for the issue 040 proof.
+    /// The values come from public static members the running game exposes about itself;
+    /// nothing here can start, stop, or observe audio on the game's behalf.
     [JSExport]
-    public static string RunContentValidatorSelfTest()
-        => JsonSerializer.Serialize(
+    public static string QueryIssue040AudioState()
+    {
+        GameRunner? runner;
+        lock (LifecycleGate)
+        {
+            runner = _gameRunner;
+        }
+
+        var gameType = runner?.Snapshot().GameType ?? _lastStoppedGameType;
+        if (gameType is null)
+        {
+            return JsonSerializer.Serialize(
+                new Issue040AudioStateResult(
+                    false, null, null, null, null, null, null, null, null, null, null, null, null, null),
+                PreviewJsonContext.Default.Issue040AudioStateResult);
+        }
+
+        return JsonSerializer.Serialize(
+            new Issue040AudioStateResult(
+                true,
+                ReadProofCounter(gameType, "SoundLoadedCount"),
+                ReadProofString(gameType, "SoundAssetName"),
+                ReadProofCounter(gameType, "SoundDurationMilliseconds"),
+                ReadProofCounter(gameType, "PlayInvocationCount"),
+                ReadProofCounter(gameType, "StopInvocationCount"),
+                ReadProofString(gameType, "StateAfterPlay"),
+                ReadProofString(gameType, "StateAtStopCall"),
+                ReadProofString(gameType, "StateAfterStop"),
+                ReadProofString(gameType, "CurrentInstanceState"),
+                ReadProofCounter(gameType, "ObservedPlayingUpdateCount"),
+                ReadProofCounter(gameType, "TriggerObservationCount"),
+                ReadProofString(gameType, "LastTriggerSource"),
+                ReadProofString(gameType, "AudioErrorText")),
+            PreviewJsonContext.Default.Issue040AudioStateResult);
+    }
+
+    [JSExport]
+    public static string RunContentValidatorSelfTest()        => JsonSerializer.Serialize(
             ContentValidator.RunSelfTestCases(),
             (JsonTypeInfo<Dictionary<string, ContentValidator.SelfTestCaseResult>>)
             PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, ContentValidator.SelfTestCaseResult>))!);
@@ -1260,6 +1299,22 @@ public static partial class PreviewExports
         }
     }
 
+    private static string? ReadProofString(Type type, string name)
+    {
+        try
+        {
+            var property = type.GetProperty(
+                name, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
+            if (property?.PropertyType != typeof(string)) return null;
+            var value = property.GetValue(null) as string;
+            return value is null || value.Length <= 512 ? value : value[..512];
+        }
+        catch (Exception exception) when (!GameRunner.IsFatal(exception))
+        {
+            return null;
+        }
+    }
+
     private static ValidatedLoad ValidateLoad(
         byte[]? dllBytes,
         byte[]? pdbBytes,
@@ -1563,6 +1618,21 @@ public static partial class PreviewExports
         int? AudioCreateCount,
         int? AudioPlayCount,
         int? AudioDisposeCount);
+    internal sealed record Issue040AudioStateResult(
+        bool GameTypeObserved,
+        int? SoundLoadedCount,
+        string? SoundAssetName,
+        int? SoundDurationMilliseconds,
+        int? PlayInvocationCount,
+        int? StopInvocationCount,
+        string? StateAfterPlay,
+        string? StateAtStopCall,
+        string? StateAfterStop,
+        string? CurrentInstanceState,
+        int? ObservedPlayingUpdateCount,
+        int? TriggerObservationCount,
+        string? LastTriggerSource,
+        string? AudioErrorText);
     private sealed class RunnerSelfTestGame : Game
     {
         public int DisposeCount { get; private set; }
@@ -1600,6 +1670,7 @@ public static partial class PreviewExports
 [JsonSerializable(typeof(PreviewExports.AssetMountStateResult))]
 [JsonSerializable(typeof(PreviewExports.AtomicMountSelfTestResult))]
 [JsonSerializable(typeof(PreviewExports.Issue039StateResult))]
+[JsonSerializable(typeof(PreviewExports.Issue040AudioStateResult))]
 [JsonSerializable(typeof(PreviewExports.AssetMetaEntry[]))]
 [JsonSerializable(typeof(PreviewExports.AssetMountPhaseResult))]
 [JsonSerializable(typeof(PreviewExports.AssetEntry[]))]

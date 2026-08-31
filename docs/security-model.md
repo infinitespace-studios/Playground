@@ -512,12 +512,25 @@ WebView2 renderer process.
 | `issue039_is_proof_enabled` | Check proof env gate | No |
 | `issue039_emit_checkpoint` | Emit proof checkpoint line (4KB limit) | Yes |
 | `issue039_emit_report` | Emit packaged proof report and exit | Yes |
+| `issue040_is_proof_enabled` | Check proof env gate | No |
+| `issue040_emit_checkpoint` | Emit proof checkpoint line (4KB limit) | Yes |
+| `issue040_emit_report` | Emit packaged proof report and exit | Yes |
+| `issue040_dispatch_preview_input` | Deliver one trusted Space/Escape/click AppKit event to an active isolated preview window | Yes |
 
-All seventeen are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
+All twenty-one are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
 and `ISSUE034_APPROVED_COMMANDS`.  They are accessible only from the trusted
 `main` window and inaccessible from the isolated preview.
 
-## Content asset validation (issue 039)
+`issue040_dispatch_preview_input` is the only command that synthesises input.
+It refuses to run unless `MONOGAME_ISSUE040_PROOF=1` is set, only accepts the
+five fixed gestures the audio proof needs (`click`, `space-down`, `space-up`,
+`escape-down`, `escape-up`), and only addresses a window whose label carries the
+isolated-preview prefix for a generation that is still active. The event is
+handed to that window's AppKit responder chain, so WebKit routes it through its
+normal trusted-input path; nothing fabricates DOM events or bypasses the
+autoplay policy.
+
+## Content asset validation (issues 039 and 040)
 
 Asset `.xnb` files sent via `asset.mount.request` are validated before
 mounting to the virtual filesystem:
@@ -531,9 +544,16 @@ mounting to the virtual filesystem:
    rebuild with `MonoGamePlatform=Web`. The diagnostic is issued before any
    game construction or runtime start.
 
-3. **Content type restriction**: Only `Texture2DReader` content is accepted
-   in the initial subset. Unsupported reader types are rejected with
-   `PG0206_CONTENT_UNSUPPORTED_TYPE`.
+3. **Content type restriction**: Only `Texture2DReader` and `SoundEffectReader`
+   content is accepted in the initial subset (PRD section 15). Unsupported
+   reader types are rejected with `PG0206_CONTENT_UNSUPPORTED_TYPE`.
+   `SoundEffect` payloads must additionally be uncompressed PCM
+   (`wFormatTag` 1) with the pinned 18-byte WAVEFORMATEX header, 1–2 channels,
+   8 or 16 bits per sample, 8,000–48,000 Hz, matching block alignment and
+   average bytes per second, block-aligned data of at most 8 MiB, in-range loop
+   points, a duration consistent with the sample count, and no trailing bytes.
+   Anything else fails closed with `PG0206_CONTENT_UNSUPPORTED_TYPE` or
+   `PG0205_CONTENT_MALFORMED_READERS` before the game is started.
 
 4. **Path normalization**: Asset paths follow Protocol.md section 8 rules
    (no absolute paths, traversal, backslashes, NUL/percent/controls). Paths

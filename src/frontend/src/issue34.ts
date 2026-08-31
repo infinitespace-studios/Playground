@@ -83,6 +83,10 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue039_asset_manifest",
   "issue039_clear_assets",
   "issue039_transfer_state",
+  "issue040_is_proof_enabled",
+  "issue040_emit_checkpoint",
+  "issue040_emit_report",
+  "issue040_dispatch_preview_input",
 ] as const;
 
 const source = `

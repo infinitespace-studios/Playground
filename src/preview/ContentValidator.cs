@@ -1,3 +1,4 @@
+using System.Buffers.Binary;
 using System.Text;
 
 namespace Playground.Preview;
@@ -32,9 +33,17 @@ internal static class ContentValidator
     private const int MaxTextureMipCount = 14; // log2(8192) + 1
     private const int SurfaceFormatColor = 0;
     private const int SurfaceFormatColorSRgb = 32;
+    private const int WaveFormatExSize = 18; // WAVEFORMATEX including cbSize, as MGCB always writes
+    private const int WaveFormatPcm = 1;
+    private const int MinSoundSampleRate = 8000;
+    private const int MaxSoundSampleRate = 48000;
+    private const int MaxSoundDataBytes = 8 * 1024 * 1024;
+    private const int SoundDurationToleranceMilliseconds = 50;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
     private const string Texture2DReaderType =
         "Microsoft.Xna.Framework.Content.Texture2DReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
+    private const string SoundEffectReaderType =
+        "Microsoft.Xna.Framework.Content.SoundEffectReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
     private const string UnsupportedReaderType =
         "Microsoft.Xna.Framework.Content.SpriteFontReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
 
@@ -199,7 +208,7 @@ internal static class ContentValidator
         if (readerCount != 1)
         {
             return Failure("PG0205_CONTENT_MALFORMED_READERS",
-                $"Only single-reader Texture2D content is supported; this file declares {readerCount} readers.");
+                $"Only single-reader Texture2D or SoundEffect content is supported; this file declares {readerCount} readers.");
         }
 
         var remaining = body[consumed..];
@@ -215,11 +224,14 @@ internal static class ContentValidator
         if (!TryReadInt32(ref remaining, out var readerVersion))
             return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
 
-        if (readerType != Texture2DReaderType || readerVersion != 0)
+        var isTexture = readerType == Texture2DReaderType;
+        var isSoundEffect = readerType == SoundEffectReaderType;
+        if ((!isTexture && !isSoundEffect) || readerVersion != 0)
         {
             return Failure("PG0206_CONTENT_UNSUPPORTED_TYPE",
                 $"The content file '{BoundPath(assetPath)}' uses reader type '{BoundReaderType(readerType)}', " +
-                "which is not supported by the Playground preview. Only Texture2D content is currently supported.",
+                "which is not supported by the Playground preview. Only uncompressed Texture2D and " +
+                "non-streaming SoundEffect content is currently supported.",
                 readerType: readerType, readerCount: readerCount);
         }
 
@@ -247,10 +259,22 @@ internal static class ContentValidator
         if (readerSelector != 1)
         {
             return Failure("PG0205_CONTENT_MALFORMED_READERS",
-                $"The content file '{BoundPath(assetPath)}' declares root reader selector {readerSelector}; expected 1 for Texture2D content.",
+                $"The content file '{BoundPath(assetPath)}' declares root reader selector {readerSelector}; expected 1 for single-reader content.",
                 readerType: readerType, readerCount: readerCount);
         }
 
+        return isSoundEffect
+            ? ParseSoundEffectPayload(remaining, assetPath, readerType, readerCount)
+            : ParseTexture2DPayload(remaining, assetPath, readerType, readerCount);
+    }
+
+    /// <summary>
+    /// Validates the Texture2DReader payload: surface format, dimensions, mip chain, and exact length.
+    /// Returns a failure ValidationResult, or null when the payload is acceptable.
+    /// </summary>
+    private static ValidationResult? ParseTexture2DPayload(
+        ReadOnlySpan<byte> remaining, string assetPath, string readerType, int readerCount)
+    {
         if (!TryReadInt32(ref remaining, out var surfaceFormat))
             return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
         if (surfaceFormat < 0 || surfaceFormat > MaxKnownSurfaceFormat)
@@ -334,6 +358,130 @@ internal static class ContentValidator
         return null;
     }
 
+    /// <summary>
+    /// Validates the SoundEffectReader payload against the pinned MonoGame 3.8.5.1 layout:
+    ///   int32 format size | WAVEFORMATEX | int32 data size | PCM data |
+    ///   int32 loop start | int32 loop length | int32 duration (ms)
+    /// Only uncompressed, non-streaming PCM is accepted, matching PRD section 15's
+    /// initial supported content subset.
+    /// Returns a failure ValidationResult, or null when the payload is acceptable.
+    /// </summary>
+    private static ValidationResult? ParseSoundEffectPayload(
+        ReadOnlySpan<byte> remaining, string assetPath, string readerType, int readerCount)
+    {
+        ValidationResult Malformed(string message) =>
+            Failure("PG0205_CONTENT_MALFORMED_READERS",
+                $"The content file '{BoundPath(assetPath)}' {message}",
+                readerType: readerType, readerCount: readerCount);
+
+        ValidationResult Unsupported(string message) =>
+            Failure("PG0206_CONTENT_UNSUPPORTED_TYPE",
+                $"The content file '{BoundPath(assetPath)}' {message}",
+                readerType: readerType, readerCount: readerCount);
+
+        if (!TryReadInt32(ref remaining, out var formatSize))
+            return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
+        if (formatSize != WaveFormatExSize)
+        {
+            return Unsupported(
+                $"declares a {formatSize}-byte audio format header, but only the {WaveFormatExSize}-byte " +
+                "WAVEFORMATEX header written by the MonoGame content pipeline is supported.");
+        }
+        if (formatSize > remaining.Length)
+            return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
+
+        var format = remaining[..formatSize];
+        remaining = remaining[formatSize..];
+
+        var formatTag = BinaryPrimitives.ReadInt16LittleEndian(format[..2]);
+        var channels = BinaryPrimitives.ReadInt16LittleEndian(format.Slice(2, 2));
+        var sampleRate = BinaryPrimitives.ReadInt32LittleEndian(format.Slice(4, 4));
+        var averageBytesPerSecond = BinaryPrimitives.ReadInt32LittleEndian(format.Slice(8, 4));
+        var blockAlign = BinaryPrimitives.ReadInt16LittleEndian(format.Slice(12, 2));
+        var bitsPerSample = BinaryPrimitives.ReadInt16LittleEndian(format.Slice(14, 2));
+        var cbSize = BinaryPrimitives.ReadInt16LittleEndian(format.Slice(16, 2));
+
+        if (formatTag != WaveFormatPcm)
+        {
+            return Unsupported(
+                $"uses audio format tag {formatTag}, but only uncompressed PCM (1) SoundEffect content " +
+                "is currently supported. Rebuild the asset without compression.");
+        }
+        if (channels is not (1 or 2))
+            return Unsupported($"declares {channels} audio channels; only mono (1) and stereo (2) are supported.");
+        if (bitsPerSample is not (8 or 16))
+            return Unsupported($"declares {bitsPerSample} bits per sample; only 8-bit and 16-bit PCM are supported.");
+        if (sampleRate < MinSoundSampleRate || sampleRate > MaxSoundSampleRate)
+        {
+            return Unsupported(
+                $"declares a {sampleRate} Hz sample rate; only {MinSoundSampleRate}–{MaxSoundSampleRate} Hz is supported.");
+        }
+        if (cbSize != 0)
+            return Unsupported($"declares {cbSize} bytes of extra format data; only plain PCM headers are supported.");
+
+        var expectedBlockAlign = channels * bitsPerSample / 8;
+        if (blockAlign != expectedBlockAlign)
+            return Malformed($"declares block alignment {blockAlign} but expected {expectedBlockAlign}.");
+        var expectedAverageBytesPerSecond = sampleRate * expectedBlockAlign;
+        if (averageBytesPerSecond != expectedAverageBytesPerSecond)
+        {
+            return Malformed(
+                $"declares {averageBytesPerSecond} average bytes per second but expected {expectedAverageBytesPerSecond}.");
+        }
+
+        if (!TryReadInt32(ref remaining, out var dataSize))
+            return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
+        if (dataSize <= 0)
+            return Malformed($"declares {dataSize} bytes of audio data.");
+        if (dataSize > MaxSoundDataBytes)
+        {
+            return Unsupported(
+                $"declares {dataSize} bytes of audio data, which exceeds the {MaxSoundDataBytes} byte non-streaming limit.");
+        }
+        if (dataSize % expectedBlockAlign != 0)
+        {
+            return Malformed(
+                $"declares {dataSize} bytes of audio data, which is not a multiple of the {expectedBlockAlign} byte block alignment.");
+        }
+        if (dataSize > remaining.Length)
+        {
+            return Malformed(
+                $"declares {dataSize} bytes of audio data, which exceeds the remaining {remaining.Length} bytes.");
+        }
+
+        remaining = remaining[dataSize..];
+
+        if (!TryReadInt32(ref remaining, out var loopStart))
+            return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
+        if (!TryReadInt32(ref remaining, out var loopLength))
+            return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
+        if (!TryReadInt32(ref remaining, out var durationMilliseconds))
+            return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
+
+        var sampleCount = dataSize / expectedBlockAlign;
+        if (loopStart < 0 || loopStart > sampleCount)
+            return Malformed($"declares loop start {loopStart}, which is outside the {sampleCount} decoded samples.");
+        if (loopLength < 0 || (long)loopStart + loopLength > sampleCount)
+            return Malformed($"declares loop length {loopLength}, which is outside the {sampleCount} decoded samples.");
+
+        if (durationMilliseconds <= 0)
+            return Malformed($"declares a {durationMilliseconds} ms duration.");
+        var expectedDuration = (int)((long)sampleCount * 1000 / sampleRate);
+        if (Math.Abs(durationMilliseconds - expectedDuration) > SoundDurationToleranceMilliseconds)
+        {
+            return Malformed(
+                $"declares a {durationMilliseconds} ms duration but {sampleCount} samples at {sampleRate} Hz are {expectedDuration} ms.");
+        }
+
+        if (remaining.Length != 0)
+        {
+            return Malformed(
+                $"contains {remaining.Length} unexpected trailing bytes after SoundEffect payload parsing.");
+        }
+
+        return null;
+    }
+
     private static (int readerCount, string? readerType) ExtractReaderInfo(ReadOnlySpan<byte> body)
     {
         if (body.Length < 1) return (0, null);
@@ -408,6 +556,7 @@ internal static class ContentValidator
     internal static Dictionary<string, SelfTestCaseResult> RunSelfTestCases()
     {
         const string assetPath = "textures/player.xnb";
+        const string soundPath = "audio/blip.xnb";
 
         var good = BuildTexture2DContent();
         var suffixedReader = BuildTexture2DContent(readerType: Texture2DReaderType.Replace(
@@ -477,6 +626,57 @@ internal static class ContentValidator
                     bytes[HeaderSize + 3] = 0x80;
                     bytes[HeaderSize + 4] = 0x80;
                 }), assetPath)),
+            ["sound-good-fixture"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(), soundPath)),
+            ["sound-good-stereo-8bit"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(channels: 2, bitsPerSample: 8, sampleCount: 400), soundPath)),
+            ["sound-wrong-platform"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(platformByte: (byte)'d'), soundPath)),
+            ["sound-compressed-flag"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(flags: FlagCompressedLzx), soundPath)),
+            ["sound-non-pcm-format"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(formatTag: 2), soundPath)),
+            ["sound-bad-format-size"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(formatSizeOverride: 16), soundPath)),
+            ["sound-nonzero-cbsize"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(cbSize: 2), soundPath)),
+            ["sound-bad-channels"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(channels: 3), soundPath)),
+            ["sound-bad-bits"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(bitsPerSample: 24), soundPath)),
+            ["sound-bad-sample-rate"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(sampleRate: 96000, averageBytesPerSecond: 192000), soundPath)),
+            ["sound-block-align-mismatch"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(blockAlign: 4), soundPath)),
+            ["sound-average-bytes-mismatch"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(averageBytesPerSecond: 1234), soundPath)),
+            ["sound-zero-data"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(sampleCount: 0), soundPath)),
+            ["sound-unaligned-data"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(extraDataBytes: 1), soundPath)),
+            ["sound-data-size-overflow"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(declaredDataSizeDelta: 64), soundPath)),
+            ["sound-loop-out-of-range"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(loopStart: 10, loopLength: 100_000), soundPath)),
+            ["sound-negative-loop-start"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(loopStart: -1), soundPath)),
+            ["sound-duration-mismatch"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(durationMilliseconds: 9_000), soundPath)),
+            ["sound-trailing-bytes"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(trailingBytes: [0x01, 0x02, 0x03, 0x04]), soundPath)),
+            ["sound-truncated-tail"] = ToSelfTestCaseResult(Validate(
+                TruncateContent(BuildSoundEffectContent(), 6), soundPath)),
+            ["sound-multi-reader"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(readerTypes: [SoundEffectReaderType, Texture2DReaderType]), soundPath)),
+            ["sound-suffixed-reader"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(readerType: SoundEffectReaderType.Replace(
+                    "SoundEffectReader", "SoundEffectReaderSuffix", StringComparison.Ordinal)), soundPath)),
+            ["sound-wrong-reader-version"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(readerVersion: 1), soundPath)),
+            ["sound-bad-root-index"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(readerSelector: 2), soundPath)),
+            ["sound-nonzero-shared-resources"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(sharedResourceCount: 1), soundPath)),
         };
     }
 
@@ -544,8 +744,96 @@ internal static class ContentValidator
         return result;
     }
 
-    private static byte[] BuildOverlong7BitReaderCount(byte[] good)
+    private static byte[] BuildSoundEffectContent(
+        byte platformByte = WebPlatformByte,
+        byte version = CurrentFormatVersion,
+        byte flags = 0,
+        string? readerType = SoundEffectReaderType,
+        string[]? readerTypes = null,
+        int readerVersion = 0,
+        int sharedResourceCount = 0,
+        int readerSelector = 1,
+        int formatTag = WaveFormatPcm,
+        int channels = 1,
+        int sampleRate = 22050,
+        int bitsPerSample = 16,
+        int? blockAlign = null,
+        int? averageBytesPerSecond = null,
+        int cbSize = 0,
+        int? formatSizeOverride = null,
+        int sampleCount = 2205,
+        int extraDataBytes = 0,
+        int declaredDataSizeDelta = 0,
+        int loopStart = 0,
+        int loopLength = 0,
+        int? durationMilliseconds = null,
+        byte[]? trailingBytes = null)
     {
+        readerTypes ??= readerType is null ? [] : [readerType];
+        var effectiveBlockAlign = blockAlign ?? channels * bitsPerSample / 8;
+        var declaredBlockAlign = effectiveBlockAlign <= 0 ? 1 : effectiveBlockAlign;
+        var dataByteCount = sampleCount * (channels * bitsPerSample / 8) + extraDataBytes;
+        if (dataByteCount < 0) dataByteCount = 0;
+        var data = new byte[dataByteCount];
+        for (var index = 0; index < data.Length; index++)
+            data[index] = (byte)(index * 7 % 251);
+
+        var format = new List<byte>(WaveFormatExSize);
+        format.AddRange(BitConverter.GetBytes((short)formatTag));
+        format.AddRange(BitConverter.GetBytes((short)channels));
+        format.AddRange(BitConverter.GetBytes(sampleRate));
+        format.AddRange(BitConverter.GetBytes(
+            averageBytesPerSecond ?? sampleRate * declaredBlockAlign));
+        format.AddRange(BitConverter.GetBytes((short)declaredBlockAlign));
+        format.AddRange(BitConverter.GetBytes((short)bitsPerSample));
+        format.AddRange(BitConverter.GetBytes((short)cbSize));
+
+        var bytes = new List<byte>(256 + data.Length)
+        {
+            (byte)'X',
+            (byte)'N',
+            (byte)'B',
+            platformByte,
+            version,
+            flags,
+            0, 0, 0, 0,
+        };
+
+        Append7BitEncodedInt(bytes, readerTypes.Length);
+        foreach (var type in readerTypes)
+        {
+            AppendLengthPrefixedString(bytes, type);
+            bytes.AddRange(BitConverter.GetBytes(readerVersion));
+        }
+
+        Append7BitEncodedInt(bytes, sharedResourceCount);
+        Append7BitEncodedInt(bytes, readerSelector);
+        bytes.AddRange(BitConverter.GetBytes(formatSizeOverride ?? format.Count));
+        bytes.AddRange(format);
+        bytes.AddRange(BitConverter.GetBytes(data.Length + declaredDataSizeDelta));
+        bytes.AddRange(data);
+        bytes.AddRange(BitConverter.GetBytes(loopStart));
+        bytes.AddRange(BitConverter.GetBytes(loopLength));
+        var frameBytes = channels * bitsPerSample / 8;
+        var decodedSamples = frameBytes <= 0 ? 0 : data.Length / frameBytes;
+        bytes.AddRange(BitConverter.GetBytes(
+            durationMilliseconds ?? (sampleRate <= 0 ? 0 : (int)((long)decodedSamples * 1000 / sampleRate))));
+        if (trailingBytes is not null)
+            bytes.AddRange(trailingBytes);
+
+        var result = bytes.ToArray();
+        WriteDeclaredSize(result, result.Length);
+        return result;
+    }
+
+    private static byte[] TruncateContent(byte[] content, int removeByteCount)
+    {
+        var truncated = content[..^removeByteCount];
+        WriteDeclaredSize(truncated, truncated.Length);
+        return truncated;
+    }
+
+    private static byte[] BuildOverlong7BitReaderCount(byte[] good)    {
         var mutated = new byte[good.Length + 1];
         Array.Copy(good, 0, mutated, 0, HeaderSize);
         mutated[HeaderSize] = 0x81;
