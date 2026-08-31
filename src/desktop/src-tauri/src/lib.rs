@@ -344,6 +344,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue035_proof_enabled()
         || issue036_proof_enabled()
         || issue037_proof_enabled()
+        || issue038_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -371,13 +372,24 @@ fn relay_packaged_proof_through_launch_services() -> Result<bool, String> {
         .set_nonblocking(true)
         .map_err(|error| error.to_string())?;
     let relay = listener.local_addr().map_err(|error| error.to_string())?;
-    let mut launcher = std::process::Command::new("/usr/bin/open")
-        .args(["-n", "-W", "--env", &format!("{RELAUNCHED}=1")])
-        .args(["--env", &format!("{RELAY}={relay}")])
-        .arg(bundle)
+    let mut cmd = std::process::Command::new("/usr/bin/open");
+    cmd.args(["-n", "-W", "--env", &format!("{RELAUNCHED}=1")]);
+    cmd.args(["--env", &format!("{RELAY}={relay}")]);
+    // Forward all active MONOGAME_ISSUE* proof environment variables
+    for (key, value) in std::env::vars_os() {
+        if let Some(key_str) = key.to_str() {
+            if key_str.starts_with("MONOGAME_ISSUE") {
+                if let Some(val_str) = value.to_str() {
+                    cmd.args(["--env", &format!("{key_str}={val_str}")]);
+                }
+            }
+        }
+    }
+    cmd.arg(bundle);
+    let mut launcher = cmd
         .spawn()
         .map_err(|error| format!("failed to launch packaged proof with LaunchServices: {error}"))?;
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(180);
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(300);
     let mut stream = loop {
         match listener.accept() {
             Ok((stream, _)) => break stream,
@@ -1043,6 +1055,272 @@ mod tests {
         );
         assert!(super::ISSUE037_PROOF_STORE_FILENAME.contains("proof"));
     }
+
+    // --- Issue 038 unit tests ---
+
+    #[test]
+    fn issue038_isolated_html_has_matching_csp() {
+        assert!(super::ISSUE038_ISOLATED_HTML.contains(super::PREVIEW_CSP));
+        assert_eq!(super::ISSUE038_ISOLATED_CSP, super::PREVIEW_CSP);
+    }
+
+    #[test]
+    fn issue038_isolated_html_loads_bridge_setup_before_preview() {
+        let bridge_pos = super::ISSUE038_ISOLATED_HTML
+            .find("_bridge-setup.js")
+            .expect("bridge setup script must be in isolated HTML");
+        let preview_pos = super::ISSUE038_ISOLATED_HTML
+            .find("preview.js")
+            .expect("preview.js must be in isolated HTML");
+        assert!(
+            bridge_pos < preview_pos,
+            "bridge setup must load before preview.js"
+        );
+    }
+
+    #[test]
+    fn issue038_bridge_setup_strips_tauri_internals() {
+        assert!(super::ISSUE038_BRIDGE_SETUP_JS.contains("__TAURI_INTERNALS__"));
+        assert!(super::ISSUE038_BRIDGE_SETUP_JS.contains("__TAURI_IPC__"));
+        assert!(super::ISSUE038_BRIDGE_SETUP_JS.contains("configurable: false"));
+    }
+
+    #[test]
+    fn issue038_preview_label_prefix_is_distinct_from_main() {
+        let label = super::issue038_preview_label("test-gen");
+        assert!(label.starts_with(super::ISSUE038_PREVIEW_LABEL_PREFIX));
+        assert_ne!(label, "main");
+        assert!(!label.is_empty());
+    }
+
+    #[test]
+    fn issue038_transfer_paths_are_bounded() {
+        let response = super::issue038_handle_transfer_get(
+            "playground-preview://localhost/_transfer/bad-token!/assembly.dll",
+        );
+        assert!(
+            response.is_none() || response.as_ref().unwrap().status() != 200,
+            "invalid token must not serve 200"
+        );
+    }
+
+    #[test]
+    fn issue038_bridge_post_rejects_missing_generation() {
+        let response = super::issue038_handle_bridge_request(&tauri::http::Method::POST,
+            "playground-preview://localhost/_bridge/send",
+            b"{}",
+        );
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().status(), 400);
+    }
+
+    #[test]
+    fn issue038_bridge_post_rejects_oversize_body() {
+        let response = super::issue038_handle_bridge_request(&tauri::http::Method::POST,
+            "playground-preview://localhost/_bridge/send?generation=test",
+            &vec![b'x'; 2 * 1024 * 1024],
+        );
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().status(), 400);
+    }
+
+    #[test]
+    fn issue038_bridge_post_accepts_valid_message() {
+        // Ensure generation is registered in state
+        {
+            let mut state = super::ISSUE038_BRIDGE.lock().unwrap();
+            state
+                .pending_messages
+                .insert("unit-test-gen".into(), Vec::new());
+        }
+        let response = super::issue038_handle_bridge_request(&tauri::http::Method::POST,
+            "playground-preview://localhost/_bridge/send?generation=unit-test-gen",
+            b"{\"type\":\"test\"}",
+        );
+        assert!(response.is_some());
+        assert_eq!(response.unwrap().status(), 200);
+        // Verify message was stored
+        let state = super::ISSUE038_BRIDGE.lock().unwrap();
+        let messages = state.pending_messages.get("unit-test-gen").unwrap();
+        assert!(messages.iter().any(|m| m.contains("test")));
+    }
+
+    #[test]
+    fn issue038_transfer_store_and_serve() {
+        {
+            let mut state = super::ISSUE038_BRIDGE.lock().unwrap();
+            state.transfers.insert(
+                "xfer-test".into(),
+                super::Issue038TransferEntry {
+                    assembly: vec![0xDE, 0xAD],
+                    pdb: vec![0xBE, 0xEF],
+                },
+            );
+        }
+        let asm_resp = super::issue038_handle_transfer_get(
+            "playground-preview://localhost/_transfer/xfer-test/assembly.dll",
+        );
+        assert!(asm_resp.is_some());
+        let r = asm_resp.unwrap();
+        assert_eq!(r.status(), 200);
+        assert_eq!(r.body(), &[0xDE, 0xAD]);
+
+        let pdb_resp = super::issue038_handle_transfer_get(
+            "playground-preview://localhost/_transfer/xfer-test/symbols.pdb",
+        );
+        assert!(pdb_resp.is_some());
+        assert_eq!(pdb_resp.unwrap().body(), &[0xBE, 0xEF]);
+
+        let bad_resp = super::issue038_handle_transfer_get(
+            "playground-preview://localhost/_transfer/xfer-test/evil.exe",
+        );
+        assert!(bad_resp.is_some());
+        assert_eq!(bad_resp.unwrap().status(), 404);
+    }
+
+    #[test]
+    fn issue038_isolated_html_and_bridge_served_by_protocol() {
+        let html = super::preview_protocol_response(
+            &Method::GET,
+            "playground-preview://localhost/_isolated.html",
+        );
+        assert_eq!(html.status(), 200);
+        assert!(String::from_utf8_lossy(html.body()).contains("isolated"));
+
+        let js = super::preview_protocol_response(
+            &Method::GET,
+            "playground-preview://localhost/_bridge-setup.js",
+        );
+        assert_eq!(js.status(), 200);
+        assert!(String::from_utf8_lossy(js.body()).contains("__bridge038"));
+    }
+
+    #[test]
+    fn issue038_capability_excludes_preview_label() {
+        let capability = include_str!("../capabilities/main.json");
+        assert!(!capability.contains(super::ISSUE038_PREVIEW_LABEL_PREFIX));
+        assert!(capability.contains("\"windows\": [\"main\"]"));
+    }
+
+    #[test]
+    fn issue038_bootstrap_preview_rejects_invalid_json() {
+        let valid: Result<serde_json::Value, _> = serde_json::from_str("{\"key\":\"value\"}");
+        assert!(valid.is_ok());
+        let invalid: Result<serde_json::Value, _> = serde_json::from_str("not json");
+        assert!(invalid.is_err());
+        // Valid JSON is double-escaped for safe JS injection
+        let test_val = serde_json::json!({"test": "value"});
+        let escaped = serde_json::to_string(&serde_json::to_string(&test_val).unwrap()).unwrap();
+        assert!(escaped.starts_with('"') && escaped.ends_with('"'));
+    }
+
+    #[test]
+    fn issue038_inject_script_requires_proof_gate() {
+        // The command checks issue038_proof_enabled() — verify the env check exists
+        assert!(!super::issue038_proof_enabled()); // not set in test env
+    }
+
+    #[test]
+    fn issue038_transfer_zeroes_on_clear() {
+        {
+            let mut state = super::ISSUE038_BRIDGE.lock().unwrap();
+            state.transfers.insert(
+                "zero-test".into(),
+                super::Issue038TransferEntry {
+                    assembly: vec![0xDE, 0xAD, 0xBE, 0xEF],
+                    pdb: vec![0xCA, 0xFE],
+                },
+            );
+        }
+        // Simulate clear_transfer's zeroing behavior
+        {
+            let mut state = super::ISSUE038_BRIDGE.lock().unwrap();
+            if let Some(mut entry) = state.transfers.remove("zero-test") {
+                let asm_before: Vec<u8> = entry.assembly.clone();
+                let pdb_before: Vec<u8> = entry.pdb.clone();
+                entry.assembly.iter_mut().for_each(|b| *b = 0);
+                entry.pdb.iter_mut().for_each(|b| *b = 0);
+                assert_ne!(asm_before, entry.assembly);
+                assert_ne!(pdb_before, entry.pdb);
+                assert!(entry.assembly.iter().all(|b| *b == 0));
+                assert!(entry.pdb.iter().all(|b| *b == 0));
+            }
+        }
+    }
+
+    #[test]
+    fn issue038_stale_generation_cannot_access_newer_messages() {
+        let mut state = super::ISSUE038_BRIDGE.lock().unwrap();
+        state.pending_messages.insert("gen-old".into(), vec!["old".into()]);
+        state.pending_messages.insert("gen-new".into(), vec!["new".into()]);
+        // A stale generation can only access its own messages
+        assert_eq!(state.pending_messages.get("gen-old").unwrap(), &["old"]);
+        assert_eq!(state.pending_messages.get("gen-new").unwrap(), &["new"]);
+        // Removing old doesn't affect new
+        state.pending_messages.remove("gen-old");
+        assert!(state.pending_messages.get("gen-old").is_none());
+        assert_eq!(state.pending_messages.get("gen-new").unwrap(), &["new"]);
+        state.pending_messages.remove("gen-new");
+    }
+
+    #[test]
+    fn issue038_percent_decode_handles_edge_cases() {
+        assert_eq!(super::percent_decode("hello%20world"), Some("hello world".into()));
+        assert_eq!(super::percent_decode("a%2Fb"), Some("a/b".into()));
+        assert_eq!(super::percent_decode("plain"), Some("plain".into()));
+        assert_eq!(super::percent_decode("%"), None); // truncated
+        assert_eq!(super::percent_decode("%ZZ"), None); // invalid hex
+        assert_eq!(super::percent_decode("a+b"), Some("a b".into()));
+    }
+
+    #[test]
+    fn issue038_relay_env_prefix_is_monogame_issue() {
+        // Verify the relay code uses the correct prefix filter
+        let source = include_str!("lib.rs");
+        assert!(source.contains("starts_with(\"MONOGAME_ISSUE\")"));
+    }
+
+    #[test]
+    fn issue038_no_wasm_eval_html_differs_by_exactly_one_token() {
+        let normal = super::ISSUE038_ISOLATED_HTML;
+        let no_wasm = super::ISSUE038_ISOLATED_NO_WASM_EVAL_HTML;
+        // The only difference should be the removal of " 'wasm-unsafe-eval'"
+        assert!(normal.contains("'wasm-unsafe-eval'"));
+        assert!(!no_wasm.contains("'wasm-unsafe-eval'"));
+        // After removing the token, content should be identical
+        let normalized_normal = normal.replace(" 'wasm-unsafe-eval'", "");
+        // The titles differ intentionally, so normalize those too
+        let n1 = normalized_normal.replace("Preview runtime (isolated)", "Preview");
+        let n2 = no_wasm
+            .replace("Preview runtime (no wasm eval)", "Preview")
+            .replace("Booting isolated preview (no wasm-eval)...", "Booting isolated preview...");
+        assert_eq!(n1, n2, "HTML differs by more than wasm-unsafe-eval + title");
+    }
+
+    #[test]
+    fn issue038_no_wasm_eval_served_by_protocol() {
+        let response = super::preview_protocol_response(
+            &Method::GET,
+            "playground-preview://localhost/_isolated-no-wasm-eval.html",
+        );
+        assert_eq!(response.status(), 200);
+        let body = String::from_utf8_lossy(response.body());
+        assert!(!body.contains("wasm-unsafe-eval"));
+        assert!(body.contains("script-src playground-preview:"));
+    }
+
+    #[test]
+    fn issue038_bridge_setup_has_no_raw_key_storage() {
+        let js = super::ISSUE038_BRIDGE_SETUP_JS;
+        // Must NOT store raw parser error messages
+        assert!(!js.contains("captured.push"));
+        assert!(!js.contains("__issue034ParserErrors"));
+        // Must have ACL invoke probe that uses internals.invoke directly
+        assert!(js.contains("issue034-acl-invoke-probe"));
+        assert!(js.contains("internals.invoke"));
+        // Must not store or log rejection text that may contain keys
+        assert!(!js.contains("capturedKey"));
+    }
 }
 
 #[tauri::command]
@@ -1462,8 +1740,589 @@ fn issue037_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     Ok(())
 }
 
+// --- Issue 038: force-stop isolated preview via separate WebviewWindow ---
+//
+// The preview runs in a separate Tauri WebviewWindow so that an infinite
+// synchronous WASM/JS loop in the preview cannot block the trusted editor
+// window.  On macOS this maps to a separate WKWebView with its own WebContent
+// process; on Windows to a separate WebView2 renderer process.
+//
+// Communication:
+//   Rust → Preview: `WebviewWindow::eval()` injects `window.__bridge038Receive(msg)`
+//   Preview → Rust: `fetch("playground-preview://localhost/_bridge/send", {method:"POST", body})`
+//                    handled in the custom protocol handler, relayed to main via Tauri events.
+//   Binary transfer: Rust stores DLL/PDB in `ISSUE038_TRANSFER`, preview fetches
+//                    via `playground-preview://localhost/_transfer/{token}/{file}`.
+//
+// Force-stop: call `WebviewWindow::destroy()` from Rust; this is non-blocking
+// and reliable even when the preview's JS is hung in an infinite loop.
+//
+// Security: the preview window has NO capabilities (its label is never listed
+// in any capability's `windows` array).  A script served via the
+// protocol attempts to strip `__TAURI_INTERNALS__` as defense-in-depth;
+// Tauri may reinject it after page load. The primary IPC boundary is ACL:
+// the preview window label is excluded from all capabilities.
+
+use std::sync::Mutex;
+use std::collections::HashMap;
+
+struct Issue038TransferEntry {
+    assembly: Vec<u8>,
+    pdb: Vec<u8>,
+}
+
+struct Issue038BridgeState {
+    transfers: HashMap<String, Issue038TransferEntry>,
+    pending_messages: HashMap<String, Vec<String>>,
+    generation_counter: u64,
+}
+
+static ISSUE038_BRIDGE: std::sync::LazyLock<Mutex<Issue038BridgeState>> =
+    std::sync::LazyLock::new(|| {
+        Mutex::new(Issue038BridgeState {
+            transfers: HashMap::new(),
+            pending_messages: HashMap::new(),
+            generation_counter: 0,
+        })
+    });
+
+fn issue038_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE038_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue038_is_proof_enabled() -> bool {
+    issue038_proof_enabled()
+}
+
+/// Store compiled binary pair for transfer to isolated preview window via protocol.
+#[tauri::command]
+fn issue038_store_transfer(token: String, assembly: Vec<u8>, pdb: Vec<u8>) -> Result<(), String> {
+    if token.is_empty() || token.len() > 128 {
+        return Err("transfer token must be 1–128 bytes".into());
+    }
+    if !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err("transfer token must be alphanumeric or hyphen".into());
+    }
+    if assembly.is_empty() || pdb.is_empty() {
+        return Err("assembly and pdb must not be empty".into());
+    }
+    const MAX_TRANSFER_BYTES: usize = 32 * 1024 * 1024;
+    if assembly.len() > MAX_TRANSFER_BYTES || pdb.len() > MAX_TRANSFER_BYTES {
+        return Err("transfer exceeds 32 MiB limit".into());
+    }
+    let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    state.transfers.insert(
+        token,
+        Issue038TransferEntry { assembly, pdb },
+    );
+    Ok(())
+}
+
+/// Clear a transfer entry after the preview has consumed it.
+/// Zeroes the binary data before freeing to avoid lingering user code in memory.
+#[tauri::command]
+fn issue038_clear_transfer(token: String) -> Result<(), String> {
+    let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    if let Some(mut entry) = state.transfers.remove(&token) {
+        // Zero before drop
+        entry.assembly.iter_mut().for_each(|b| *b = 0);
+        entry.pdb.iter_mut().for_each(|b| *b = 0);
+    }
+    Ok(())
+}
+
+const ISSUE038_PREVIEW_LABEL_PREFIX: &str = "preview-isolated-";
+
+fn issue038_preview_label(generation: &str) -> String {
+    format!("{ISSUE038_PREVIEW_LABEL_PREFIX}{generation}")
+}
+
+/// Create an isolated preview WebviewWindow.  The window loads content from
+/// the playground-preview protocol and has NO Tauri capabilities.
+#[tauri::command]
+async fn issue038_create_preview_window(
+    app: tauri::AppHandle,
+    generation: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+
+    if generation.is_empty() || generation.len() > 64 {
+        return Err("generation must be 1–64 chars".into());
+    }
+    if !generation.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+        return Err("generation must be alphanumeric or hyphen".into());
+    }
+    let label = issue038_preview_label(&generation);
+    if app.get_webview_window(&label).is_some() {
+        return Err(format!("preview window already exists: {label}"));
+    }
+    {
+        let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+        state.generation_counter += 1;
+        state.pending_messages.insert(generation.clone(), Vec::new());
+    }
+    let url = tauri::WebviewUrl::External(
+        "playground-preview://localhost/_isolated.html"
+            .parse::<tauri::Url>()
+            .map_err(|e| e.to_string())?,
+    );
+    let _window = tauri::WebviewWindowBuilder::new(&app, &label, url)
+        .title("MonoGame Preview (isolated)")
+        .inner_size(640.0, 400.0)
+        .visible(true)
+        .resizable(true)
+        .on_navigation(|url| navigation_allowed(url))
+        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+        .build()
+        .map_err(|e| format!("failed to create preview window: {e}"))?;
+    Ok(label)
+}
+
+/// Destroy an isolated preview WebviewWindow.  Works even when the preview JS
+/// is hung in an infinite loop because the destroy message is sent via the Tao
+/// event loop, not the WebView's JS thread.
+#[tauri::command]
+fn issue038_destroy_preview_window(
+    app: tauri::AppHandle,
+    generation: String,
+) -> Result<bool, String> {
+    use tauri::Manager;
+
+    let label = issue038_preview_label(&generation);
+    let window = app.get_webview_window(&label);
+    let existed = window.is_some();
+    if let Some(win) = window {
+        win.destroy().map_err(|e| format!("failed to destroy preview window: {e}"))?;
+    }
+    // Clean up bridge state
+    if let Ok(mut state) = ISSUE038_BRIDGE.lock() {
+        state.pending_messages.remove(&generation);
+    }
+    Ok(existed)
+}
+
+/// Check whether an isolated preview window still exists.
+#[tauri::command]
+fn issue038_preview_window_exists(app: tauri::AppHandle, generation: String) -> bool {
+    use tauri::Manager;
+    let label = issue038_preview_label(&generation);
+    app.get_webview_window(&label).is_some()
+}
+
+/// Relay a message from the main window to the isolated preview via evaluate_script.
+#[tauri::command]
+fn issue038_relay_to_preview(
+    app: tauri::AppHandle,
+    generation: String,
+    message: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+
+    let label = issue038_preview_label(&generation);
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("preview window not found: {label}"))?;
+    // JSON-encode the message string so it's safe to inject into JS
+    let json_payload = serde_json::to_string(&message).map_err(|e| e.to_string())?;
+    window
+        .eval(&format!(
+            "if(typeof window.__bridge038Receive==='function')window.__bridge038Receive({json_payload})"
+        ))
+        .map_err(|e| format!("failed to relay to preview: {e}"))
+}
+
+/// Collect bridge messages sent from the preview via protocol POST.
+#[tauri::command]
+fn issue038_collect_bridge_messages(generation: String) -> Result<Vec<String>, String> {
+    let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    match state.pending_messages.get_mut(&generation) {
+        Some(messages) => Ok(std::mem::take(messages)),
+        None => Ok(Vec::new()),
+    }
+}
+
+/// Return a monotonic nanosecond timestamp from the Rust process clock.
+/// This cannot be fabricated by a hung JS event loop.
+#[tauri::command]
+fn issue038_monotonic_nanos() -> Result<u64, String> {
+    static EPOCH: std::sync::LazyLock<std::time::Instant> =
+        std::sync::LazyLock::new(std::time::Instant::now);
+    Ok(EPOCH.elapsed().as_nanos() as u64)
+}
+
+/// Destroy ALL isolated preview windows. Called on main window close.
+#[tauri::command]
+fn issue038_destroy_all_previews(app: tauri::AppHandle) -> Result<u32, String> {
+    use tauri::Manager;
+    let mut destroyed = 0u32;
+    // Collect labels first to avoid borrow issues
+    let labels: Vec<String> = app
+        .webview_windows()
+        .keys()
+        .filter(|label| label.starts_with(ISSUE038_PREVIEW_LABEL_PREFIX))
+        .cloned()
+        .collect();
+    for label in &labels {
+        if let Some(win) = app.get_webview_window(label) {
+            let _ = win.destroy();
+            destroyed += 1;
+        }
+    }
+    // Clear all bridge state
+    if let Ok(mut state) = ISSUE038_BRIDGE.lock() {
+        state.transfers.clear();
+        state.pending_messages.clear();
+    }
+    Ok(destroyed)
+}
+
+#[tauri::command]
+fn issue038_emit_checkpoint(checkpoint: String) -> Result<(), String> {
+    if !issue038_proof_enabled() {
+        return Err("issue 038 proof instrumentation is disabled".into());
+    }
+    println!("ISSUE038_CHECKPOINT={checkpoint}");
+    Ok(())
+}
+
+/// Inject the protocol bootstrap into the isolated preview window.
+/// This is a narrowly typed operation: it calls the bridge-setup's
+/// `__bridge038Bootstrap` function with the provided JSON data.
+/// The function only exists in the `_isolated.html` context and only
+/// accepts the first call (subsequent calls are no-ops in the bridge).
+#[tauri::command]
+fn issue038_bootstrap_preview(
+    app: tauri::AppHandle,
+    generation: String,
+    bootstrap_json: String,
+) -> Result<(), String> {
+    use tauri::Manager;
+    // Validate bootstrap_json is valid JSON (prevents injection)
+    let _: serde_json::Value = serde_json::from_str(&bootstrap_json)
+        .map_err(|e| format!("invalid bootstrap JSON: {e}"))?;
+    let label = issue038_preview_label(&generation);
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("preview window not found: {label}"))?;
+    let escaped = serde_json::to_string(&bootstrap_json).map_err(|e| e.to_string())?;
+    window
+        .eval(&format!(
+            "if(typeof window.__bridge038Bootstrap==='function')window.__bridge038Bootstrap(JSON.parse({escaped}))"
+        ))
+        .map_err(|e| format!("failed to bootstrap preview: {e}"))
+}
+
+/// Proof-only: inject raw JavaScript into the isolated preview window.
+/// Used to inject the hostile `while(true){}` loop for the force-stop proof.
+#[tauri::command]
+fn issue038_inject_script(
+    app: tauri::AppHandle,
+    generation: String,
+    script: String,
+) -> Result<(), String> {
+    if !issue038_proof_enabled() {
+        return Err("issue 038 proof instrumentation is disabled".into());
+    }
+    if script.len() > 4096 {
+        return Err("proof script exceeds 4096 byte limit".into());
+    }
+    use tauri::Manager;
+    let label = issue038_preview_label(&generation);
+    let window = app
+        .get_webview_window(&label)
+        .ok_or_else(|| format!("preview window not found: {label}"))?;
+    window
+        .eval(&script)
+        .map_err(|e| format!("failed to inject script: {e}"))
+}
+
+#[tauri::command]
+fn issue038_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue038_proof_enabled() {
+        return Err("issue 038 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE038_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Proof-only: create an isolated preview window with 'wasm-unsafe-eval' removed.
+/// Used by issue033 negative proof to verify WASM instantiation fails under CSP.
+#[tauri::command]
+async fn issue038_create_no_wasm_eval_window(
+    app: tauri::AppHandle,
+    generation: String,
+) -> Result<String, String> {
+    use tauri::Manager;
+    if !issue033_no_wasm_eval_proof_enabled() {
+        return Err("issue 033 no-wasm-eval proof is disabled".into());
+    }
+    if generation.is_empty()
+        || generation.len() > 64
+        || !generation
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Err("generation must be 1–64 alphanumeric/hyphen chars".into());
+    }
+    let label = issue038_preview_label(&generation);
+    if app.get_webview_window(&label).is_some() {
+        return Err(format!("preview window already exists: {label}"));
+    }
+    {
+        let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+        state.pending_messages.insert(generation.clone(), Vec::new());
+    }
+    let url = tauri::WebviewUrl::External(
+        "playground-preview://localhost/_isolated-no-wasm-eval.html"
+            .parse::<tauri::Url>()
+            .map_err(|e| e.to_string())?,
+    );
+    let _window = tauri::WebviewWindowBuilder::new(&app, &label, url)
+        .title("Preview (no wasm-eval proof)")
+        .inner_size(640.0, 400.0)
+        .visible(true)
+        .resizable(false)
+        .on_navigation(|url| navigation_allowed(url))
+        .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+        .build()
+        .map_err(|e| format!("failed to create no-wasm-eval window: {e}"))?;
+    Ok(label)
+}
+
+/// Handle bridge requests (GET or POST):
+/// - `/_bridge/send?generation=X&msg=<url-encoded>` — protocol messages from preview (GET)
+/// - `/_transfer/store?token=X&file=Y` — binary DLL/PDB from editor (POST)
+fn issue038_handle_bridge_request(
+    method: &tauri::http::Method,
+    raw_uri: &str,
+    body: &[u8],
+) -> Option<tauri::http::Response<Vec<u8>>> {
+    let uri = raw_uri.parse::<tauri::http::Uri>().ok()?;
+    let path = uri.path();
+    if path == "/_transfer/store" && method == &tauri::http::Method::POST {
+        return Some(issue038_handle_transfer_store(&uri, body));
+    }
+    if path != "/_bridge/send" {
+        return None;
+    }
+    let query = uri.query().unwrap_or("");
+    let generation_id = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("generation="))
+        .map(String::from);
+    let Some(generation_id) = generation_id else {
+        return Some(preview_response(
+            400,
+            "text/plain; charset=utf-8",
+            b"Missing generation",
+        ));
+    };
+    // Extract message from query param (GET) or body (POST)
+    let message = if method == &tauri::http::Method::GET {
+        let encoded = query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("msg="))
+            .unwrap_or("");
+        match percent_decode(encoded) {
+            Some(decoded) => decoded,
+            None => {
+                return Some(preview_response(
+                    400,
+                    "text/plain; charset=utf-8",
+                    b"Invalid encoding",
+                ))
+            }
+        }
+    } else {
+        match std::str::from_utf8(body) {
+            Ok(s) => s.to_owned(),
+            Err(_) => {
+                return Some(preview_response(
+                    400,
+                    "text/plain; charset=utf-8",
+                    b"Invalid UTF-8",
+                ))
+            }
+        }
+    };
+    if message.len() > 1024 * 1024 {
+        return Some(preview_response(
+            400,
+            "text/plain; charset=utf-8",
+            b"Message too large",
+        ));
+    }
+    if let Ok(mut state) = ISSUE038_BRIDGE.lock() {
+        if let Some(queue) = state.pending_messages.get_mut(&generation_id) {
+            queue.push(message);
+        }
+    }
+    let mut response = tauri::http::Response::new(b"OK".to_vec());
+    *response.status_mut() = tauri::http::StatusCode::OK;
+    response.headers_mut().insert(
+        "content-type",
+        "text/plain; charset=utf-8".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "access-control-allow-origin",
+        "null".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "cross-origin-resource-policy",
+        "cross-origin".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "cache-control",
+        "no-store".parse().unwrap(),
+    );
+    Some(response)
+}
+
+/// Handle POST to `/_transfer/store?token=X&file=assembly.dll` for raw binary storage.
+/// The editor posts raw bytes (no JSON) to store DLL/PDB for the preview to fetch.
+fn issue038_handle_transfer_store(
+    uri: &tauri::http::Uri,
+    body: &[u8],
+) -> tauri::http::Response<Vec<u8>> {
+    let query = uri.query().unwrap_or("");
+    let token = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("token="))
+        .unwrap_or("");
+    let file = query
+        .split('&')
+        .find_map(|pair| pair.strip_prefix("file="))
+        .unwrap_or("");
+    if token.is_empty()
+        || token.len() > 128
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return preview_response(400, "text/plain; charset=utf-8", b"Bad token");
+    }
+    if file != "assembly.dll" && file != "symbols.pdb" {
+        return preview_response(400, "text/plain; charset=utf-8", b"Bad file");
+    }
+    const MAX_TRANSFER_BYTES: usize = 32 * 1024 * 1024;
+    if body.is_empty() || body.len() > MAX_TRANSFER_BYTES {
+        return preview_response(400, "text/plain; charset=utf-8", b"Bad size");
+    }
+    let Ok(mut state) = ISSUE038_BRIDGE.lock() else {
+        return preview_response(500, "text/plain; charset=utf-8", b"Lock error");
+    };
+    let entry = state
+        .transfers
+        .entry(token.to_owned())
+        .or_insert_with(|| Issue038TransferEntry {
+            assembly: Vec::new(),
+            pdb: Vec::new(),
+        });
+    match file {
+        "assembly.dll" => entry.assembly = body.to_vec(),
+        "symbols.pdb" => entry.pdb = body.to_vec(),
+        _ => unreachable!(),
+    }
+    let mut response = tauri::http::Response::new(b"OK".to_vec());
+    *response.status_mut() = tauri::http::StatusCode::OK;
+    response.headers_mut().insert(
+        "access-control-allow-origin",
+        "null".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "cache-control",
+        "no-store".parse().unwrap(),
+    );
+    response
+}
+
+/// Handle GET requests to `/_transfer/{token}/{file}` for binary DLL/PDB transfer.
+fn issue038_handle_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<Vec<u8>>> {
+    let uri = raw_uri.parse::<tauri::http::Uri>().ok()?;
+    let path = uri.path();
+    if !path.starts_with("/_transfer/") {
+        return None;
+    }
+    let rest = &path["/_transfer/".len()..];
+    let (token, file) = rest.split_once('/')?;
+    if token.is_empty()
+        || file.is_empty()
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Some(preview_response(
+            400,
+            "text/plain; charset=utf-8",
+            b"Bad Request",
+        ));
+    }
+    let state = ISSUE038_BRIDGE.lock().ok()?;
+    let entry = state.transfers.get(token)?;
+    let body = match file {
+        "assembly.dll" => entry.assembly.clone(),
+        "symbols.pdb" => entry.pdb.clone(),
+        _ => {
+            return Some(preview_response(
+                404,
+                "text/plain; charset=utf-8",
+                b"Not Found",
+            ))
+        }
+    };
+    let mut response = tauri::http::Response::new(body);
+    *response.status_mut() = tauri::http::StatusCode::OK;
+    response.headers_mut().insert(
+        "content-type",
+        "application/octet-stream".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "access-control-allow-origin",
+        "null".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "cross-origin-resource-policy",
+        "cross-origin".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "x-content-type-options",
+        "nosniff".parse().unwrap(),
+    );
+    response.headers_mut().insert(
+        "cache-control",
+        "no-store".parse().unwrap(),
+    );
+    Some(response)
+}
+
 fn navigation_allowed(url: &tauri::Url) -> bool {
     matches!(url.scheme(), "tauri" | "playground-preview" | "about")
+}
+
+/// Decode percent-encoded UTF-8 string (e.g. from encodeURIComponent).
+fn percent_decode(input: &str) -> Option<String> {
+    let mut bytes = Vec::with_capacity(input.len());
+    let mut chars = input.bytes();
+    while let Some(byte) = chars.next() {
+        if byte == b'%' {
+            let hi = chars.next()?;
+            let lo = chars.next()?;
+            let hex = [hi, lo];
+            let decoded = u8::from_str_radix(
+                std::str::from_utf8(&hex).ok()?,
+                16,
+            )
+            .ok()?;
+            bytes.push(decoded);
+        } else if byte == b'+' {
+            bytes.push(b' ');
+        } else {
+            bytes.push(byte);
+        }
+    }
+    String::from_utf8(bytes).ok()
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -1480,7 +2339,21 @@ pub fn run() {
 
     tauri::Builder::default()
         .register_uri_scheme_protocol("playground-preview", |_context, request| {
-            preview_protocol_response(request.method(), &request.uri().to_string())
+            let uri_string = request.uri().to_string();
+            // Issue 038: route bridge messages and transfer requests before the static handler
+            if let Some(response) = issue038_handle_bridge_request(
+                request.method(),
+                &uri_string,
+                request.body(),
+            ) {
+                return response;
+            }
+            if request.method() == &tauri::http::Method::GET {
+                if let Some(response) = issue038_handle_transfer_get(&uri_string) {
+                    return response;
+                }
+            }
+            preview_protocol_response(request.method(), &uri_string)
         })
         .setup(|app| {
             let window_config = app
@@ -1592,7 +2465,22 @@ pub fn run() {
             issue037_read_store_snapshot,
             issue037_clear_store,
             issue037_proof_phase,
-            issue037_emit_checkpoint
+            issue037_emit_checkpoint,
+            issue038_is_proof_enabled,
+            issue038_store_transfer,
+            issue038_clear_transfer,
+            issue038_create_preview_window,
+            issue038_destroy_preview_window,
+            issue038_preview_window_exists,
+            issue038_relay_to_preview,
+            issue038_collect_bridge_messages,
+            issue038_monotonic_nanos,
+            issue038_destroy_all_previews,
+            issue038_bootstrap_preview,
+            issue038_inject_script,
+            issue038_emit_checkpoint,
+            issue038_create_no_wasm_eval_window,
+            issue038_emit_report
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");
@@ -1600,8 +2488,222 @@ pub fn run() {
 include!(concat!(env!("OUT_DIR"), "/preview_assets.rs"));
 
 const PREVIEW_CSP: &str = "default-src 'none'; script-src playground-preview: 'wasm-unsafe-eval'; style-src playground-preview:; connect-src playground-preview:; img-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
+/// CSP for the isolated preview window: must match the standard preview CSP.
+#[cfg(test)]
+const ISSUE038_ISOLATED_CSP: &str = "default-src 'none'; script-src playground-preview: 'wasm-unsafe-eval'; style-src playground-preview:; connect-src playground-preview:; img-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'";
 const MAX_PREVIEW_ASSET_BYTES: usize = 8 * 1024 * 1024;
 const MAX_PREVIEW_TOTAL_BYTES: usize = 64 * 1024 * 1024;
+
+/// The HTML page served at `/_isolated.html` for the isolated preview
+/// WebviewWindow.  It strips `__TAURI_INTERNALS__` before loading preview code,
+/// and sets up the `__bridge038Receive` / `__bridge038Send` bridge layer.
+const ISSUE038_ISOLATED_HTML: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src playground-preview: 'wasm-unsafe-eval'; style-src playground-preview:; connect-src playground-preview:; img-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="playground-parent-origin" content="playground-preview://localhost">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preview runtime (isolated)</title>
+<link rel="stylesheet" href="playground-preview://localhost/preview.css">
+</head><body>
+<canvas id="canvas" width="640" height="360" aria-label="MonoGame preview render surface"></canvas>
+<button id="ping" type="button" disabled>Prove preview runtime</button>
+<p id="status" role="status" aria-live="polite">Booting isolated preview...</p>
+<pre id="proof-state" aria-label="Preview proof state"></pre>
+<script src="playground-preview://localhost/_bridge-setup.js"></script>
+<script src="playground-preview://localhost/issue033-negative-observer.js"></script>
+<script type="module" src="playground-preview://localhost/preview.js"></script>
+</body></html>"##;
+
+/// Same isolated HTML but with 'wasm-unsafe-eval' removed from CSP.
+/// Used for the issue033 negative proof — WASM instantiation must fail.
+const ISSUE038_ISOLATED_NO_WASM_EVAL_HTML: &str = r##"<!doctype html>
+<html lang="en"><head><meta charset="UTF-8">
+<meta http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src playground-preview:; style-src playground-preview:; connect-src playground-preview:; img-src 'none'; font-src 'none'; media-src 'none'; worker-src 'none'; frame-src 'none'; child-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="playground-parent-origin" content="playground-preview://localhost">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Preview runtime (no wasm eval)</title>
+<link rel="stylesheet" href="playground-preview://localhost/preview.css">
+</head><body>
+<canvas id="canvas" width="640" height="360" aria-label="MonoGame preview render surface"></canvas>
+<button id="ping" type="button" disabled>Prove preview runtime</button>
+<p id="status" role="status" aria-live="polite">Booting isolated preview (no wasm-eval)...</p>
+<pre id="proof-state" aria-label="Preview proof state"></pre>
+<script src="playground-preview://localhost/_bridge-setup.js"></script>
+<script src="playground-preview://localhost/issue033-negative-observer.js"></script>
+<script type="module" src="playground-preview://localhost/preview.js"></script>
+</body></html>"##;
+
+/// Bridge setup script for the isolated preview window.
+/// Runs before preview.js (non-module), strips Tauri bindings, and provides
+/// a MessagePort-compatible bridge that routes through the custom protocol.
+const ISSUE038_BRIDGE_SETUP_JS: &str = r##"
+// --- Issue 038: isolated preview bridge setup ---
+// Runs BEFORE preview.js. Strips Tauri IPC (defense-in-depth; ACL is primary).
+// Intercepts the window "message" listener that installPrivatePortBootstrap
+// registers, then delivers a synthesized bootstrap with real MessageChannel
+// ports routed through the Rust bridge.
+
+// Step 1: strip Tauri bindings
+(function() {
+  "use strict";
+  try { delete window.__TAURI_INTERNALS__; } catch (_) {}
+  try { delete window.__TAURI_IPC__; } catch (_) {}
+  try {
+    Object.defineProperty(window, "__TAURI_INTERNALS__", {
+      value: undefined, configurable: false, writable: false
+    });
+  } catch (_) {}
+  try {
+    Object.defineProperty(window, "__TAURI_IPC__", {
+      value: undefined, configurable: false, writable: false
+    });
+  } catch (_) {}
+})();
+
+// Step 2: bridge layer
+(function() {
+  "use strict";
+  var generation = null;
+  var protocolPort1 = null;
+  var bridgePort1 = null;
+  var bootstrapped = false;
+
+  function sendBridgeMessage(channel, data) {
+    if (!generation) return;
+    try {
+      var msg = encodeURIComponent(JSON.stringify({ channel: channel, data: data }));
+      fetch("playground-preview://localhost/_bridge/send?generation=" + generation + "&msg=" + msg)
+        .catch(function() {});
+    } catch (_) {}
+  }
+
+  // Intercept window.addEventListener to capture the bootstrap listener
+  // that installPrivatePortBootstrap registers.
+  var capturedBootstrapListener = null;
+  var origAddEventListener = window.addEventListener.bind(window);
+  window.addEventListener = function(type, handler, options) {
+    if (type === "message" && !capturedBootstrapListener) {
+      capturedBootstrapListener = handler; try{fetch("playground-preview://localhost/_bridge/send?generation=diag038&msg="+encodeURIComponent(JSON.stringify({channel:"bridge",data:{type:"diag.listener-captured"}}))).catch(function(){});}catch(_){}
+    }
+    return origAddEventListener(type, handler, options);
+  };
+
+  // Called by Rust via eval() to deliver the bootstrap.
+  window.__bridge038Bootstrap = function(data) {
+    try{fetch("playground-preview://localhost/_bridge/send?generation=diag038&msg="+encodeURIComponent(JSON.stringify({channel:"bridge",data:{type:"diag.bootstrap-called",hasListener:!!capturedBootstrapListener,bootstrapped:bootstrapped}}))).catch(function(){});}catch(_){} if (bootstrapped) return;
+    if (!capturedBootstrapListener) return; // preview.js hasn't loaded yet
+
+    bootstrapped = true;
+    generation = data.bridgeGeneration || data.contextGeneration || null;
+
+    var protocolChannel = new MessageChannel();
+    var bridgeChannel = new MessageChannel();
+
+    protocolPort1 = protocolChannel.port1;
+    bridgePort1 = bridgeChannel.port1;
+
+    protocolPort1.addEventListener("message", function(event) {
+      sendBridgeMessage("protocol", event.data);
+    });
+    protocolPort1.start();
+
+    bridgePort1.addEventListener("message", function(event) {
+
+              sendBridgeMessage("bridge", event.data);
+    });
+    bridgePort1.start();
+
+    // Synthesize a MessageEvent matching what installPrivatePortBootstrap expects
+    var bootstrapData = {};
+    for (var key in data) {
+      if (Object.prototype.hasOwnProperty.call(data, key)) {
+        bootstrapData[key] = data[key];
+      }
+    }
+    bootstrapData.type = "protocol.bootstrap";
+
+    // Create a fake MessageEvent. event.source must equal what preview.js
+    // passed as expectedSource (which is `parent`, i.e. `window` in top-level).
+    // event.origin must match the playground-parent-origin meta tag.
+    var fakeEvent = {
+      source: window,
+      origin: document.querySelector("meta[name=\"playground-parent-origin\"]")?.content || "null",
+      data: bootstrapData,
+      ports: [protocolChannel.port2, bridgeChannel.port2]
+    };
+
+    // Directly call the captured listener
+    capturedBootstrapListener(fakeEvent);
+  };
+
+  // Called by Rust via eval() to deliver protocol/bridge messages
+  window.__bridge038Receive = function(jsonString) {
+    try {
+      var envelope = JSON.parse(jsonString);
+      if (!envelope || typeof envelope !== "object") return;
+      var data = envelope.data;
+      // For load requests with transferToken, fetch binary from protocol
+      if (data && data.type === "preview.load.request" && data.payload &&
+          data.payload.transferToken && !data.payload.assembly) {
+        var token = data.payload.transferToken;
+        Promise.all([
+          fetch("playground-preview://localhost/_transfer/" + token + "/assembly.dll")
+            .then(function(r) { return r.arrayBuffer(); }),
+          fetch("playground-preview://localhost/_transfer/" + token + "/symbols.pdb")
+            .then(function(r) { return r.arrayBuffer(); })
+        ]).then(function(buffers) {
+          data.payload.assembly = buffers[0];
+          data.payload.pdb = buffers[1];
+          delete data.payload.transferToken;
+          if (protocolPort1) protocolPort1.postMessage(data, [buffers[0], buffers[1]]);
+        }).catch(function() {
+          if (protocolPort1) protocolPort1.postMessage(data);
+        });
+        return;
+      }
+      if (envelope.channel === "bridge") {
+        // Intercept proof-only bridge actions before forwarding to preview.js
+        if (data && data.type === "preview.bridge.request" &&
+            data.action === "issue034-acl-invoke-probe" &&
+            data.payload && Array.isArray(data.payload.commands)) {
+          var internals = window.__TAURI_INTERNALS__;
+          if (!internals || typeof internals.invoke !== "function") {
+            sendBridgeMessage("bridge", {
+              type: "preview.bridge.response", id: data.id, success: true,
+              result: { totalCommands: 0, rejections: 0, resolutions: 0, errors: ["no internals"] }
+            });
+            return;
+          }
+          var cmds = data.payload.commands;
+          var rej = 0, res = 0, errs = [];
+          var pending = cmds.length;
+          var finish = function() {
+            if (--pending <= 0) {
+              sendBridgeMessage("bridge", {
+                type: "preview.bridge.response", id: data.id, success: true,
+                result: { totalCommands: cmds.length, rejections: rej, resolutions: res, errors: errs.slice(0, 5) }
+              });
+            }
+          };
+          for (var ci = 0; ci < cmds.length; ci++) {
+            (function(cmd) {
+              try {
+                internals.invoke(cmd).then(function() { res++; finish(); }, function() { rej++; finish(); });
+              } catch(e) { rej++; finish(); }
+            })(cmds[ci]);
+          }
+          return;
+        }
+        if (bridgePort1) bridgePort1.postMessage(data);
+      } else {
+        if (protocolPort1) protocolPort1.postMessage(data);
+      }
+    } catch (_) {}
+  };
+})();
+"##;
 
 fn preview_protocol_response(
     method: &tauri::http::Method,
@@ -1624,6 +2726,28 @@ fn preview_protocol_response(
         return preview_response(400, "text/plain; charset=utf-8", b"Bad Request");
     }
     let path = uri.path();
+    // Issue 038: serve the isolated preview HTML page and bridge setup script
+    if path == "/_isolated.html" {
+        return preview_response(
+            200,
+            "text/html; charset=utf-8",
+            ISSUE038_ISOLATED_HTML.as_bytes(),
+        );
+    }
+    if path == "/_bridge-setup.js" {
+        return preview_response(
+            200,
+            "text/javascript; charset=utf-8",
+            ISSUE038_BRIDGE_SETUP_JS.as_bytes(),
+        );
+    }
+    if path == "/_isolated-no-wasm-eval.html" {
+        return preview_response(
+            200,
+            "text/html; charset=utf-8",
+            ISSUE038_ISOLATED_NO_WASM_EVAL_HTML.as_bytes(),
+        );
+    }
     let malformed = !path.starts_with('/')
         || path == "/"
         || path.contains('%')

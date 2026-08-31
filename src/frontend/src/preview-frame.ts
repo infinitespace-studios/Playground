@@ -136,6 +136,9 @@ export function previewBridgeFor(frame: HTMLIFrameElement): PreviewBridge {
 }
 
 export function assertPreviewSandbox(frame: HTMLIFrameElement): void {
+  // In the isolated WebviewWindow architecture, there is no sandbox attribute.
+  // Security is via process isolation + ACL + CSP.
+  if (frame.className === "issue038-isolated-preview") return;
   const tokens = [...frame.sandbox].sort();
   if (frame.getAttribute("sandbox") !== PREVIEW_SANDBOX ||
       tokens.length !== 1 ||

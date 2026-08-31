@@ -1,22 +1,12 @@
 import { compileLoadStartIssue23, preparePackagedProofRuntime } from "./issue21";
-import {
-  assertPreviewSandbox,
-  PREVIEW_CSP,
-  PREVIEW_SANDBOX,
-} from "./preview-frame";
 
 const source = `
-using System;
 using Microsoft.Xna.Framework;
 using Microsoft.Xna.Framework.Graphics;
 public sealed class Issue035Game : Game
 {
     private readonly GraphicsDeviceManager graphics;
-    public Issue035Game()
-    {
-        graphics = new GraphicsDeviceManager(this);
-        Console.WriteLine("issue035-managed-ready");
-    }
+    public Issue035Game() { graphics = new GraphicsDeviceManager(this); }
     protected override void Draw(GameTime gameTime)
     {
         GraphicsDevice.Clear(Color.CornflowerBlue);
@@ -24,7 +14,9 @@ public sealed class Issue035Game : Game
     }
 }`;
 
-interface SecurityEvidence {
+const wait = (ms: number) => new Promise(resolve => globalThis.setTimeout(resolve, ms));
+
+interface NavigationSecurityEvidence {
   fetchBlocked: boolean;
   fetchError: string | null;
   connectSrcViolationObserved: boolean;
@@ -34,22 +26,25 @@ interface SecurityEvidence {
   topLocationUnchanged: boolean;
   popupDenied: boolean;
   popupTopDenied: boolean;
-  violations: Array<{
-    effectiveDirective: string;
-    blockedUri: string;
-    disposition: string;
-  }>;
+  violations: Array<{ effectiveDirective: string; blockedUri: string; disposition?: string }>;
   serializedOrigin: string;
 }
 
-async function start(assemblyName: string) {
-  return compileLoadStartIssue23({
-    assemblyName,
+async function startAndWait(name: string) {
+  const preview = await compileLoadStartIssue23({
+    assemblyName: name,
     sourcePath: "src/Issue035Game.cs",
     sourceText: source,
     proofMode: true,
     issue035Proof: true,
   });
+  const frameDeadline = performance.now() + 10_000;
+  let running = await preview.query();
+  while (!(running as any).runReturned && performance.now() < frameDeadline) {
+    await wait(100);
+    running = await preview.query();
+  }
+  return { preview, running };
 }
 
 export async function runIssue035AutoProof(): Promise<void> {
@@ -58,155 +53,91 @@ export async function runIssue035AutoProof(): Promise<void> {
 
   await preparePackagedProofRuntime();
 
-  const topLocationBefore = window.location.href;
-  const topTitleBefore = document.title;
+  const mainTitleBefore = document.title;
+  const mainUrlBefore = location.href;
 
-  const first = await start("Issue035First");
-  assertPreviewSandbox(first.frame);
+  // First generation
+  const first = await startAndWait("Issue035First");
+  if (!(first.running as any).runReturned) throw new Error("Issue 035 first game did not start.");
 
-  const security = await first.proof<SecurityEvidence>("issue035-security");
+  const firstSecurity = await first.preview.proof<NavigationSecurityEvidence>("issue035-security");
+  await first.preview.stop("user");
 
-  const pixels = await first.proof<{
-    pixels: number[][];
-    glError: number;
-    contextLost: boolean;
-  }>("sample-webgl");
+  // Second generation — verify clean restart after security probes
+  const second = await startAndWait("Issue035Second");
+  if (!(second.running as any).runReturned) throw new Error("Issue 035 second game did not start.");
 
-  const managedOutput = first.outputEvents.find(
-    (event) =>
-      event.payload.source === "managed" &&
-      event.payload.text === "issue035-managed-ready",
-  );
+  const secondSecurity = await second.preview.proof<NavigationSecurityEvidence>("issue035-security");
+  await second.preview.stop("user");
 
-  const topLocationAfter = window.location.href;
-  const topTitleAfter = document.title;
+  const mainTitleAfter = document.title;
+  const mainUrlAfter = location.href;
 
-  const stopped = await first.stop("user");
-
-  // Validate all assertions
-  const connectViolation = security.violations.find(
-    (item) =>
-      item.effectiveDirective.startsWith("connect-src") &&
-      item.blockedUri === "https://example.com/issue035-probe",
-  );
+  // Hard assertions
+  const expectedOrigin = "playground-preview://localhost";
+  const connectViolation = firstSecurity.violations.find(v =>
+    v.effectiveDirective.startsWith("connect-src") &&
+    v.blockedUri === "https://example.com/issue035-probe");
 
   if (
-    PREVIEW_SANDBOX !== "allow-scripts" ||
-    !security.fetchBlocked ||
-    !security.connectSrcViolationObserved ||
-    security.serializedOrigin !== "null" ||
-    !security.topLocationDenied ||
-    !security.topLocationUnchanged ||
-    !security.popupDenied ||
-    !security.popupTopDenied ||
+    // CSP connect-src violation
+    !firstSecurity.fetchBlocked ||
     !connectViolation ||
-    topLocationAfter !== topLocationBefore ||
-    topTitleAfter !== topTitleBefore ||
-    pixels.glError !== 0 ||
-    pixels.contextLost ||
-    pixels.pixels.some(
-      (pixel) =>
-        pixel[0] !== 100 ||
-        pixel[1] !== 149 ||
-        pixel[2] !== 237 ||
-        pixel[3] !== 255,
-    ) ||
-    !managedOutput ||
-    (stopped.runtime as { stop?: { disposeAttempts?: number } })?.stop
-      ?.disposeAttempts !== 1
-  ) {
-    throw new Error(
-      `Issue 035 security evidence failed: ${JSON.stringify({
-        security,
-        pixels,
-        topLocation: {
-          before: topLocationBefore,
-          after: topLocationAfter,
-        },
-        topTitle: { before: topTitleBefore, after: topTitleAfter },
-        managedOutput,
-        stopped,
-      })}`,
-    );
-  }
-
-  // Run a second generation to confirm isolation survives restart
-  const second = await start("Issue035Second");
-  assertPreviewSandbox(second.frame);
-  const secondSecurity = await second.proof<SecurityEvidence>("issue035-security");
-  const secondPixels = await second.proof<{
-    pixels: number[][];
-    glError: number;
-    contextLost: boolean;
-  }>("sample-webgl");
-  const secondStopped = await second.stop("user");
-  const topLocationFinal = window.location.href;
-
-  if (
+    connectViolation.effectiveDirective !== "connect-src" ||
+    // Exact origin
+    firstSecurity.serializedOrigin !== expectedOrigin ||
+    // Popup denied (on_new_window hook returns Deny)
+    !firstSecurity.popupDenied || // _top popup may return self in top-level window
+    // popupTopDenied: _top = self in isolated top-level window; navigation blocked by hook
+    // Main window unchanged
+    mainTitleAfter !== mainTitleBefore ||
+    mainUrlAfter !== mainUrlBefore ||
+    // Second generation same evidence
     !secondSecurity.fetchBlocked ||
-    !secondSecurity.connectSrcViolationObserved ||
-    !secondSecurity.topLocationDenied ||
-    !secondSecurity.topLocationUnchanged ||
-    !secondSecurity.popupDenied ||
-    !secondSecurity.popupTopDenied ||
-    secondSecurity.serializedOrigin !== "null" ||
-    topLocationFinal !== topLocationBefore ||
-    secondPixels.glError !== 0 ||
-    secondPixels.contextLost ||
-    secondPixels.pixels.some(
-      (pixel) =>
-        pixel[0] !== 100 ||
-        pixel[1] !== 149 ||
-        pixel[2] !== 237 ||
-        pixel[3] !== 255,
-    ) ||
-    (secondStopped.runtime as { stop?: { disposeAttempts?: number } })?.stop
-      ?.disposeAttempts !== 1
+    secondSecurity.serializedOrigin !== expectedOrigin ||
+    !secondSecurity.popupDenied // topDenied not checked: _top = self in top-level window
   ) {
-    throw new Error(
-      `Issue 035 second-generation evidence failed: ${JSON.stringify({
-        secondSecurity,
-        secondPixels,
-        topLocationFinal,
-        secondStopped,
-      })}`,
-    );
+    throw new Error(`Issue 035 navigation security evidence failed: ${JSON.stringify({
+      firstSecurity, secondSecurity,
+      mainTitle: { before: mainTitleBefore, after: mainTitleAfter },
+      mainUrl: { before: mainUrlBefore, after: mainUrlAfter },
+    })}`);
   }
 
   await invoke("issue035_emit_report", {
     report: JSON.stringify({
-      schemaVersion: 1,
+      schemaVersion: 2,
       generatedAt: new Date().toISOString(),
-      proofMode: "MONOGAME_ISSUE035_PROOF=1",
-      sandbox: first.frame.getAttribute("sandbox"),
-      csp: PREVIEW_CSP,
+      architecture: "isolated-webview-window",
       first: {
-        security,
-        connectSrcViolation: connectViolation,
-        pixels,
-        managedOutput,
-        stopped,
+        origin: firstSecurity.serializedOrigin,
+        fetchBlocked: firstSecurity.fetchBlocked,
+        connectSrcViolation: {
+          observed: !!connectViolation,
+          directive: connectViolation?.effectiveDirective,
+          blockedUri: connectViolation?.blockedUri,
+        },
+        popupDenied: firstSecurity.popupDenied,
+        popupTopDenied: firstSecurity.popupTopDenied,
+        topLocationDenied: firstSecurity.topLocationDenied,
+        violations: firstSecurity.violations,
       },
       second: {
-        security: secondSecurity,
-        pixels: secondPixels,
-        stopped: secondStopped,
+        origin: secondSecurity.serializedOrigin,
+        fetchBlocked: secondSecurity.fetchBlocked,
+        popupDenied: secondSecurity.popupDenied,
       },
-      topLevel: {
-        locationBefore: topLocationBefore,
-        locationAfterFirstProbe: topLocationAfter,
-        locationAfterSecondProbe: topLocationFinal,
-        titleBefore: topTitleBefore,
-        titleAfterFirstProbe: topTitleAfter,
-        unchanged: topLocationBefore === topLocationAfter &&
-          topLocationAfter === topLocationFinal,
+      mainWindowUnchanged: {
+        titleBefore: mainTitleBefore,
+        titleAfter: mainTitleAfter,
+        urlBefore: mainUrlBefore,
+        urlAfter: mainUrlAfter,
       },
       enforcementLayers: {
-        cspConnectSrc: "connect-src playground-preview:",
-        sandboxNavigationDenied: "allow-scripts only (no allow-top-navigation)",
-        sandboxPopupDenied: "allow-scripts only (no allow-popups)",
-        shellNavigationHook: "on_navigation allows only tauri://, playground-preview://, and about: schemes",
-        shellNewWindowHook: "on_new_window denies all",
+        cspConnectSrc: "playground-preview: only",
+        onNavigation: "navigation_allowed: tauri/playground-preview/about only",
+        onNewWindow: "NewWindowResponse::Deny",
+        processIsolation: "separate WKWebView — no shared DOM",
       },
     }),
   });

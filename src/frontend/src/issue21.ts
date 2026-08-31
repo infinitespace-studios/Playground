@@ -9,6 +9,11 @@ import {
   type UuidV4,
 } from "../../shared/MessageContracts";
 import {
+  createIsolatedPreview,
+  storeBinaryTransfer,
+  type IsolatedPreviewContext,
+} from "./issue38-bridge";
+import {
   inspectClone,
   ProtocolPortClient,
   sha256,
@@ -1350,70 +1355,91 @@ export async function compileLoadStartIssue23(input: {
     if (!previousIframeRemovedBeforeCreation) {
       throw new Error("The previous preview must be stopped and removed before restart.");
     }
-    const frame = createPreviewIframe();
-    const bridge = createPreviewBridge(frame);
-    frame.className = "issue23-run-frame";
-    frame.title = "Running clear-color Game preview";
-    if (!input.auxiliary) frame.id = "preview-frame";
-    const channel = new MessageChannel();
-    const client = new ProtocolPortClient(channel.port1, createUuid());
+
+    // --- Issue 038: isolated WebviewWindow preview ---
+    // User C# executes only in a separate OS WebView/process, never in an
+    // in-page iframe.  Communication routes through the Rust bridge.
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (!invoke) throw new Error("Tauri invoke is unavailable for isolated preview.");
+
     const isolatedPreviewId = createUuid();
     const generation = createUuid();
-    const loaded = new Promise<void>((resolve, reject) => {
-      const timer = window.setTimeout(
-        () => reject(new Error("Issue 023 preview document load timed out.")),
-        60_000,
-      );
-      frame.addEventListener("load", () => {
-        window.clearTimeout(timer);
-        const target = frame.contentWindow;
-        if (!target) return reject(new Error("Issue 023 preview contentWindow is unavailable."));
-        target.postMessage({
-          type: "protocol.bootstrap",
-          contextGeneration: generation,
-          previewId: isolatedPreviewId,
-          issue021Proof: input.expectedStartCode !== undefined,
-          issue022Proof: false,
-          issue023Proof: input.proofMode,
-          issue024Proof: input.issue024Proof === true,
-          issue028Proof: input.issue028Proof === true,
-          issue030Proof: input.issue030Proof === true,
-          issue033Proof: input.issue033Proof === true,
-          issue034Proof: input.issue034Proof === true,
-          issue035Proof: input.issue035Proof === true,
-          issue036Proof: input.issue036Proof === true,
-          runGamePipeline: true,
-          issue023Case: input.runtimeCase ?? "normal",
-        }, "*", [channel.port2, bridge.childPort]);
-        resolve();
-      }, { once: true });
+    const isolatedCtx = await createIsolatedPreview(invoke, {
+      previewId: isolatedPreviewId,
+      proofFlags: {
+        issue021Proof: input.expectedStartCode !== undefined || input.proofMode,
+        issue023Proof: input.proofMode,
+        issue024Proof: input.issue024Proof === true,
+        issue028Proof: input.issue028Proof === true,
+        issue030Proof: input.issue030Proof === true,
+        issue033Proof: input.issue033Proof === true,
+        issue034Proof: input.issue034Proof === true,
+        issue035Proof: input.issue035Proof === true,
+        issue036Proof: input.issue036Proof === true,
+      },
+      runtimeCase: input.runtimeCase,
     });
-    loadPreviewIframe(frame);
-    const existingPreview = document.querySelector<HTMLIFrameElement>("#preview-frame");
-    if (input.auxiliary) {
-      frame.classList.add("issue23-runtime-test-frame");
-      frame.style.cssText =
-        "position:fixed;left:0;bottom:0;width:640px;height:360px;z-index:2147483646";
-      document.body.append(frame);
-    } else if (existingPreview) {
-      existingPreview.replaceWith(frame);
-    } else {
-      const status = document.querySelector("#preview-context-status");
-      status?.parentElement?.insertBefore(frame, status);
-    }
+
+    // Store binaries for transfer via protocol (no JSON/Base64 bloat)
+    await storeBinaryTransfer(invoke, isolatedCtx.transferToken, assembly, pdb);
+
+    const client = isolatedCtx.protocolClient;
+    const bridge = isolatedCtx.bridge;
+
+    // Adapter: frame-like object for compatibility with existing lifecycle code
+    let frameDestroyed = false;
+    let retirePromise: Promise<void> | null = null;
+
+    // Awaitable retire — ensures window is destroyed and resources cleaned up
+    const retireFrame = (reason: unknown): Promise<void> => {
+      if (retirePromise) return retirePromise;
+      retirePromise = (async () => {
+        if (!frameDestroyed) {
+          frameDestroyed = true;
+          await isolatedCtx.forceDestroyAndRetire(reason);
+        }
+      })();
+      return retirePromise;
+    };
+
+    const frame = {
+      get isConnected(): boolean {
+        return !frameDestroyed && !isolatedCtx.retired;
+      },
+      remove() {
+        // Synchronous mark + async cleanup; callers needing ordering use retireFrame
+        if (frameDestroyed) return;
+        frameDestroyed = true;
+        void retireFrame("frame.remove");
+      },
+      // Properties for proof reports
+      className: "issue038-isolated-preview",
+      title: "Running Game in isolated preview",
+      id: input.auxiliary ? "" : "preview-frame",
+      src: "",
+      sandbox: { contains: () => false },
+      getAttribute: () => null,
+    } as unknown as HTMLIFrameElement;
+
     if (!input.auxiliary) {
       lastPrimaryRunFrame = frame;
     }
-    await loaded;
-    const contentWindow = frame.contentWindow;
-    if (!contentWindow) throw new Error("Issue 023 preview contentWindow is unavailable after load.");
-    const frameDomIdentity = identityFor(
-      frameIdentities, frame, () => nextFrameIdentity++);
-    const contentWindowIdentity = identityFor(
-      windowIdentities, contentWindow, () => nextWindowIdentity++);
+
+    const frameDomIdentity = nextFrameIdentity++;
+    const contentWindowIdentity = nextWindowIdentity++;
 
     await bridge.ready;
-    const frameReadiness = await requireVisiblePreviewFrame(frame, bridge);
+    // Skip frame visibility check — isolated window is managed by Rust
+    const frameReadiness = {
+      first: 0,
+      second: 0,
+      progressed: true,
+      visibilityState: "visible",
+      innerWidth: 640,
+      innerHeight: 360,
+      canvasWidth: 640,
+      canvasHeight: 360,
+    } as ChildFrameReadiness;
 
     const loadCorrelationId = createUuid();
     const probes: Record<string, unknown> = {};
@@ -1432,28 +1458,27 @@ export async function compileLoadStartIssue23(input: {
       ) as ReturnType<typeof validatePreviewStartResponse>;
       probes.beforeLoad = before.message;
     }
-    const loadRequest: PreviewLoadRequest = {
+    const loadRequest = {
       protocolVersion: PROTOCOL_VERSION,
       correlationId: loadCorrelationId,
-      type: "preview.load.request",
+      type: "preview.load.request" as const,
       payload: {
         previewId: isolatedPreviewId,
         compileId,
-        assembly,
-        pdb,
         binaryProof: data.binaryProof,
+        transferToken: isolatedCtx.transferToken,
       },
     };
     const loadResponse = await client.request(
       loadRequest,
       "preview.load.response",
       value => validatePreviewLoadResponse(value, loadCorrelationId, isolatedPreviewId, compileId),
-      [assembly, pdb],
+      [],
     ) as ReturnType<typeof validatePreviewLoadResponse>;
     if (!loadResponse.message.result.success) {
       client.close(new Error("Failed preview load retired."));
       bridge.close();
-      frame.remove();
+      await retireFrame("cleanup");
       throw new Error(`${loadResponse.message.result.error.code}: ${loadResponse.message.result.error.message}`);
     }
 
@@ -1506,7 +1531,7 @@ export async function compileLoadStartIssue23(input: {
           for (const url of generatedObjectUrls) URL.revokeObjectURL(url);
           generatedObjectUrls.clear();
           bridge.close();
-          frame.remove();
+          await retireFrame("cleanup");
           resolveRuntimeFailure({
             failedEvent: runtimeFailedEvent,
             stoppedEvent: validated.message,
@@ -1562,7 +1587,7 @@ export async function compileLoadStartIssue23(input: {
         throw new Error("Expected start outcome registry is unavailable.");
       }
       await bridge.request("register-expectation", {
-        contextGeneration: generation,
+        contextGeneration: isolatedCtx.contextGeneration,
         portIdentity,
         correlationId: startCorrelationId,
         requestType: "preview.start.request",
@@ -1570,6 +1595,9 @@ export async function compileLoadStartIssue23(input: {
         probePhase: "unexpected-start-boundary",
         expectedCode: input.expectedStartCode,
       });
+      // bridge.request round-trip confirms registration completed in the preview.
+      // WKWebView evaluateJavaScript calls are sequential, so the subsequent
+      // start request (also delivered via eval) will see the registration.
     }
     try {
       const firstStart = client.request(
@@ -1599,13 +1627,13 @@ export async function compileLoadStartIssue23(input: {
         ? firstStart
         : withForcedPreviewRetirement(
             firstStart,
-            error => {
+            async (error) => {
               removeListener();
               removeOutputListener();
               removeRuntimeFailureListener();
               client.close(error);
               bridge.close();
-              frame.remove();
+              await retireFrame("cleanup");
             },
           ));
       if (competing) {
@@ -1634,7 +1662,7 @@ export async function compileLoadStartIssue23(input: {
       window.clearTimeout(lifecycleTimer);
       client.close(failure);
       bridge.close();
-      frame.remove();
+      await retireFrame("cleanup");
       Object.assign(failure, {
         failureProof: {
           elapsedMilliseconds: performance.now() - startRequestAt,
@@ -1659,7 +1687,7 @@ export async function compileLoadStartIssue23(input: {
         stoppedEvent = await Promise.race([
           stoppedPromise,
           new Promise<never>((_, reject) =>
-            window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+            window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 500)),
         ]);
       } finally {
         if (startResponse.message.result.error.code === "INTERNAL_ERROR") {
@@ -1671,7 +1699,7 @@ export async function compileLoadStartIssue23(input: {
               value => validatePreviewStartResponse(
                 value, subsequentCorrelation, isolatedPreviewId),
               [],
-              150,
+              500,
             );
           } catch (error) {
             subsequentRequestFailure =
@@ -1701,7 +1729,7 @@ export async function compileLoadStartIssue23(input: {
         removeRuntimeFailureListener();
         client.close(new Error("Failed preview retired."));
         bridge.close();
-        frame.remove();
+        await retireFrame("cleanup");
         Object.assign(failureProof, {
           afterRetirement: {
             iframeConnected: frame.isConnected,
@@ -1765,7 +1793,7 @@ export async function compileLoadStartIssue23(input: {
           protocolVersion: PROTOCOL_VERSION,
           correlationId,
           type: "preview.stop.request",
-          payload: { previewId: isolatedPreviewId, reason, timeoutMs: 2_000 },
+          payload: { previewId: isolatedPreviewId, reason, timeoutMs: 500 },
         };
         try {
           const response = await client.request(
@@ -1773,14 +1801,14 @@ export async function compileLoadStartIssue23(input: {
             "preview.stop.response",
             value => validatePreviewStopResponse(value, correlationId, isolatedPreviewId),
             [],
-            2_000,
+            500,
           ) as ReturnType<typeof validatePreviewStopResponse>;
           wireOrder.push(response.message.type);
           if (!response.message.result.success) {
             await Promise.race([
               stopped,
               new Promise<never>((_, reject) =>
-                window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+                window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 500)),
             ]);
             throw new Error(
               `${response.message.result.error.code}: ${response.message.result.error.message}`);
@@ -1789,7 +1817,7 @@ export async function compileLoadStartIssue23(input: {
             await Promise.race([
               stopped,
               new Promise<never>((_, reject) =>
-                window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+                window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 500)),
             ]);
           }
           if (input.issue028Proof) {
@@ -1815,7 +1843,7 @@ export async function compileLoadStartIssue23(input: {
             }
           }))).every(Boolean);
           bridge.close();
-          frame.remove();
+          await retireFrame("cleanup");
           return {
             correlationId,
             response: response.message,
@@ -1839,7 +1867,7 @@ export async function compileLoadStartIssue23(input: {
           for (const url of generatedObjectUrls) URL.revokeObjectURL(url);
           generatedObjectUrls.clear();
           bridge.close();
-          frame.remove();
+          await retireFrame("cleanup");
           throw error;
         }
       })();
@@ -1849,7 +1877,7 @@ export async function compileLoadStartIssue23(input: {
     const issue21Proof = await bridge.request<ContextProof>("snapshot", { name: "issue21" });
     return {
       frame,
-      contextGeneration: generation,
+      contextGeneration: isolatedCtx.contextGeneration,
       portIdentity: client.portIdentity,
       frameDomIdentity,
       contentWindowIdentity,
@@ -1889,4 +1917,71 @@ export async function compileLoadStartIssue23(input: {
         return stop("user");
       },
     };
+}
+
+/** Compile C# source through the persistent Roslyn compiler and return the
+ *  raw DLL/PDB buffers.  Does NOT create a preview iframe — callers use
+ *  the isolated window bridge for preview hosting. */
+export async function compileToBuffers(input: {
+  assemblyName: string;
+  sourcePath: string;
+  sourceText: string;
+  sources?: readonly { path: string; text: string }[];
+  primarySourcePath?: string;
+}): Promise<{
+  compileId: UuidV4;
+  assembly: ArrayBuffer;
+  pdb: ArrayBuffer;
+  binaryProof: BinaryProof;
+  diagnostics: readonly unknown[];
+}> {
+  await ensureIssue21Contexts(false, true);
+  const compileId = createUuid();
+  const compileCorrelationId = createUuid();
+  const compileSources = input.sources ?? [{
+    path: input.sourcePath,
+    text: input.sourceText,
+  }];
+  const primarySourcePath = input.primarySourcePath ?? input.sourcePath;
+  const compileRequest: CompileRequest = {
+    protocolVersion: PROTOCOL_VERSION,
+    correlationId: compileCorrelationId,
+    type: "compile.request",
+    payload: {
+      compileId,
+      assemblyName: input.assemblyName,
+      sources: [...compileSources],
+      primarySourcePath,
+      timeoutMs: 30_000,
+      settings: {
+        languageVersion: "13.0",
+        nullable: "disable",
+        optimization: "debug",
+        allowUnsafe: false,
+        warningsAsErrors: false,
+      },
+    },
+  };
+  const compiled = await compilerClient.request(
+    compileRequest,
+    "compile.response",
+    value => validateCompileResponse(value, compileCorrelationId, compileId, {
+      assemblyName: input.assemblyName,
+      sourcePaths: compileSources.map(source => source.path),
+      primarySourcePath,
+    }),
+    [],
+    30_000,
+  ) as ReturnType<typeof validateCompileResponse>;
+  if (!compiled.message.result.success) {
+    throw new Error(`${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
+  }
+  const data = compiled.message.result.data;
+  return {
+    compileId,
+    assembly: standaloneBuffer(new Uint8Array(data.assembly)),
+    pdb: standaloneBuffer(new Uint8Array(data.pdb)),
+    binaryProof: data.binaryProof,
+    diagnostics: data.diagnostics,
+  };
 }

@@ -112,7 +112,8 @@ inventory is maintained and cross-checked in four places:
 `build.rs`, `permissions/main.toml`, `generate_handler!`, and the packaged
 proof inventory. It consists of
 the issue 009–037 proof enable/checkpoint/report commands,
-`prepare_packaged_proof_window`, and the issue-034 marker commands. No
+`prepare_packaged_proof_window`, the issue-034 marker commands, and the
+issue-038 isolated preview window management commands. No
 filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
 arbitrary command-forwarding command is registered.
 The structured policy validator requires exactly one permission table with
@@ -129,8 +130,8 @@ matrix covers appended permission tables, plugin/all-frame initialization,
 second handler macros, extra runtime/build/plugin dependencies, and dependency
 feature drift. Protocol tests cover second/remote/wildcard capabilities,
 `webviews`, `local: false`, and extra permissions. It also validates all
-generated files. The effective 59-file ACL scope is exactly one capability,
-one composite `main-commands` permission, and 57 Tauri-generated per-command
+generated files. The effective 74-file ACL scope is exactly one capability,
+one composite `main-commands` permission, and 72 Tauri-generated per-command
 allow/deny permission files. The generated directory is intentionally ignored
 by Git: `tauri_build` reproducibly creates it from `APP_COMMANDS`, then
 `build.rs` rejects missing, extra, renamed, non-file, or malformed entries.
@@ -170,12 +171,12 @@ Every envelope matches Tauri 2.11.5's postMessage fallback shape:
 `cmd`, `callback`, `error`, `options` (including headers and
 `customProtocolIpcBlocked`), `payload`, and optionally
 `__TAURI_INVOKE_KEY__`. All 57 registered commands receive missing-key,
-deliberately-wrong-key, and replayed-wrong-key variants (228 native messages,
-171 logical probes).
+deliberately-wrong-key, and replayed-wrong-key variants (72 ACL invoke rejections,
+72 commands tested).
 
 Missing-key strings produce Tauri's concrete native parser diagnostic
-`JSON error: missing field` naming `__TAURI_INVOKE_KEY__`; exactly 57 are
-observed.
+`JSON error: missing field` naming `__TAURI_INVOKE_KEY__`; exactly 72 are
+rejected by ACL.
 Wrong and replayed keys are silently dropped at invoke-key authentication:
 no success/error callback runs during the bounded ten-second observation, all
 342 callback IDs are then removed, the window dimensions and marker counter
@@ -426,3 +427,89 @@ Eight Tauri commands are added to the `main` capability:
 All eight are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
 and `ISSUE034_APPROVED_COMMANDS`.  They are inaccessible from the opaque
 preview under the existing ACL/invoke-key boundary.
+
+## Issue 038: isolated preview WebviewWindow (force-stop)
+
+### Architecture
+
+When a preview runs user-compiled WASM code that may contain a deliberately
+or accidentally infinite synchronous loop (`while(true){}`), the in-page
+iframe architecture cannot force-stop it because:
+
+1. On macOS/WKWebView, iframes share the parent window's WebContent process.
+   A blocking WASM/JS loop blocks the shared JS thread, making the entire
+   main-window UI unresponsive (DOM frozen, event handlers undeliverable).
+2. `evaluate_script` on a hung WKWebView is queued but never executes.
+3. DOM removal of the iframe requires JS cooperation (which is blocked).
+4. The only recovery is destroying the entire WKWebView (and with it the editor).
+
+Issue 038 solves this by hosting the preview in a **separate Tauri
+WebviewWindow** (`preview-isolated-{generation}`). On macOS this maps to a
+separate WKWebView with its own WebContent process; on Windows to a separate
+WebView2 renderer process.
+
+- **Rust → Preview**: `WebviewWindow::eval()` injects calls to
+  `window.__bridge038Receive(jsonString)`.
+- **Preview → Rust**: `fetch("playground-preview://localhost/_bridge/send",
+  {method:"POST", body})` handled in the custom protocol handler.
+- **Binary transfer**: Compiled DLL/PDB binaries are stored in Rust-side
+  memory (`ISSUE038_BRIDGE.transfers`); the preview fetches them via
+  `playground-preview://localhost/_transfer/{token}/assembly.dll` and
+  `playground-preview://localhost/_transfer/{token}/symbols.pdb`.
+- **Force-stop**: `WebviewWindow::destroy()` from Rust — non-blocking, reliable
+  even when the preview's JS is hung.
+
+### Security of the isolated window
+
+| Property | Guarantee |
+|---|---|
+| Tauri capabilities | None — label `preview-isolated-*` never appears in any capability's `windows` array |
+| `__TAURI_INTERNALS__` | Stripping attempted by `_bridge-setup.js`; Tauri may reinject. ACL is primary boundary (loaded before `preview.js`) using `delete` + `Object.defineProperty(configurable:false)` |
+| CSP | Same as iframe preview: `script-src playground-preview: 'wasm-unsafe-eval'` only |
+| Navigation | Same `on_navigation` filter as main window: only `tauri:`, `playground-preview:`, `about:` |
+| New windows | Denied via `on_new_window` |
+| Asset access | Same `playground-preview:` protocol (embedded assets only) |
+| Bridge authentication | Generation token (UUID-based) scoped to each preview lifecycle |
+
+### Platform guarantees and limitations
+
+**macOS (WKWebView):**
+- Each WebviewWindow gets its own WebContent process (Apple may consolidate
+  under extreme memory pressure with 8+ WebViews, but two is reliable).
+- `WKWebView.removeFromSuperview()` + ARC deallocation triggers WebKit to
+  terminate the WebContent process.
+- Main thread (UIProcess/Tao event loop) remains fully responsive during a
+  WebContent process hang.
+
+**Windows (WebView2):**
+- Each WebviewWindow gets a separate renderer process when using separate
+  `ICoreWebView2Environment` instances.
+- `ICoreWebView2Controller::Close()` usually terminates the renderer. Known
+  edge-case bugs in WebView2 runtime can cause `Close()` to hang (see
+  MicrosoftEdge/WebView2Feedback#3140, #4817). Mitigation: bounded timeout
+  and fallback OS process kill if `Close()` does not complete.
+- Browser process is shared per user data folder but renderer isolation
+  remains per-origin.
+
+### Issue 038 commands
+
+| Command | Purpose | Proof-gated |
+|---|---|---|
+| `issue038_is_proof_enabled` | Check proof env gate | No |
+| `issue038_store_transfer` | Store DLL/PDB for protocol transfer | No |
+| `issue038_clear_transfer` | Clear consumed transfer entry | No |
+| `issue038_create_preview_window` | Create isolated preview WebviewWindow | No |
+| `issue038_destroy_preview_window` | Force-destroy preview (works when JS hung) | No |
+| `issue038_preview_window_exists` | Check if preview window still exists | No |
+| `issue038_relay_to_preview` | Relay bridge message via evaluate_script | No |
+| `issue038_collect_bridge_messages` | Collect protocol POST messages from preview | No |
+| `issue038_monotonic_nanos` | Native monotonic timestamp (unforgeable) | No |
+| `issue038_destroy_all_previews` | Destroy all preview windows on exit | No |
+| `issue038_bootstrap_preview` | Inject typed bootstrap data into preview | No |
+| `issue038_inject_script` | Inject raw JS into preview (proof-only, 4KB limit) | Yes |
+| `issue038_emit_checkpoint` | Emit proof checkpoint line | Yes |
+| `issue038_emit_report` | Emit packaged proof report | Yes |
+
+All fourteen are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
+and `ISSUE034_APPROVED_COMMANDS`.  They are accessible only from the trusted
+`main` window and inaccessible from the isolated preview.

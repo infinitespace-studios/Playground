@@ -15,6 +15,7 @@ import { runIssue034AutoProof } from "./issue34";
 import { runIssue035AutoProof } from "./issue35";
 import { runIssue036AutoProof } from "./issue36";
 import { gateFirstRun, runIssue037AutoProof } from "./issue37";
+import { runIssue038ForceStopProof } from "./issue38";
 
 interface RuntimeBuild {
   buildConfiguration: string;
@@ -1426,4 +1427,16 @@ void runIssue037AutoProof().catch((error: unknown) => {
     }),
   });
   console.error("Issue 037 proof instrumentation failed", error);
+});
+
+void runIssue038ForceStopProof().catch((error: unknown) => {
+  void window.__TAURI_INTERNALS__?.invoke("issue038_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 1,
+      generatedAt: new Date().toISOString(),
+      failure: error instanceof Error ? error.message : String(error),
+      diagnostics,
+    }),
+  });
+  console.error("Issue 038 proof instrumentation failed", error);
 });

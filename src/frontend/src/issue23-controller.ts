@@ -38,12 +38,12 @@ export function createIssue023RunController({
 
 export async function withForcedPreviewRetirement<T>(
   operation: Promise<T>,
-  retire: (reason: unknown) => void,
+  retire: (reason: unknown) => void | Promise<void>,
 ): Promise<T> {
   try {
     return await operation;
   } catch (error) {
-    retire(error);
+    await retire(error);
     throw error;
   }
 }

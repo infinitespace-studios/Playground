@@ -61,6 +61,21 @@ const APP_COMMANDS: &[&str] = &[
     "issue037_clear_store",
     "issue037_proof_phase",
     "issue037_emit_checkpoint",
+    "issue038_is_proof_enabled",
+    "issue038_store_transfer",
+    "issue038_clear_transfer",
+    "issue038_create_preview_window",
+    "issue038_destroy_preview_window",
+    "issue038_preview_window_exists",
+    "issue038_relay_to_preview",
+    "issue038_collect_bridge_messages",
+    "issue038_monotonic_nanos",
+    "issue038_destroy_all_previews",
+    "issue038_bootstrap_preview",
+    "issue038_inject_script",
+    "issue038_emit_checkpoint",
+    "issue038_create_no_wasm_eval_window",
+    "issue038_emit_report",
 ];
 
 fn collect_files(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) {
@@ -475,8 +490,8 @@ fn validate_generated_acl(root: &Path) {
     }
     assert_eq!(
         1 + 1 + generated_files.len(),
-        59,
-        "effective ACL must contain one capability, one composite permission, and 57 generated permissions"
+        74,
+        "effective ACL must contain one capability, one composite permission, and 72 generated permissions"
     );
 }
 
