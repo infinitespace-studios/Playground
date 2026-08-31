@@ -73,6 +73,14 @@ await cp(
   path.join(repositoryRoot, "src/shared/NativeOutputRuntime.js"),
   path.join(publishRoot, "NativeOutputRuntime.js"),
 );
+await cp(
+  path.join(repositoryRoot, "src/shared/AssetMountRuntime.js"),
+  path.join(publishRoot, "AssetMountRuntime.js"),
+);
+await cp(
+  path.join(repositoryRoot, "src/shared/PreStartAdmission.js"),
+  path.join(publishRoot, "PreStartAdmission.js"),
+);
 
 const frameworkRoot = path.join(publishRoot, "_framework");
 const frameworkFiles = await readdir(frameworkRoot);
@@ -85,6 +93,8 @@ const requiredFiles = [
   "PreviewStartRuntime.js",
   "PreviewStopRuntime.js",
   "NativeOutputRuntime.js",
+  "AssetMountRuntime.js",
+  "PreStartAdmission.js",
   "_framework/dotnet.js",
   "_framework/blazor.boot.json",
 ];

@@ -5,6 +5,7 @@ import {
   validatePreviewLoadRequest,
   validatePreviewStartRequest,
   validatePreviewStopRequest,
+  validateAssetMountRequest,
 } from "./ProtocolRuntime.js";
 
 const envelopeErrors = new Set([
@@ -260,7 +261,9 @@ function createEndpoint({
           post(terminalFailure(activeResponseType, terminalCorrelation, code,
             activeResponseType === "compile.response"
               ? "Compiler protocol request rejected."
-              : activeResponseType === "preview.start.response"
+              : activeResponseType === "asset.mount.response"
+                ? "Asset mount request rejected."
+                : activeResponseType === "preview.start.response"
                 ? "Preview start request rejected."
                 : activeResponseType === "preview.stop.response"
                   ? "Preview stop request rejected."
@@ -317,7 +320,15 @@ export function createPreviewEndpoint(options) {
     requestType: "preview.load.request",
     validate: value => validatePreviewLoadRequest(value, options.previewId),
     fallbackCode: "PREVIEW_LOAD_FAILED",
-    resolveRoute: raw => raw?.type === "preview.start.request"
+    resolveRoute: raw => raw?.type === "asset.mount.request"
+      ? {
+          requestType: "asset.mount.request",
+          responseType: "asset.mount.response",
+          validate: value => validateAssetMountRequest(value, options.previewId),
+          execute: options.executeMount ?? (() => { throw new Error("INVALID_STATE"); }),
+          fallbackCode: "PREVIEW_LOAD_FAILED",
+        }
+      : raw?.type === "preview.start.request"
       ? {
           requestType: "preview.start.request",
           responseType: "preview.start.response",

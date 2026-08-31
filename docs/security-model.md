@@ -509,7 +509,37 @@ WebView2 renderer process.
 | `issue038_inject_script` | Inject raw JS into preview (proof-only, 4KB limit) | Yes |
 | `issue038_emit_checkpoint` | Emit proof checkpoint line | Yes |
 | `issue038_emit_report` | Emit packaged proof report | Yes |
+| `issue039_is_proof_enabled` | Check proof env gate | No |
+| `issue039_emit_checkpoint` | Emit proof checkpoint line (4KB limit) | Yes |
+| `issue039_emit_report` | Emit packaged proof report and exit | Yes |
 
-All fourteen are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
+All seventeen are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
 and `ISSUE034_APPROVED_COMMANDS`.  They are accessible only from the trusted
 `main` window and inaccessible from the isolated preview.
+
+## Content asset validation (issue 039)
+
+Asset `.xnb` files sent via `asset.mount.request` are validated before
+mounting to the virtual filesystem:
+
+1. **XNB header validation**: Magic bytes (`XNB`), platform marker (`b` for
+   Web), format version (4 or 5), compression flags (must be 0), declared
+   size consistency, and reader metadata integrity.
+
+2. **Platform enforcement**: Non-Web platform markers are rejected with
+   `PG0010_CONTENT_PLATFORM_MISMATCH`, explicitly instructing the user to
+   rebuild with `MonoGamePlatform=Web`. The diagnostic is issued before any
+   game construction or runtime start.
+
+3. **Content type restriction**: Only `Texture2DReader` content is accepted
+   in the initial subset. Unsupported reader types are rejected with
+   `PG0206_CONTENT_UNSUPPORTED_TYPE`.
+
+4. **Path normalization**: Asset paths follow Protocol.md section 8 rules
+   (no absolute paths, traversal, backslashes, NUL/percent/controls). Paths
+   are written to the MEMFS virtual filesystem under the configured
+   `Content.RootDirectory`.
+
+5. **Isolation guarantees**: Mounted content is not accessible from the host
+   filesystem. All paths are confined to the virtual filesystem. Content is
+   cleaned on preview retirement.

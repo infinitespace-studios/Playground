@@ -41,6 +41,8 @@
     <WasmExtraFilesToDeploy Include="../shared/PreviewStartRuntime.js" TargetPath="PreviewStartRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/PreviewStopRuntime.js" TargetPath="PreviewStopRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/NativeOutputRuntime.js" TargetPath="NativeOutputRuntime.js" />
+    <WasmExtraFilesToDeploy Include="../shared/AssetMountRuntime.js" TargetPath="AssetMountRuntime.js" />
+    <WasmExtraFilesToDeploy Include="../shared/PreStartAdmission.js" TargetPath="PreStartAdmission.js" />
   </ItemGroup>
 
   <Target Name="ConfigurePreviewAppBundle" BeforeTargets="PrepareInputsForWasmBuild">

@@ -345,6 +345,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue036_proof_enabled()
         || issue037_proof_enabled()
         || issue038_proof_enabled()
+        || issue039_proof_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -727,6 +728,16 @@ mod tests {
 
     fn response(raw_uri: &str) -> Response<Vec<u8>> {
         preview_protocol_response(&Method::GET, raw_uri)
+    }
+
+    fn make_state() -> super::Issue038BridgeState {
+        super::Issue038BridgeState {
+            transfers: std::collections::HashMap::new(),
+            asset_transfers: std::collections::HashMap::new(),
+            pending_messages: std::collections::HashMap::new(),
+            active_generations: std::collections::HashSet::new(),
+            generation_counter: 0,
+        }
     }
 
     fn assert_security_headers(response: &Response<Vec<u8>>) {
@@ -1321,6 +1332,155 @@ mod tests {
         // Must not store or log rejection text that may contain keys
         assert!(!js.contains("capturedKey"));
     }
+
+    #[test]
+    fn issue039_generation_cleanup_preserves_other_generations() {
+        let mut state = make_state();
+        state.asset_transfers.insert(
+            "token-a".into(),
+            super::Issue039AssetTransfer {
+                token: "token-a".into(),
+                generation: "gen-1".into(),
+                assets: vec![super::Issue039AssetEntry {
+                    path: "a.xnb".into(),
+                    bytes: vec![1, 2, 3],
+                    sha256: "aaa".into(),
+                }],
+            },
+        );
+        state.asset_transfers.insert(
+            "token-b".into(),
+            super::Issue039AssetTransfer {
+                token: "token-b".into(),
+                generation: "gen-2".into(),
+                assets: vec![super::Issue039AssetEntry {
+                    path: "b.xnb".into(),
+                    bytes: vec![4, 5, 6],
+                    sha256: "bbb".into(),
+                }],
+            },
+        );
+
+        super::clear_asset_transfers_for_generation(&mut state, "gen-1");
+
+        assert!(
+            !state.asset_transfers.contains_key("token-a"),
+            "gen-1 transfer should be removed"
+        );
+        assert!(
+            state.asset_transfers.contains_key("token-b"),
+            "gen-2 transfer should be preserved"
+        );
+        assert_eq!(state.asset_transfers["token-b"].assets[0].bytes, vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn issue039_store_rejected_for_inactive_generation() {
+        let mut state = make_state();
+        let result = super::store_issue039_asset_validated(
+            &mut state,
+            "tok",
+            "gen-retired",
+            0,
+            "a.xnb".into(),
+            "a".repeat(64),
+            vec![1, 2, 3],
+        );
+        assert!(result.is_err());
+        assert!(
+            !state.asset_transfers.contains_key("tok"),
+            "no transfer created for inactive gen"
+        );
+    }
+
+    #[test]
+    fn issue039_store_accepted_for_active_generation() {
+        let mut state = make_state();
+        state.active_generations.insert("gen-live".into());
+        let result = super::store_issue039_asset_validated(
+            &mut state,
+            "tok",
+            "gen-live",
+            0,
+            "a.xnb".into(),
+            "a".repeat(64),
+            vec![1, 2, 3],
+        );
+        assert!(result.is_ok());
+        assert_eq!(state.asset_transfers["tok"].assets.len(), 1);
+    }
+
+    #[test]
+    fn issue039_store_after_retirement_rejected() {
+        let mut state = make_state();
+        state.active_generations.insert("gen-1".into());
+        super::store_issue039_asset_validated(
+            &mut state,
+            "tok",
+            "gen-1",
+            0,
+            "a.xnb".into(),
+            "a".repeat(64),
+            vec![1, 2, 3],
+        )
+        .unwrap();
+        state.active_generations.remove("gen-1");
+        super::clear_asset_transfers_for_generation(&mut state, "gen-1");
+        let result = super::store_issue039_asset_validated(
+            &mut state,
+            "tok2",
+            "gen-1",
+            0,
+            "b.xnb".into(),
+            "b".repeat(64),
+            vec![4, 5, 6],
+        );
+        assert!(result.is_err());
+        assert!(!state.asset_transfers.contains_key("tok2"));
+    }
+
+    #[test]
+    fn issue039_create_failure_cleanup() {
+        let mut state = make_state();
+        state.active_generations.insert("gen-fail".into());
+        state.pending_messages.insert("gen-fail".into(), vec![]);
+        state.asset_transfers.insert(
+            "tok-fail".into(),
+            super::Issue039AssetTransfer {
+                token: "tok-fail".into(),
+                generation: "gen-fail".into(),
+                assets: vec![],
+            },
+        );
+
+        state.pending_messages.remove("gen-fail");
+        state.active_generations.remove("gen-fail");
+        super::clear_asset_transfers_for_generation(&mut state, "gen-fail");
+
+        assert!(!state.active_generations.contains("gen-fail"));
+        assert!(!state.pending_messages.contains_key("gen-fail"));
+        assert!(!state.asset_transfers.contains_key("tok-fail"));
+    }
+
+    #[test]
+    fn issue039_retirement_removes_generation_and_transfers() {
+        let mut state = make_state();
+        state.active_generations.insert("gen-1".into());
+        state.asset_transfers.insert(
+            "tok".into(),
+            super::Issue039AssetTransfer {
+                token: "tok".into(),
+                generation: "gen-1".into(),
+                assets: vec![],
+            },
+        );
+
+        state.active_generations.remove("gen-1");
+        super::clear_asset_transfers_for_generation(&mut state, "gen-1");
+
+        assert!(!state.active_generations.contains("gen-1"));
+        assert!(!state.asset_transfers.contains_key("tok"));
+    }
 }
 
 #[tauri::command]
@@ -1763,17 +1923,31 @@ fn issue037_emit_checkpoint(checkpoint: String) -> Result<(), String> {
 // Tauri may reinject it after page load. The primary IPC boundary is ACL:
 // the preview window label is excluded from all capabilities.
 
+use std::collections::{HashMap, HashSet};
 use std::sync::Mutex;
-use std::collections::HashMap;
 
 struct Issue038TransferEntry {
     assembly: Vec<u8>,
     pdb: Vec<u8>,
 }
 
+struct Issue039AssetEntry {
+    path: String,
+    bytes: Vec<u8>,
+    sha256: String,
+}
+
+struct Issue039AssetTransfer {
+    token: String,
+    generation: String,
+    assets: Vec<Issue039AssetEntry>,
+}
+
 struct Issue038BridgeState {
     transfers: HashMap<String, Issue038TransferEntry>,
+    asset_transfers: HashMap<String, Issue039AssetTransfer>,
     pending_messages: HashMap<String, Vec<String>>,
+    active_generations: HashSet<String>,
     generation_counter: u64,
 }
 
@@ -1781,7 +1955,9 @@ static ISSUE038_BRIDGE: std::sync::LazyLock<Mutex<Issue038BridgeState>> =
     std::sync::LazyLock::new(|| {
         Mutex::new(Issue038BridgeState {
             transfers: HashMap::new(),
+            asset_transfers: HashMap::new(),
             pending_messages: HashMap::new(),
+            active_generations: HashSet::new(),
             generation_counter: 0,
         })
     });
@@ -1838,6 +2014,63 @@ fn issue038_preview_label(generation: &str) -> String {
     format!("{ISSUE038_PREVIEW_LABEL_PREFIX}{generation}")
 }
 
+fn clear_asset_transfers_for_generation(state: &mut Issue038BridgeState, generation: &str) {
+    let tokens: Vec<String> = state
+        .asset_transfers
+        .iter()
+        .filter(|(_, transfer)| transfer.generation == generation)
+        .map(|(token, _)| token.clone())
+        .collect();
+    for token in tokens {
+        if let Some(mut transfer) = state.asset_transfers.remove(&token) {
+            debug_assert_eq!(transfer.token, token);
+            for asset in &mut transfer.assets {
+                asset.bytes.iter_mut().for_each(|byte| *byte = 0);
+            }
+        }
+    }
+}
+
+fn store_issue039_asset_validated(
+    state: &mut Issue038BridgeState,
+    token: &str,
+    generation: &str,
+    index: u32,
+    path: String,
+    sha256: String,
+    bytes: Vec<u8>,
+) -> Result<(), String> {
+    if !state.active_generations.contains(generation) {
+        return Err("generation is not active or already retired".into());
+    }
+    let transfer = state.asset_transfers.entry(token.to_owned()).or_insert_with(|| {
+        Issue039AssetTransfer {
+            token: token.to_owned(),
+            generation: generation.to_owned(),
+            assets: Vec::new(),
+        }
+    });
+    if transfer.generation != generation {
+        return Err("generation mismatch".into());
+    }
+    let aggregate: usize = transfer.assets.iter().map(|a| a.bytes.len()).sum::<usize>() + bytes.len();
+    if aggregate > 24 * 1024 * 1024 {
+        return Err("aggregate assets exceed 24 MiB".into());
+    }
+    if transfer.assets.len() >= 256 {
+        return Err("asset count exceeds 256".into());
+    }
+    if index as usize != transfer.assets.len() {
+        return Err("asset index out of order".into());
+    }
+    transfer.assets.push(Issue039AssetEntry {
+        path,
+        bytes,
+        sha256,
+    });
+    Ok(())
+}
+
 /// Create an isolated preview WebviewWindow.  The window loads content from
 /// the playground-preview protocol and has NO Tauri capabilities.
 #[tauri::command]
@@ -1861,21 +2094,28 @@ async fn issue038_create_preview_window(
         let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
         state.generation_counter += 1;
         state.pending_messages.insert(generation.clone(), Vec::new());
+        state.active_generations.insert(generation.clone());
     }
     let url = tauri::WebviewUrl::External(
         "playground-preview://localhost/_isolated.html"
             .parse::<tauri::Url>()
             .map_err(|e| e.to_string())?,
     );
-    let _window = tauri::WebviewWindowBuilder::new(&app, &label, url)
+    let build_result = tauri::WebviewWindowBuilder::new(&app, &label, url)
         .title("MonoGame Preview (isolated)")
         .inner_size(640.0, 400.0)
         .visible(true)
         .resizable(true)
         .on_navigation(|url| navigation_allowed(url))
         .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
-        .build()
-        .map_err(|e| format!("failed to create preview window: {e}"))?;
+        .build();
+    if let Err(e) = build_result {
+        let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+        state.pending_messages.remove(&generation);
+        state.active_generations.remove(&generation);
+        clear_asset_transfers_for_generation(&mut state, &generation);
+        return Err(format!("failed to create preview window: {e}"));
+    }
     Ok(label)
 }
 
@@ -1892,13 +2132,18 @@ fn issue038_destroy_preview_window(
     let label = issue038_preview_label(&generation);
     let window = app.get_webview_window(&label);
     let existed = window.is_some();
-    if let Some(win) = window {
-        win.destroy().map_err(|e| format!("failed to destroy preview window: {e}"))?;
-    }
-    // Clean up bridge state
-    if let Ok(mut state) = ISSUE038_BRIDGE.lock() {
-        state.pending_messages.remove(&generation);
-    }
+    let destroy_result = window
+        .map(|win| win.destroy().map_err(|e| format!("failed to destroy preview window: {e}")))
+        .transpose();
+
+    // Retire native state even if destroying the platform window fails.
+    let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    state.pending_messages.remove(&generation);
+    state.active_generations.remove(&generation);
+    clear_asset_transfers_for_generation(&mut state, &generation);
+    drop(state);
+
+    destroy_result?;
     Ok(existed)
 }
 
@@ -1972,7 +2217,16 @@ fn issue038_destroy_all_previews(app: tauri::AppHandle) -> Result<u32, String> {
     // Clear all bridge state
     if let Ok(mut state) = ISSUE038_BRIDGE.lock() {
         state.transfers.clear();
+        let generations: Vec<String> = state
+            .asset_transfers
+            .values()
+            .map(|transfer| transfer.generation.clone())
+            .collect();
+        for generation in generations {
+            clear_asset_transfers_for_generation(&mut state, &generation);
+        }
         state.pending_messages.clear();
+        state.active_generations.clear();
     }
     Ok(destroyed)
 }
@@ -2045,6 +2299,142 @@ fn issue038_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     emit_packaged_proof_report(&format!("ISSUE038_REPORT={report}"))?;
     app.exit(0);
     Ok(())
+}
+
+fn issue039_proof_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE039_PROOF").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue039_is_proof_enabled() -> bool {
+    issue039_proof_enabled()
+}
+
+#[tauri::command]
+fn issue039_emit_checkpoint(checkpoint: String) -> Result<(), String> {
+    if !issue039_proof_enabled() {
+        return Err("issue 039 proof instrumentation is disabled".into());
+    }
+    if checkpoint.len() > 4096 {
+        return Err("proof checkpoint exceeds 4096 byte limit".into());
+    }
+    println!("ISSUE039_CHECKPOINT={checkpoint}");
+    Ok(())
+}
+
+#[tauri::command]
+fn issue039_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue039_proof_enabled() {
+        return Err("issue 039 proof instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE039_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
+/// Store one raw asset binary under a generation-bound token + index.
+/// Uses Tauri 2 raw IPC: frontend sends Uint8Array body with metadata in headers.
+/// No JSON byte array serialization — bytes arrive as InvokeBody::Raw.
+#[tauri::command]
+fn issue039_store_asset(
+    request: tauri::ipc::Request<'_>,
+) -> Result<tauri::ipc::Response, String> {
+    let get = |name: &str| -> Result<String, String> {
+        request.headers().get(name)
+            .and_then(|v| v.to_str().ok())
+            .map(String::from)
+            .ok_or_else(|| format!("missing header: {name}"))
+    };
+    let token = get("x-token")?;
+    let generation = get("x-generation")?;
+    let index: u32 = get("x-index")?.parse().map_err(|_| "bad index")?;
+    let path = get("x-path")?;
+    let sha256 = get("x-sha256")?;
+
+    let bytes = match request.body() {
+        tauri::ipc::InvokeBody::Raw(data) => data.to_vec(),
+        _ => return Err("expected raw binary body".into()),
+    };
+
+    if token.is_empty() || token.len() > 128
+        || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
+        return Err("bad token".into());
+    }
+    if generation.is_empty() || generation.len() > 64 {
+        return Err("bad generation".into());
+    }
+    if path.is_empty() || path.len() > 512 {
+        return Err("bad path".into());
+    }
+    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("bad sha256".into());
+    }
+    if bytes.is_empty() || bytes.len() > 16 * 1024 * 1024 {
+        return Err("asset exceeds 16 MiB".into());
+    }
+    let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    store_issue039_asset_validated(
+        &mut state,
+        &token,
+        &generation,
+        index,
+        path,
+        sha256,
+        bytes,
+    )?;
+    Ok(tauri::ipc::Response::new(b"OK".to_vec()))
+}
+
+/// Query the manifest of a stored asset transfer (without returning bytes).
+#[tauri::command]
+fn issue039_asset_manifest(token: String) -> Result<String, String> {
+    let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    let transfer = state.asset_transfers.get(&token)
+        .ok_or_else(|| "no such transfer".to_string())?;
+    let manifest: Vec<serde_json::Value> = transfer.assets.iter().enumerate().map(|(i, a)| {
+        serde_json::json!({
+            "index": i,
+            "path": a.path,
+            "sha256": a.sha256,
+            "byteLength": a.bytes.len(),
+        })
+    }).collect();
+    serde_json::to_string(&manifest).map_err(|e| e.to_string())
+}
+
+/// Clear all asset transfer entries for a token, zeroing bytes.
+#[tauri::command]
+fn issue039_clear_assets(token: String) -> Result<(), String> {
+    let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    if let Some(mut transfer) = state.asset_transfers.remove(&token) {
+        for asset in &mut transfer.assets {
+            asset.bytes.iter_mut().for_each(|b| *b = 0);
+        }
+    }
+    Ok(())
+}
+
+/// Proof-only: query whether a token has stored assets and their total byte count.
+#[tauri::command]
+fn issue039_transfer_state(token: String) -> Result<String, String> {
+    let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+    let transfer = state.asset_transfers.get(&token);
+    let result = match transfer {
+        Some(t) => serde_json::json!({
+            "exists": true,
+            "assetCount": t.assets.len(),
+            "totalBytes": t.assets.iter().map(|a| a.bytes.len()).sum::<usize>(),
+            "allZeroed": t.assets.iter().all(|a| a.bytes.iter().all(|b| *b == 0)),
+        }),
+        None => serde_json::json!({
+            "exists": false,
+            "assetCount": 0,
+            "totalBytes": 0,
+            "allZeroed": true,
+        }),
+    };
+    serde_json::to_string(&result).map_err(|e| e.to_string())
 }
 
 /// Proof-only: create an isolated preview window with 'wasm-unsafe-eval' removed.
@@ -2260,6 +2650,58 @@ fn issue038_handle_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<V
         ));
     }
     let state = ISSUE038_BRIDGE.lock().ok()?;
+    // Check for asset transfer: _transfer/{token}/asset/{index}
+    if let Some(asset_rest) = file.strip_prefix("asset/") {
+        if let Ok(index) = asset_rest.parse::<usize>() {
+            if let Some(transfer) = state.asset_transfers.get(token) {
+                if let Some(asset) = transfer.assets.get(index) {
+                    let body = asset.bytes.clone();
+                    let mut response = tauri::http::Response::new(body);
+                    *response.status_mut() = tauri::http::StatusCode::OK;
+                    response.headers_mut().insert(
+                        "content-type",
+                        "application/octet-stream".parse().unwrap(),
+                    );
+                    response.headers_mut().insert(
+                        "access-control-allow-origin",
+                        "null".parse().unwrap(),
+                    );
+                    response.headers_mut().insert(
+                        "cross-origin-resource-policy",
+                        "cross-origin".parse().unwrap(),
+                    );
+                    response.headers_mut().insert(
+                        "cache-control",
+                        "no-store".parse().unwrap(),
+                    );
+                    return Some(response);
+                }
+            }
+        }
+        return Some(preview_response(404, "text/plain; charset=utf-8", b"Not Found"));
+    }
+    // Check for asset manifest: _transfer/{token}/asset-manifest
+    if file == "asset-manifest" {
+        if let Some(transfer) = state.asset_transfers.get(token) {
+            let manifest: Vec<serde_json::Value> = transfer.assets.iter().enumerate().map(|(i, a)| {
+                serde_json::json!({
+                    "index": i,
+                    "path": a.path,
+                    "sha256": a.sha256,
+                    "byteLength": a.bytes.len(),
+                    "generation": transfer.generation,
+                })
+            }).collect();
+            let json = serde_json::to_vec(&manifest).unwrap_or_default();
+            let mut response = tauri::http::Response::new(json);
+            *response.status_mut() = tauri::http::StatusCode::OK;
+            response.headers_mut().insert("content-type", "application/json".parse().unwrap());
+            response.headers_mut().insert("access-control-allow-origin", "null".parse().unwrap());
+            response.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+            return Some(response);
+        }
+        return Some(preview_response(404, "text/plain; charset=utf-8", b"Not Found"));
+    }
     let entry = state.transfers.get(token)?;
     let body = match file {
         "assembly.dll" => entry.assembly.clone(),
@@ -2480,7 +2922,14 @@ pub fn run() {
             issue038_inject_script,
             issue038_emit_checkpoint,
             issue038_create_no_wasm_eval_window,
-            issue038_emit_report
+            issue038_emit_report,
+            issue039_is_proof_enabled,
+            issue039_emit_checkpoint,
+            issue039_emit_report,
+            issue039_store_asset,
+            issue039_asset_manifest,
+            issue039_clear_assets,
+            issue039_transfer_state
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");
@@ -2661,6 +3110,91 @@ const ISSUE038_BRIDGE_SETUP_JS: &str = r##"
         }).catch(function() {
           if (protocolPort1) protocolPort1.postMessage(data);
         });
+        return;
+      }
+      // For mount requests with assetTransferToken, authenticate against authoritative manifest
+      if (data && data.type === "asset.mount.request" && data.payload &&
+          data.payload.assetTransferToken && Array.isArray(data.payload.assetManifest)) {
+        var mountToken = data.payload.assetTransferToken;
+        var requestManifest = data.payload.assetManifest;
+        var mountFailurePosted = false;
+
+        // Fetch authoritative manifest
+        fetch("playground-preview://localhost/_transfer/" + mountToken + "/asset-manifest")
+          .then(function(r) {
+            if (!r.ok) throw new Error("manifest fetch failed");
+            return r.json();
+          })
+          .then(function(authManifest) {
+            if (!Array.isArray(authManifest) || authManifest.length !== requestManifest.length)
+              throw new Error("manifest count mismatch");
+            for (var i = 0; i < authManifest.length; i++) {
+              var auth = authManifest[i];
+              var req = requestManifest[i];
+              if (auth.index !== i || req.index !== i)
+                throw new Error("manifest index mismatch");
+              if (auth.path !== req.path)
+                throw new Error("manifest path mismatch");
+              if (auth.sha256 !== req.sha256)
+                throw new Error("manifest hash mismatch");
+              if (auth.byteLength !== req.byteLength)
+                throw new Error("manifest byteLength mismatch");
+              if (auth.generation !== generation)
+                throw new Error("manifest generation mismatch");
+            }
+            var assetPromises = authManifest.map(function(entry, idx) {
+              return fetch("playground-preview://localhost/_transfer/" + mountToken + "/asset/" + idx)
+                .then(function(r) {
+                  if (!r.ok) throw new Error("asset fetch failed");
+                  return r.arrayBuffer();
+                })
+                .then(function(buffer) {
+                  // Verify byte length
+                  if (buffer.byteLength !== entry.byteLength) {
+                    throw new Error("asset byteLength mismatch");
+                  }
+                  // Compute SHA-256
+                  return crypto.subtle.digest("SHA-256", buffer).then(function(hashBuffer) {
+                    var hashArray = Array.from(new Uint8Array(hashBuffer));
+                    var hashHex = hashArray.map(function(b) {
+                      return ("00" + b.toString(16)).slice(-2);
+                    }).join("");
+                    // Verify against both authoritative and request hashes
+                    if (hashHex !== entry.sha256 || hashHex !== requestManifest[idx].sha256) {
+                      throw new Error("asset hash mismatch");
+                    }
+                    // Create standalone ArrayBuffer
+                    var standalone = buffer.slice(0);
+                    return { path: entry.path, bytes: standalone };
+                  });
+                });
+            });
+            return Promise.all(assetPromises);
+          })
+          .then(function(assets) {
+            data.payload.assets = assets;
+            delete data.payload.assetTransferToken;
+            delete data.payload.assetManifest;
+            var transferList = assets.map(function(a) { return a.bytes; });
+            if (protocolPort1) protocolPort1.postMessage(data, transferList);
+          })
+          .catch(function(err) {
+            if (mountFailurePosted) return;
+            mountFailurePosted = true;
+            var failResp = {
+              protocolVersion: 1,
+              correlationId: data.correlationId,
+              type: "asset.mount.response",
+              result: {
+                success: false,
+                error: {
+                  code: "PREVIEW_LOAD_FAILED",
+                  message: "Asset transfer validation failed in isolated bridge."
+                }
+              }
+            };
+            sendBridgeMessage("protocol", failResp);
+          });
         return;
       }
       if (envelope.channel === "bridge") {

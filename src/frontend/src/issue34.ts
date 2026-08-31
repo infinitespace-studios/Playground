@@ -76,6 +76,13 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue038_emit_checkpoint",
   "issue038_create_no_wasm_eval_window",
   "issue038_emit_report",
+  "issue039_is_proof_enabled",
+  "issue039_emit_checkpoint",
+  "issue039_emit_report",
+  "issue039_store_asset",
+  "issue039_asset_manifest",
+  "issue039_clear_assets",
+  "issue039_transfer_state",
 ] as const;
 
 const source = `

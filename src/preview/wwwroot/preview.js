@@ -11,6 +11,8 @@ import {
 } from "./Issue21Endpoints.js";
 import { createPreviewStartExecutor } from "./PreviewStartRuntime.js";
 import { createPreviewStopExecutor } from "./PreviewStopRuntime.js";
+import { createAssetMountExecutor } from "./AssetMountRuntime.js";
+import { createPreStartAdmission } from "./PreStartAdmission.js";
 import { createNativeOutputCapture } from "./NativeOutputRuntime.js";
 
 const status = document.querySelector("#status");
@@ -76,6 +78,12 @@ globalThis.previewIssue033Proof = { enabled: false };
 globalThis.previewIssue034Proof = { enabled: false };
 globalThis.previewIssue035Proof = { enabled: false };
 globalThis.previewIssue036Proof = { enabled: false };
+globalThis.previewIssue039Proof = {
+  enabled: false,
+  mounts: [],
+  mountFailures: [],
+  errors: [],
+};
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -89,6 +97,8 @@ let lifecycleSequence = 0;
 let issue023Case = "normal";
 let startExecutor = null;
 let stopExecutor = null;
+let mountExecutor = null;
+const preStartAdmission = createPreStartAdmission();
 let outputCorrelationId = null;
 let outputLive = false;
 let pendingOutputEvents = [];
@@ -232,6 +242,36 @@ async function executeBridgeAction(action, payload) {
     if (name === "endpoint") return globalThis.previewIssue023EndpointSnapshot?.() ?? null;
     if (name === "native") return globalThis.previewIssue028Snapshot?.() ?? null;
     if (name === "pixels") return globalThis.previewIssue030PixelProof?.() ?? null;
+    if (name === "issue039") return globalThis.previewIssue039Proof;
+    if (name === "issue039-gate") return { held: preStartAdmission.isHeld(), owner: preStartAdmission.currentOwner() };
+    if (name === "issue039-state") {
+      const exports = await exportsPromise;
+      return typeof exports.QueryIssue039State === "function"
+        ? JSON.parse(exports.QueryIssue039State())
+        : null;
+    }
+    if (name === "issue039-validator-test") {
+      if (!globalThis.previewIssue039Proof.enabled)
+        throw new Error("issue039 proof is not enabled");
+      const exports = await exportsPromise;
+      return typeof exports.RunContentValidatorSelfTest === "function"
+        ? JSON.parse(exports.RunContentValidatorSelfTest())
+        : null;
+    }
+    if (name === "issue039-atomic-test") {
+      if (!globalThis.previewIssue039Proof.enabled)
+        throw new Error("issue039 proof is not enabled");
+      const exports = await exportsPromise;
+      return typeof exports.RunAtomicMountSelfTest === "function"
+        ? JSON.parse(exports.RunAtomicMountSelfTest())
+        : null;
+    }
+    if (name === "mount") {
+      const exports = await exportsPromise;
+      return typeof exports.QueryMountState === "function"
+        ? JSON.parse(exports.QueryMountState())
+        : null;
+    }
     if (name === "errors") {
       return [
         ...(globalThis.previewProof?.errors ?? []),
@@ -595,6 +635,40 @@ async function executeBridgeAction(action, payload) {
       canvasHeight: rect?.height ?? 0,
     };
   }
+  if (action === "sample-texture-grid") {
+    const canvas = document.querySelector("#canvas");
+    const gl = canvas?.getContext("webgl2");
+    if (!canvas || !gl) throw new Error("Preview canvas WebGL2 context is unavailable.");
+    await boundedAnimationFrame("sample-texture-grid");
+    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.finish();
+    const w = gl.drawingBufferWidth;
+    const h = gl.drawingBufferHeight;
+    // Sample at center of each cell of a 4x4 grid drawn over the full canvas
+    const grid = [];
+    for (let row = 0; row < 4; row++) {
+      const gridRow = [];
+      for (let col = 0; col < 4; col++) {
+        const x = Math.floor((col + 0.5) * w / 4);
+        // WebGL readPixels Y=0 is bottom; row 0 is top of texture
+        const y = Math.floor((3.5 - row) * h / 4);
+        const pixel = new Uint8Array(4);
+        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
+        gridRow.push([...pixel]);
+      }
+      grid.push(gridRow);
+    }
+    const glError = gl.getError();
+    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
+    return {
+      sampledAt: performance.now(),
+      drawingBuffer: { width: w, height: h },
+      grid,
+      glError,
+      contextLost: gl.isContextLost(),
+    };
+  }
   if (action === "sample-webgl") {
     const canvas = document.querySelector("#canvas");
     const gl = canvas?.getContext("webgl2");
@@ -699,6 +773,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     (!Object.hasOwn(data, "issue034Proof") || typeof data.issue034Proof === "boolean") &&
     (!Object.hasOwn(data, "issue035Proof") || typeof data.issue035Proof === "boolean") &&
     (!Object.hasOwn(data, "issue036Proof") || typeof data.issue036Proof === "boolean") &&
+    (!Object.hasOwn(data, "issue039Proof") || typeof data.issue039Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
     (!Object.hasOwn(data, "issue023Case") ||
       typeof data.issue023Case === "string" &&
@@ -721,6 +796,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
     globalThis.previewIssue034Proof.enabled = data.issue034Proof === true;
     globalThis.previewIssue035Proof.enabled = data.issue035Proof === true;
     globalThis.previewIssue036Proof.enabled = data.issue036Proof === true;
+    globalThis.previewIssue039Proof.enabled = data.issue039Proof === true;
     installPreviewBridge(additionalPorts[0], data.issue021Proof === true);
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");
@@ -750,6 +826,7 @@ const bootstrapObservations = installPrivatePortBootstrap({
       port,
       previewId: expectedPreviewId,
       execute: executeLoadRequest,
+      executeMount: executeMountRequest,
       executeStart: executeStartRequest,
       executeStop: executeStopRequest,
       expectations: data.issue021Proof ? expectationRegistry : undefined,
@@ -834,9 +911,29 @@ async function startRuntime() {
   return exports;
 }
 
+async function executeMountRequest(message, observation) {
+  mountExecutor ??= createAssetMountExecutor({
+    getState: () => loadState,
+    getExports: () => exportsPromise,
+    sha256: sha256Buffer,
+    previewId: expectedPreviewId,
+    recordMount: mount => { globalThis.previewIssue039Proof.mounts.push(mount); },
+    recordMountFailure: failure => { globalThis.previewIssue039Proof.mountFailures.push(failure); },
+  });
+  return preStartAdmission.runMount(
+    message.correlationId,
+    ["stopped", "loaded"],
+    loadState,
+    () => mountExecutor(message, observation),
+  );
+}
+
 async function executeLoadRequest(message, observation) {
-  if (loadState !== "stopped") throw new Error("INVALID_STATE");
-  try {
+  return preStartAdmission.runLoad(
+    message.correlationId,
+    loadState,
+    async () => {
+    try {
     const assembly = message.payload?.assembly;
     const pdb = message.payload?.pdb;
     const assemblySha256 = await sha256Buffer(assembly);
@@ -966,10 +1063,14 @@ async function executeLoadRequest(message, observation) {
     }
     throw new Error(code);
   }
+  }); // end runLoad operation lambda
 }
 
 async function executeStartRequest(message) {
-  if (loadState !== "loaded") throw new Error("INVALID_STATE");
+  return preStartAdmission.runStart(
+    message.correlationId,
+    loadState,
+    async () => {
   outputCorrelationId = message.correlationId;
   outputLive = false;
   pendingOutputEvents = [];
@@ -1030,6 +1131,7 @@ async function executeStartRequest(message) {
     ...(delayedEvents ? { delayedEvents } : {}),
     afterPost,
   };
+  }); // end runStart operation
 }
 
 async function executeStopRequest(message) {

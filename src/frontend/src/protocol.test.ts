@@ -705,7 +705,7 @@ test("matches assembly, diagnostic, error-detail, and error-code contract bounda
     details: { key: "x".repeat(1025) },
   }), uuid, compileId), /MALFORMED/);
   assert.equal(PROTOCOL_ERROR_CODES.length, 32);
-  assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 16);
+  assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 22);
   assert.equal(LIMITS.errorDetails, 16 * 1024);
   assert.equal(Object.isFrozen(LIMITS), true);
 });
@@ -2257,7 +2257,7 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofCommands = commandNames(proofInventoryBlock).sort();
-  assert.equal(manifestCommands.length, 72);
+  assert.equal(manifestCommands.length, 79);
   assert.deepEqual(manifestCommands, handlerCommands);
   assert.deepEqual(permissionCommands, handlerCommands);
   assert.deepEqual(proofCommands, handlerCommands);

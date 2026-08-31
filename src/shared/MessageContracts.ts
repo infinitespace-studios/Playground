@@ -45,7 +45,13 @@ export type PlaygroundDiagnosticId =
   | "PG0103"
   | "PG0104"
   | "PG0105"
-  | "PG0106";
+  | "PG0106"
+  | "PG0201_CONTENT_INVALID_HEADER"
+  | "PG0202_CONTENT_UNSUPPORTED_VERSION"
+  | "PG0203_CONTENT_COMPRESSED"
+  | "PG0204_CONTENT_SIZE_MISMATCH"
+  | "PG0205_CONTENT_MALFORMED_READERS"
+  | "PG0206_CONTENT_UNSUPPORTED_TYPE";
 
 export interface PlaygroundDiagnostic {
   readonly origin: "playground";
@@ -170,6 +176,7 @@ export interface AssetFile {
 export interface AssetMountRequestPayload extends RequestOptions {
   readonly previewId: PreviewId;
   readonly mountId: AssetMountId;
+  readonly contentRootDirectory?: string;
   readonly assets: readonly AssetFile[];
 }
 

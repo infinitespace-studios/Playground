@@ -225,6 +225,7 @@ export async function createIsolatedPreview(
     issue034Proof: opts.proofFlags?.issue034Proof ?? false,
     issue035Proof: opts.proofFlags?.issue035Proof ?? false,
     issue036Proof: opts.proofFlags?.issue036Proof ?? false,
+    issue039Proof: opts.proofFlags?.issue039Proof ?? false,
     runGamePipeline: true,
     issue023Case: opts.runtimeCase ?? "normal",
   };

@@ -2,6 +2,7 @@ import type {
   CompileRequest, CompileResponse, PreviewLoadRequest, PreviewLoadResponse,
   PreviewStartRequest, PreviewStartResponse, PreviewStarted, PreviewFailed, PreviewStopped,
   PreviewStopRequest, PreviewStopResponse, PreviewOutput,
+  AssetMountRequest, AssetMountResponse,
 } from "./MessageContracts";
 export const PROTOCOL_VERSION: 1;
 export const LIMITS: Readonly<Record<string, number>>;
@@ -15,6 +16,8 @@ export function isCanonicalPath(value: unknown): value is string;
 export function inspectClone(value: unknown): { measuredBytes: number; binaryCount: number; base64FieldCount: number; dataUrlCount: number };
 export function validateCompileRequest(value: unknown): { message: CompileRequest; observation: ReturnType<typeof inspectClone> };
 export function validateCompileResponse(value: unknown, correlationId: string, compileId: string, expectedBinaryIdentity?: { assemblyName: string; sourcePaths: readonly string[]; primarySourcePath: string }): { message: CompileResponse; observation: ReturnType<typeof inspectClone> };
+export function validateAssetMountRequest(value: unknown, previewId: string): { message: AssetMountRequest; observation: ReturnType<typeof inspectClone> };
+export function validateAssetMountResponse(value: unknown, correlationId: string, previewId: string, mountId: string): { message: AssetMountResponse; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewLoadRequest(value: unknown, previewId: string): { message: PreviewLoadRequest; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewLoadResponse(value: unknown, correlationId: string, previewId: string, compileId: string): { message: PreviewLoadResponse; observation: ReturnType<typeof inspectClone> };
 export function validatePreviewStartRequest(value: unknown, previewId: string): { message: PreviewStartRequest; observation: ReturnType<typeof inspectClone> };

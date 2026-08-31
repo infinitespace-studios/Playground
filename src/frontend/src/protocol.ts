@@ -12,6 +12,8 @@ export {
   standaloneBuffer,
   utf8Length,
   validateBinaryPair,
+  validateAssetMountRequest,
+  validateAssetMountResponse,
   validateCompileRequest,
   validateCompileResponse,
   validatePreviewLoadRequest,

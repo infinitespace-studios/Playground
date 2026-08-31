@@ -53,6 +53,9 @@ export const PLAYGROUND_DIAGNOSTIC_IDS = Object.freeze([
   "PG0007_DLLIMPORT_NOT_ALLOWED", "PG0008_UNMANAGED_CALLERS_ONLY_NOT_ALLOWED",
   "PG0009_UNSAFE_NATIVE_CALL_NOT_ALLOWED", "PG0010_CONTENT_PLATFORM_MISMATCH",
   "PG0101", "PG0102", "PG0103", "PG0104", "PG0105", "PG0106",
+  "PG0201_CONTENT_INVALID_HEADER", "PG0202_CONTENT_UNSUPPORTED_VERSION",
+  "PG0203_CONTENT_COMPRESSED", "PG0204_CONTENT_SIZE_MISMATCH",
+  "PG0205_CONTENT_MALFORMED_READERS", "PG0206_CONTENT_UNSUPPORTED_TYPE",
 ]);
 
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -410,6 +413,58 @@ export function validatePreviewLoadRequest(value, previewId) {
   validateBinaryPair(payload.assembly, payload.pdb);
   if (observation.binaryCount !== 2) throw new Error("MALFORMED_PAYLOAD");
   validateBinaryProof(payload.binaryProof, payload.assembly, payload.pdb);
+  return { message, observation };
+}
+
+export function validateAssetMountRequest(value, previewId) {
+  const { message, observation } = validateEnvelope(value, "asset.mount.request");
+  requireOwn(message, ["payload"], "MALFORMED_ENVELOPE");
+  const payload = requireObject(message.payload);
+  requireOwn(payload, ["previewId", "mountId", "assets"]);
+  if (payload.previewId !== previewId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (!isUuidV4(payload.mountId)) throw new Error("MALFORMED_PAYLOAD");
+  validateTimeout(ownOptional(payload, "timeoutMs"), MAX_TIMEOUTS_MS["asset.mount.request"]);
+  if (!Array.isArray(payload.assets) || payload.assets.length === 0) throw new Error("MALFORMED_PAYLOAD");
+  if (payload.assets.length > LIMITS.assets) throw new Error("TOO_MANY_ASSETS");
+  requireDenseOwnArray(payload.assets);
+  const paths = new Set();
+  let aggregateBytes = 0;
+  for (const raw of payload.assets) {
+    const asset = requireObject(raw);
+    requireOwn(asset, ["path", "bytes"]);
+    if (!isCanonicalPath(asset.path) || utf8Length(asset.path) > LIMITS.path) {
+      throw new Error("ASSET_PATH_INVALID");
+    }
+    if (!(asset.bytes instanceof ArrayBuffer) || asset.bytes.byteLength === 0) {
+      throw new Error("MALFORMED_PAYLOAD");
+    }
+    if (asset.bytes.byteLength > LIMITS.asset) throw new Error("ASSET_TOO_LARGE");
+    aggregateBytes += asset.bytes.byteLength;
+    if (aggregateBytes > LIMITS.assetAggregate) throw new Error("ASSET_TOTAL_TOO_LARGE");
+    if (paths.has(asset.path)) throw new Error("ASSET_PATH_DUPLICATE");
+    paths.add(asset.path);
+  }
+  return { message, observation };
+}
+
+export function validateAssetMountResponse(value, correlationId, previewId, mountId) {
+  const { message, observation } = validateEnvelope(value, "asset.mount.response", correlationId);
+  if (observation.binaryCount !== 0) throw new Error("MALFORMED_PAYLOAD");
+  requireOwn(message, ["result"], "MALFORMED_ENVELOPE");
+  const result = requireObject(message.result);
+  requireOwn(result, ["success"]);
+  if (typeof result.success !== "boolean") throw new Error("MALFORMED_PAYLOAD");
+  if (!result.success) {
+    requireOwn(result, ["error"]);
+    validateError(result.error);
+    return { message, observation };
+  }
+  requireOwn(result, ["data"]);
+  const data = requireObject(result.data);
+  requireOwn(data, ["previewId", "mountId", "mountedFileCount", "mountedByteLength"]);
+  if (data.previewId !== previewId || data.mountId !== mountId) throw new Error("MESSAGE_SOURCE_REJECTED");
+  if (!Number.isSafeInteger(data.mountedFileCount) || data.mountedFileCount < 0) throw new Error("MALFORMED_PAYLOAD");
+  if (!Number.isSafeInteger(data.mountedByteLength) || data.mountedByteLength < 0) throw new Error("MALFORMED_PAYLOAD");
   return { message, observation };
 }
 

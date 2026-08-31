@@ -424,10 +424,16 @@ idempotent. Cancellation never terminates the persistent compiler context.
 {
   previewId: UUIDv4,
   mountId: UUIDv4,
+  contentRootDirectory: string,
   assets: [{ path: string, bytes: ArrayBuffer }, ...],
   timeoutMs?: integer
 }
 ```
+
+`contentRootDirectory` is the MonoGame `Content.RootDirectory` value used to
+resolve asset paths. It must be a valid canonical logical path per section 8.
+It defaults to `"Content"` when absent for backward compatibility with the
+initial protocol revision; receivers treat omission as `"Content"`.
 
 Its success data is
 `{ previewId, mountId, mountedFileCount, mountedByteLength }`. Mount is
@@ -765,3 +771,54 @@ responses. They are bounded (one rejection per invalid message, no
 amplification), do not crash handlers, and cause no unintended side effects.
 An invalid `protocol.error` is logged and discarded without reply, preventing
 rejection loops.
+
+## 13. Content validation and mounting
+
+Asset files carried by `asset.mount.request` must be valid MonoGame XNB files
+built for the Web content profile. The receiver validates each file's binary
+header before writing to the virtual filesystem:
+
+### XNB header validation
+
+| Offset | Size | Field | Required value |
+|--------|------|-------|----------------|
+| 0–2 | 3 | Magic | `XNB` (0x58 0x4E 0x42) |
+| 3 | 1 | Platform | `b` (0x62 = `TargetPlatform.Web`) |
+| 4 | 1 | Version | 5 (current) or 4 (legacy) |
+| 5 | 1 | Flags | Bit 6 (LZ4) and bit 7 (LZX) must be 0 |
+| 6–9 | 4 | File size | LE int32, ≥ 10, ≤ actual byte length |
+| 10+ | var | Readers | 7-bit reader count > 0, first reader type string |
+
+### Content diagnostics
+
+| ID | Meaning |
+|----|---------|
+| `PG0010_CONTENT_PLATFORM_MISMATCH` | Platform byte is not `b` (Web). Message instructs rebuilding with `MonoGamePlatform=Web`. |
+| `PG0201_CONTENT_INVALID_HEADER` | Missing or invalid XNB magic header |
+| `PG0202_CONTENT_UNSUPPORTED_VERSION` | Unsupported XNB format version |
+| `PG0203_CONTENT_COMPRESSED` | Compressed content (LZ4 or LZX); initial subset requires uncompressed |
+| `PG0204_CONTENT_SIZE_MISMATCH` | Declared file size mismatches actual byte length |
+| `PG0205_CONTENT_MALFORMED_READERS` | Truncated or malformed reader metadata |
+| `PG0206_CONTENT_UNSUPPORTED_TYPE` | Unsupported content type reader (only Texture2D is supported) |
+
+### Virtual filesystem mounting
+
+Valid assets are written to the Emscripten MEMFS virtual filesystem at paths
+resolved by MonoGame's `ContentManager`:
+
+```
+{Content.RootDirectory}/{assetLogicalPath}
+```
+
+where `Content.RootDirectory` defaults to `Content` and the asset path
+includes the `.xnb` extension. The receiver creates parent directories
+recursively before writing. The mounted path matches what
+`ContentManager.OpenStream(assetName)` resolves via
+`Path.Combine(RootDirectory, assetName) + ".xnb"`.
+
+### Supported content subset
+
+The initial v1 subset supports only uncompressed `Texture2D` content (reader
+type `Microsoft.Xna.Framework.Content.Texture2DReader`). `SoundEffect` is
+planned for a future issue. All other content types are rejected with
+`PG0206_CONTENT_UNSUPPORTED_TYPE` before the game starts.
