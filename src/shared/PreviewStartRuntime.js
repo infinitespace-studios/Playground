@@ -130,6 +130,24 @@ export function createPreviewStartExecutor({
           });
     }
 
+    // Detect normal game exit (Game.Exit() on WebGL): the loop terminated
+    // and the game disposed itself without throwing an exception.
+    if (managed.terminationReason === "exited" && managed.disposed === true) {
+      const exited = createLifecycleEvent("preview.exited", crypto.randomUUID(), {
+        previewId: message.payload.previewId,
+        sequence: 1,
+        exitCode: 0,
+      });
+      const stopped = createLifecycleEvent("preview.stopped", message.correlationId, {
+        reason: "exited",
+      });
+      return {
+        result: { success: true, data: { previewId: message.payload.previewId, accepted: true } },
+        events: [exited, stopped],
+        closeAfterResponse: true,
+      };
+    }
+
     setState("running");
     const started = createLifecycleEvent("preview.started", message.correlationId);
     return {

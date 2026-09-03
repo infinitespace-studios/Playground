@@ -117,16 +117,32 @@ internal sealed class GameRunner : IDisposable
         var started = Stopwatch.GetTimestamp();
         try
         {
-            // Game.Run enters the Native/WebGL asynchronous loop and returns. The
-            // GameRunner instance owns the strong Game reference for iframe lifetime.
+            // Game.Run enters the Native/WebGL asynchronous loop and returns.
+            // If the game called Game.Exit(), the loop terminates normally and
+            // Game.Dispose() fires during EndRun — so _disposed becomes true
+            // without any exception.  A normal long-lived game would keep
+            // _state == RunnerState.Running and _disposed == false.
             _runGame(game);
             var elapsed = Stopwatch.GetElapsedTime(started).TotalMilliseconds;
+            string? terminationReason;
             lock (_gate)
             {
                 _runReturned = true;
                 _runDurationMilliseconds = elapsed;
-                if (!_disposed && _state == RunnerState.Starting)
+                if (_disposed)
+                {
+                    // Game exited normally (e.g. Game.Exit() on WebGL).
+                    terminationReason = "exited";
+                }
+                else if (_state == RunnerState.Starting)
+                {
                     _state = RunnerState.Running;
+                    terminationReason = null;
+                }
+                else
+                {
+                    terminationReason = null;
+                }
                 return new StartResult(
                     _state == RunnerState.Running,
                     _state.ToString().ToLowerInvariant(),
@@ -136,7 +152,8 @@ internal sealed class GameRunner : IDisposable
                     _game is not null,
                     _disposed,
                     _disposeAttempts,
-                    null);
+                    null,
+                    terminationReason);
             }
         }
         catch (Exception exception) when (!IsFatal(exception))
@@ -306,7 +323,7 @@ internal sealed class GameRunner : IDisposable
         string message, string code = "PREVIEW_START_FAILED", Exception? exception = null) =>
         new(false, _state.ToString().ToLowerInvariant(), _runAttempts, _runReturned,
             _runDurationMilliseconds, _game is not null, _disposed, _disposeAttempts,
-            new RunnerError(code, message), exception);
+            new RunnerError(code, message), null, exception);
 
     private static void DisposeUnexpectedObject(object? created)
     {
@@ -439,6 +456,7 @@ internal sealed class GameRunner : IDisposable
         bool Disposed,
         int DisposeAttempts,
         RunnerError? Error,
+        string? TerminationReason = null,
         Exception? Exception = null);
 
     internal sealed record RunnerSnapshot(

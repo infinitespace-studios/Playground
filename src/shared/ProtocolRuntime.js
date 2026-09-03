@@ -569,7 +569,7 @@ export function validatePreviewStopResponse(value, correlationId, previewId) {
 
 export function validatePreviewLifecycleEvent(value, previewId, expectedCorrelationId) {
   const expectedType = value?.type;
-  if (!["preview.started", "preview.failed", "preview.stopped"].includes(expectedType)) {
+  if (!["preview.started", "preview.failed", "preview.stopped", "preview.exited"].includes(expectedType)) {
     throw new Error("MESSAGE_ROUTE_REJECTED");
   }
   const { message, observation } =
@@ -588,6 +588,12 @@ export function validatePreviewLifecycleEvent(value, previewId, expectedCorrelat
       throw new Error("MALFORMED_PAYLOAD");
     }
     validateError(payload.error);
+  } else if (expectedType === "preview.exited") {
+    requireOwn(payload, ["previewId", "sequence", "exitCode"]);
+    rejectUnexpected(payload, ["previewId", "sequence", "exitCode"]);
+    if (!Number.isSafeInteger(payload.exitCode)) {
+      throw new Error("MALFORMED_PAYLOAD");
+    }
   } else {
     requireOwn(payload, ["previewId", "sequence", "reason"]);
     rejectUnexpected(payload, ["previewId", "sequence", "reason"]);
@@ -704,7 +710,8 @@ export class ProtocolPortClient {
         return;
       }
       if (value.type === "preview.started" || value.type === "preview.failed" ||
-          value.type === "preview.stopped" || value.type === "preview.output") {
+          value.type === "preview.stopped" || value.type === "preview.exited" ||
+          value.type === "preview.output") {
         if (value.type === "preview.failed" && value.payload?.phase === "running" &&
             !this.lifecycleEligible.has(value.correlationId) &&
             this.runtimeFailureCorrelation === null && this.lifecycleEligible.size > 0) {

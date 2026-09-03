@@ -1057,6 +1057,7 @@ public static partial class PreviewExports
                 start.Disposed,
                 start.DisposeAttempts,
                 start.Error is null ? null : new LoadError(start.Error.Code, start.Error.Message),
+                start.TerminationReason,
                 failure),
             PreviewJsonContext.Default.GameStartResult);
     }
@@ -1455,7 +1456,7 @@ public static partial class PreviewExports
         string code, string message, RuntimeExceptionReport? failure = null) =>
         JsonSerializer.Serialize(
             new GameStartResult(false, "stopped", 0, false, null, false, false, 0,
-                new LoadError(code, message), failure),
+                new LoadError(code, message), null, failure),
             PreviewJsonContext.Default.GameStartResult);
 
     internal sealed record AssetEntry(string Path, byte[] Bytes);
@@ -1586,6 +1587,7 @@ public static partial class PreviewExports
         bool Disposed,
         int DisposeAttempts,
         LoadError? Error,
+        string? TerminationReason = null,
         RuntimeExceptionReport? Failure = null);
     internal sealed record GameRunStateResult(
         string State,
