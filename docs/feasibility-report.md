@@ -1,7 +1,7 @@
 # Phase 1 Feasibility Report
 
 **Date:** 2025-09-03
-**Author:** @dellis12 (human reviewer)
+**Author:** @dellis1972 (human reviewer)
 **Scope:** Issues 001–043 (Phase 0/1 feasibility spike)
 **Status:** **PASS-WITH-WAIVERS**
 
@@ -200,5 +200,5 @@ The architecture is feasible. Workbench product-UI development (issues 045+) may
 
 ---
 
-**Signed:** @dellis12
+**Signed:** @dellis1972
 **Date:** 2025-09-03
