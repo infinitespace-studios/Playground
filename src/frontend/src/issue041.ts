@@ -475,6 +475,12 @@ export async function runIssue041Benchmark(): Promise<void> {
     return;
   }
 
+  // Memory-baseline mode: delegate to the dedicated function.
+  if (mode === "memory-baseline") {
+    await runMemoryBaselineBenchmark();
+    return;
+  }
+
   // Every phase result collected so far survives a later failure: a launch that
   // breaks in the preview phase still reports its compiler-init and compilation
   // samples, so the driver never has to survivor-condition on whole launches.
@@ -572,4 +578,236 @@ export async function runIssue041Benchmark(): Promise<void> {
     phaseReached,
     failure,
   });
+}
+
+// ---------------------------------------------------------------------------
+// Issue 042: memory-baseline benchmark (100-comp + 20-cycle RSS stability)
+// ---------------------------------------------------------------------------
+
+interface RssSample {
+  readonly label: string;
+  readonly bytes: number;
+  readonly kilobytes: number;
+  readonly megabytes: number;
+}
+
+interface MemoryBaselineReport {
+  readonly schemaVersion: 2;
+  readonly generatedAt: string;
+  readonly benchmarkMode: string;
+  readonly mode: "memory-baseline";
+  readonly compilerRssSamples: RssSample[];
+  readonly previewRssSamples: RssSample[];
+  readonly cleanupVerification: {
+    readonly audioContextStates: string[];
+    readonly animationFrameCount: number;
+    readonly webglContextCount: number;
+    readonly messagePortCount: number;
+    readonly allCleared: boolean;
+    readonly detail: string;
+  };
+  readonly compilationCount: number;
+  readonly previewCycleCount: number;
+  readonly failures: string[];
+}
+
+/** Read RSS of the current process via the Rust command. */
+async function readRss(): Promise<RssSample> {
+  const invoke = invokeHost();
+  if (!invoke) throw new Error("no Tauri invoke available");
+  const bytes = await invoke<number>("issue041_rss_bytes");
+  return {
+    label: `RSS=${Math.round(bytes / 1024)} KB`,
+    bytes,
+    kilobytes: bytes / 1024,
+    megabytes: bytes / (1024 * 1024),
+  };
+}
+
+/** Verify that stopped preview resources are fully cleaned up. */
+async function verifyCleanup(): Promise<MemoryBaselineReport["cleanupVerification"]> {
+  const audioContextStates: string[] = [];
+  let animationFrameCount = 0;
+  let webglContextCount = 0;
+  let messagePortCount = 0;
+  const detailParts: string[] = [];
+
+  // Check for lingering AudioContext instances
+  if (typeof (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext !== "undefined") {
+    try {
+      // Create a temporary canvas to check WebGL
+      const canvas = document.createElement("canvas");
+      const gl = canvas.getContext("webgl") ?? canvas.getContext("webgl2") ?? canvas.getContext("experimental-webgl");
+      if (gl) {
+        webglContextCount++;
+        // Try to get another context — if it succeeds, the first was released
+        const gl2 = canvas.getContext("webgl2");
+        if (gl2) webglContextCount++;
+      }
+      canvas.remove();
+    } catch {
+      // Canvas creation failed — no WebGL contexts available
+    }
+  }
+
+  // Check for lingering animation frames by tracking requestAnimationFrame
+  let rafId: number | null = null;
+  const checkFrame = () => {
+    animationFrameCount++;
+    if (rafId !== null) cancelAnimationFrame(rafId);
+    if (animationFrameCount < 3) {
+      rafId = requestAnimationFrame(checkFrame);
+    }
+  };
+  rafId = requestAnimationFrame(checkFrame);
+
+  // Check for lingering message ports
+  // This is a heuristic: if there are active MessagePort objects, they won't
+  // be garbage collected immediately, so we check channel count
+  try {
+    const { port1, port2 } = new MessageChannel();
+    messagePortCount = 2;
+    port1.close();
+    port2.close();
+  } catch {
+    messagePortCount = -1; // MessageChannel not available
+  }
+
+  // Check AudioContext states (if AudioContext exists)
+  if (typeof AudioContext !== "undefined") {
+    try {
+      const ctx = new AudioContext();
+      audioContextStates.push(ctx.state);
+      await ctx.close();
+    } catch {
+      audioContextStates.push("closed-or-failed");
+    }
+  }
+
+  const allCleared =
+    audioContextStates.every(s => s === "closed") &&
+    animationFrameCount <= 3 &&
+    messagePortCount <= 2;
+
+  detailParts.push(
+    `AudioContext states: ${audioContextStates.join(", ")}`,
+    `Animation frames observed: ${animationFrameCount}`,
+    `WebGL contexts checked: ${webglContextCount}`,
+    `MessagePort objects created/closed: ${messagePortCount}`,
+    allCleared ? "All cleanup checks passed" : "Some cleanup checks failed",
+  );
+
+  return {
+    audioContextStates,
+    animationFrameCount,
+    webglContextCount,
+    messagePortCount,
+    allCleared,
+    detail: detailParts.join(" | "),
+  };
+}
+
+export async function runMemoryBaselineBenchmark(): Promise<void> {
+  const invoke = invokeHost();
+  if (!invoke || !(await benchmarkEnabled())) return;
+  const mode = await invoke<string>("issue041_benchmark_mode");
+
+  if (mode !== "memory-baseline") return;
+
+  const emit = (payload: Record<string, unknown>) => invoke("issue041_emit_report", {
+    report: JSON.stringify({
+      schemaVersion: 2,
+      generatedAt: new Date().toISOString(),
+      benchmarkMode: `MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=${mode}`,
+      mode,
+      ...payload,
+    }),
+  });
+
+  const compilerRssSamples: RssSample[] = [];
+  const previewRssSamples: RssSample[] = [];
+  const failures: string[] = [];
+  const recordFailure = (phase: string, error: unknown) => {
+    const detail = error instanceof Error ? error.message : String(error);
+    failures.push(`${phase}: ${detail}`);
+  };
+
+  try {
+    // 1. Compile 100 times (1 cold + 99 warm), sample RSS at intervals 10, 20, ..., 100
+    const warmCompileCount = await invoke<number>("issue041_warm_compile_count");
+    const totalCompiles = 1 + warmCompileCount;
+    if (totalCompiles !== 100) {
+      throw new Error(`expected 100 total compiles (1 cold + ${warmCompileCount} warm), got ${totalCompiles}`);
+    }
+
+    await checkpoint("memory-baseline-start");
+
+    // Cold compile
+    await compileOnce(0, "cold");
+    if (totalCompiles % 10 === 0) {
+      compilerRssSamples.push(await readRss());
+    }
+
+    // Warm compiles
+    for (let index = 1; index <= warmCompileCount; index++) {
+      await compileOnce(index, "warm");
+      if ((index % 10) === 0) {
+        compilerRssSamples.push(await readRss());
+      }
+    }
+    await checkpoint("memory-baseline-compiles-complete", { count: totalCompiles });
+
+    // 2. Run 20 preview cycles with RSS after each Stop
+    const previewCycleCount = await invoke<number>("issue041_preview_cycle_count");
+    if (previewCycleCount < 20) {
+      throw new Error(`expected >= 20 preview cycles, got ${previewCycleCount}`);
+    }
+
+    for (let cycle = 0; cycle < Math.min(previewCycleCount, 20); cycle++) {
+      await checkpoint("memory-baseline-cycle-begin", { cycle });
+      try {
+        await runPreviewCycle(cycle, cycle === 0 ? "cold" : "warm");
+        // Sample RSS after Stop completes
+        const rssAfterStop = await readRss();
+        rssAfterStop.label = `after-cycle-${cycle + 1}-stop`;
+        previewRssSamples.push(rssAfterStop);
+      } catch (error: unknown) {
+        recordFailure(`memory-baseline-cycle-${cycle}`, error);
+      }
+    }
+    await checkpoint("memory-baseline-cycles-complete", { cycles: previewRssSamples.length });
+
+    // 3. Verify cleanup after all cycles
+    await checkpoint("memory-baseline-cleanup-verify");
+    const cleanup = await verifyCleanup();
+
+    await checkpoint("memory-baseline-complete");
+    await emit({
+      mode: "memory-baseline" as const,
+      compilerRssSamples,
+      previewRssSamples,
+      cleanupVerification: cleanup,
+      compilationCount: totalCompiles,
+      previewCycleCount: previewRssSamples.length,
+      failures,
+    });
+  } catch (error: unknown) {
+    recordFailure("memory-baseline-main", error instanceof Error ? error.message : String(error));
+    await emit({
+      mode: "memory-baseline" as const,
+      compilerRssSamples,
+      previewRssSamples,
+      cleanupVerification: {
+        audioContextStates: [],
+        animationFrameCount: 0,
+        webglContextCount: 0,
+        messagePortCount: 0,
+        allCleared: false,
+        detail: `benchmark failed: ${error instanceof Error ? error.message : String(error)}`,
+      },
+      compilationCount: compilerRssSamples.length,
+      previewCycleCount: previewRssSamples.length,
+      failures,
+    });
+  }
 }

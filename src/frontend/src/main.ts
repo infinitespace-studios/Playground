@@ -18,6 +18,7 @@ import { gateFirstRun, runIssue037AutoProof } from "./issue37";
 import { runIssue038ForceStopProof } from "./issue38";
 import { runIssue039ContentProof } from "./issue039";
 import { runIssue040AudioProof } from "./issue040";
+import { reportIssue041ShellReady, runIssue041Benchmark, runMemoryBaselineBenchmark } from "./issue041";
 
 interface RuntimeBuild {
   buildConfiguration: string;
@@ -1464,3 +1465,20 @@ void runIssue040AudioProof().catch((error: unknown) => {
   });
   console.error("Issue 040 proof instrumentation failed", error);
 });
+
+// Issue 041: benchmark instrumentation. Shell readiness is reported first so the
+// startup sample is never delayed by the later measurement phases.
+void reportIssue041ShellReady()
+  .then(() => runIssue041Benchmark())
+  .then(() => runMemoryBaselineBenchmark())
+  .catch((error: unknown) => {
+    void window.__TAURI_INTERNALS__?.invoke("issue041_emit_report", {
+      report: JSON.stringify({
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        failure: error instanceof Error ? error.message : String(error),
+        diagnostics,
+      }),
+    });
+    console.error("Issue 041 benchmark instrumentation failed", error);
+  });

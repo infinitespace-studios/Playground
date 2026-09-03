@@ -87,6 +87,14 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue040_emit_checkpoint",
   "issue040_emit_report",
   "issue040_dispatch_preview_input",
+  "issue041_is_benchmark_enabled",
+  "issue041_benchmark_mode",
+  "issue041_warm_compile_count",
+  "issue041_preview_cycle_count",
+  "issue041_shell_ready",
+  "issue041_emit_checkpoint",
+  "issue041_emit_report",
+  "issue041_rss_bytes",
 ] as const;
 
 const source = `

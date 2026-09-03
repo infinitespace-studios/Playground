@@ -648,6 +648,95 @@ export function renderMarkdown(report) {
     lines.push(table(rows));
     lines.push("");
   }
+
+  // Memory-baseline section (Issue 042).
+  if (report.memoryBaseline !== null && report.memoryBaseline !== undefined) {
+    const mb = report.memoryBaseline;
+    lines.push("## Memory baseline (Issue 042 — RSS stability after 100 compiles and 20 preview cycles)");
+    lines.push("");
+    if (!mb.enabled) {
+      lines.push("Memory-baseline mode was not enabled for this report.");
+      lines.push("");
+    } else {
+      lines.push(`**Runs:** ${mb.runs} | **Compilations:** ${mb.compilationCount} | ` +
+        `**Preview cycles:** ${mb.previewCycleCount}`);
+      lines.push("");
+
+      if (mb.failures.length > 0) {
+        lines.push("**Failures:**");
+        lines.push("");
+        for (const failure of mb.failures) {
+          lines.push(`- ${failure}`);
+        }
+        lines.push("");
+      }
+
+      // Compiler RSS stability
+      const compiler = mb.compilerRssStability;
+      lines.push(`### Compiler RSS after ${mb.compilationCount} compilations`);
+      lines.push("");
+      lines.push(`- **Threshold:** p95 growth ≤ 10%`);
+      lines.push(`- **Verdict:** **${compiler.verdict}**`);
+      lines.push(`- **Sample count:** ${compiler.sampleCount}`);
+      lines.push(`- **First RSS:** ${compiler.firstKilobytes.toFixed(1)} KB`);
+      lines.push(`- **Last RSS:** ${compiler.lastKilobytes.toFixed(1)} KB`);
+      lines.push(`- **Growth:** ${compiler.growthPercent.toFixed(2)}%`);
+      lines.push("");
+
+      if (compiler.sampleCount > 0) {
+        const compilerSorted = [...compiler.samples].sort((a, b) => a - b);
+        const compilerP50 = compilerSorted[Math.floor(compilerSorted.length * 0.5)] ?? 0;
+        const compilerP95 = compilerSorted[Math.ceil(compilerSorted.length * 0.95) - 1] ?? 0;
+        lines.push("| min | p50 | mean | p95 | max | Growth% | Verdict |");
+        lines.push("| --- | --- | ---- | --- | --- | ------- | ------- |");
+        const cMin = Math.min(...compiler.samples);
+        const cMax = Math.max(...compiler.samples);
+        const cMean = compiler.samples.reduce((a, b) => a + b, 0) / compiler.samples.length;
+        lines.push(`| ${cMin.toFixed(1)} KB | ${compilerP50.toFixed(1)} KB | ${cMean.toFixed(1)} KB | ${compilerP95.toFixed(1)} KB | ${cMax.toFixed(1)} KB | ${compiler.growthPercent.toFixed(2)}% | **${compiler.verdict}** |`);
+        lines.push("");
+      }
+
+      // Preview RSS stability
+      const preview = mb.previewRssStability;
+      lines.push(`### Preview RSS after ${mb.previewCycleCount} Run/Stop cycles`);
+      lines.push("");
+      lines.push(`- **Threshold:** p95 growth ≤ 20%`);
+      lines.push(`- **Verdict:** **${preview.verdict}**`);
+      lines.push(`- **Sample count:** ${preview.sampleCount}`);
+      lines.push(`- **First RSS:** ${preview.firstKilobytes.toFixed(1)} KB`);
+      lines.push(`- **Last RSS:** ${preview.lastKilobytes.toFixed(1)} KB`);
+      lines.push(`- **Growth:** ${preview.growthPercent.toFixed(2)}%`);
+      lines.push("");
+
+      if (preview.sampleCount > 0) {
+        const previewSorted = [...preview.samples].sort((a, b) => a - b);
+        const previewP50 = previewSorted[Math.floor(previewSorted.length * 0.5)] ?? 0;
+        const previewP95 = previewSorted[Math.ceil(previewSorted.length * 0.95) - 1] ?? 0;
+        lines.push("| min | p50 | mean | p95 | max | Growth% | Verdict |");
+        lines.push("| --- | --- | ---- | --- | --- | ------- | ------- |");
+        const pMin = Math.min(...preview.samples);
+        const pMax = Math.max(...preview.samples);
+        const pMean = preview.samples.reduce((a, b) => a + b, 0) / preview.samples.length;
+        lines.push(`| ${pMin.toFixed(1)} KB | ${previewP50.toFixed(1)} KB | ${pMean.toFixed(1)} KB | ${previewP95.toFixed(1)} KB | ${pMax.toFixed(1)} KB | ${preview.growthPercent.toFixed(2)}% | **${preview.verdict}** |`);
+        lines.push("");
+      }
+
+      // Cleanup verification
+      lines.push("### Resource cleanup verification");
+      lines.push("");
+      lines.push(`- **All checks passed:** ${mb.cleanupVerification.allCleared ? "yes" : "no"}`);
+      lines.push("");
+      for (const detail of mb.cleanupVerification.details) {
+        lines.push(`- Audio contexts: ${detail.audioContextStates.join(", ")}`);
+        lines.push(`- Animation frames observed: ${detail.animationFrameCount}`);
+        lines.push(`- WebGL contexts: ${detail.webglContextCount}`);
+        lines.push(`- Message ports: ${detail.messagePortCount}`);
+        lines.push(`- Detail: ${detail.detail}`);
+      }
+      lines.push("");
+    }
+  }
+
   lines.push("## Caveats and known gaps");
   lines.push("");
   for (const caveat of report.caveats) lines.push(`- ${caveat}`);

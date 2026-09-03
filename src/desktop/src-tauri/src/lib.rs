@@ -347,6 +347,7 @@ fn packaged_pipeline_proof_enabled() -> bool {
         || issue038_proof_enabled()
         || issue039_proof_enabled()
         || issue040_proof_enabled()
+        || issue041_benchmark_enabled()
 }
 
 #[cfg(target_os = "macos")]
@@ -724,6 +725,7 @@ mod tests {
         issue037_validate_identity, issue037_read_store, issue037_write_store_atomic,
         chrono_free_iso8601, ISSUE037_SCHEMA_VERSION, ISSUE037_MAX_IDENTITY_BYTES,
         ISSUE037_MAX_ENTRIES,
+        issue041_mode_value, issue041_preview_cycle_count_value, issue041_warm_compile_iterations,
     };
     use tauri::http::{Method, Response};
 
@@ -755,6 +757,36 @@ mod tests {
     fn native_activation_is_rejected_without_packaged_proof_authorization() {
         assert!(require_packaged_pipeline_proof(false).is_err());
         assert!(require_packaged_pipeline_proof(true).is_ok());
+    }
+
+    #[test]
+    fn issue041_benchmark_mode_accepts_only_known_modes() {
+        assert_eq!(issue041_mode_value(None), Ok("full"));
+        assert_eq!(issue041_mode_value(Some("full")), Ok("full"));
+        assert_eq!(issue041_mode_value(Some("shell-only")), Ok("shell-only"));
+        assert_eq!(issue041_mode_value(Some("memory-baseline")), Ok("memory-baseline"));
+        assert!(issue041_mode_value(Some("")).is_err());
+        assert!(issue041_mode_value(Some("Full")).is_err());
+        assert!(issue041_mode_value(Some("everything")).is_err());
+    }
+
+    #[test]
+    fn issue041_sample_counts_are_bounded() {
+        assert_eq!(issue041_warm_compile_iterations(None), Ok(10));
+        assert_eq!(issue041_warm_compile_iterations(Some("1")), Ok(1));
+        assert_eq!(issue041_warm_compile_iterations(Some("100")), Ok(100));
+        assert!(issue041_warm_compile_iterations(Some("0")).is_err());
+        assert!(issue041_warm_compile_iterations(Some("101")).is_err());
+        assert!(issue041_warm_compile_iterations(Some("-1")).is_err());
+        assert!(issue041_warm_compile_iterations(Some("ten")).is_err());
+
+        assert_eq!(issue041_preview_cycle_count_value(None), Ok(2));
+        assert_eq!(issue041_preview_cycle_count_value(Some("2")), Ok(2));
+        assert_eq!(issue041_preview_cycle_count_value(Some("10")), Ok(10));
+        assert_eq!(issue041_preview_cycle_count_value(Some("20")), Ok(20));
+        assert!(issue041_preview_cycle_count_value(Some("1")).is_err());
+        assert!(issue041_preview_cycle_count_value(Some("21")).is_err());
+        assert!(issue041_preview_cycle_count_value(Some("two")).is_err());
     }
 
     #[test]
@@ -1387,6 +1419,46 @@ mod tests {
                 "{command} missing from main permission"
             );
         }
+    }
+
+    #[test]
+    fn issue041_commands_are_registered_in_every_inventory() {
+        let build = include_str!("../build.rs");
+        let permission = include_str!("../permissions/main.toml");
+        let frontend = include_str!("../../../frontend/src/issue34.ts");
+        for command in [
+            "issue041_is_benchmark_enabled",
+            "issue041_benchmark_mode",
+            "issue041_warm_compile_count",
+            "issue041_preview_cycle_count",
+            "issue041_shell_ready",
+            "issue041_emit_checkpoint",
+            "issue041_emit_report",
+            "issue041_rss_bytes",
+        ] {
+            assert!(build.contains(command), "{command} missing from build.rs");
+            assert!(
+                permission.contains(command),
+                "{command} missing from main permission"
+            );
+            assert!(
+                frontend.contains(command),
+                "{command} missing from the frontend command inventory"
+            );
+        }
+    }
+
+    #[test]
+    fn issue041_benchmark_instrumentation_is_environment_gated() {
+        let source = include_str!("lib.rs");
+        assert!(source.contains("MONOGAME_ISSUE041_BENCHMARK"));
+        // Every issue 041 command body refuses to act unless the gate is set.
+        // Seven command bodies refuse to act without the gate (the eighth command
+        // is the gate probe itself); one further occurrence is this assertion.
+        let gated = source
+            .matches("return Err(\"issue 041 benchmark instrumentation is disabled\".into());")
+            .count();
+        assert_eq!(gated, 7, "every gated issue 041 command must check the flag");
     }
 
     #[test]
@@ -2524,6 +2596,176 @@ fn issue040_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Issue 041: performance benchmark instrumentation.
+//
+// Every command below is inert unless MONOGAME_ISSUE041_BENCHMARK=1 is present
+// in the process environment, so the shipped application never exposes the
+// benchmark surface. Nothing here fabricates a timestamp: the shell-startup
+// sample is taken from a monotonic clock captured before any Tauri or WebView
+// work, and the benchmark driver independently brackets the same process launch
+// with its own wall-clock spawn timestamp.
+// ---------------------------------------------------------------------------
+
+/// Monotonic instant captured as the first statement of `run()`. `Instant` is
+/// monotonic and cannot be moved by wall-clock adjustments.
+static ISSUE041_PROCESS_START: std::sync::LazyLock<std::time::Instant> =
+    std::sync::LazyLock::new(std::time::Instant::now);
+
+fn issue041_benchmark_enabled() -> bool {
+    std::env::var_os("MONOGAME_ISSUE041_BENCHMARK").is_some_and(|value| value == "1")
+}
+
+#[tauri::command]
+fn issue041_is_benchmark_enabled() -> bool {
+    issue041_benchmark_enabled()
+}
+
+/// `shell-only` measures shell startup and exits immediately afterwards;
+/// `full` continues into the compile / preview-start / Stop cycles.
+/// `memory-baseline` runs 100 compilations and 20 cycles with RSS sampling.
+fn issue041_mode_value(raw: Option<&str>) -> Result<&'static str, String> {
+    match raw {
+        None | Some("full") => Ok("full"),
+        Some("shell-only") => Ok("shell-only"),
+        Some("memory-baseline") => Ok("memory-baseline"),
+        Some(other) => Err(format!("unknown issue 041 benchmark mode: {other}")),
+    }
+}
+
+#[tauri::command]
+fn issue041_benchmark_mode() -> Result<&'static str, String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    let raw = std::env::var("MONOGAME_ISSUE041_MODE").ok();
+    issue041_mode_value(raw.as_deref())
+}
+
+/// Number of warm compile samples the harness collects per process launch.
+fn issue041_warm_compile_iterations(raw: Option<&str>) -> Result<u32, String> {
+    let Some(raw) = raw else { return Ok(10) };
+    let parsed: u32 = raw
+        .parse()
+        .map_err(|_| format!("invalid issue 041 warm compile iteration count: {raw}"))?;
+    if !(1..=100).contains(&parsed) {
+        return Err(format!(
+            "issue 041 warm compile iteration count out of range (1..=100): {parsed}"
+        ));
+    }
+    Ok(parsed)
+}
+
+#[tauri::command]
+fn issue041_warm_compile_count() -> Result<u32, String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    let raw = std::env::var("MONOGAME_ISSUE041_WARM_COMPILES").ok();
+    issue041_warm_compile_iterations(raw.as_deref())
+}
+
+/// Number of preview start / Stop cycles the harness runs per process launch.
+/// The first cycle is the cold sample, every later cycle is a warm sample.
+/// Memory-baseline mode requires up to 20 cycles.
+fn issue041_preview_cycle_count_value(raw: Option<&str>) -> Result<u32, String> {
+    let Some(raw) = raw else { return Ok(2) };
+    let parsed: u32 = raw
+        .parse()
+        .map_err(|_| format!("invalid issue 041 preview cycle count: {raw}"))?;
+    if !(2..=20).contains(&parsed) {
+        return Err(format!(
+            "issue 041 preview cycle count out of range (2..=20): {parsed}"
+        ));
+    }
+    Ok(parsed)
+}
+
+#[tauri::command]
+fn issue041_preview_cycle_count() -> Result<u32, String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    let raw = std::env::var("MONOGAME_ISSUE041_PREVIEW_CYCLES").ok();
+    issue041_preview_cycle_count_value(raw.as_deref())
+}
+
+/// Read the resident set size (RSS) of the current process in bytes.
+/// Uses `ps -o rss=` on macOS (KB) and multiplies by 1024.
+#[tauri::command]
+fn issue041_rss_bytes() -> Result<u64, String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    #[cfg(target_os = "macos")]
+    {
+        let output = std::process::Command::new("ps")
+            .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+            .output()
+            .map_err(|e| format!("failed to run ps: {e}"))?;
+        let kb = String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse::<u64>()
+            .map_err(|e| format!("failed to parse RSS: {e}"))?;
+        Ok(kb * 1024)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        Err("RSS measurement only supported on macOS".to_string())
+    }
+}
+
+/// Record the instant the shell reported itself visible and interactive, in
+/// milliseconds since the process-start instant, together with the native
+/// window state observed at that moment.
+#[tauri::command]
+fn issue041_shell_ready(window: tauri::Window, detail: String) -> Result<String, String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    let elapsed = ISSUE041_PROCESS_START.elapsed();
+    if detail.len() > 4096 {
+        return Err("issue 041 shell readiness detail exceeds the 4096 byte limit".into());
+    }
+    let detail: serde_json::Value =
+        serde_json::from_str(&detail).map_err(|error| format!("invalid detail JSON: {error}"))?;
+    let payload = serde_json::json!({
+        "processStartToShellReadyMs": elapsed.as_secs_f64() * 1_000.0,
+        "windowVisible": window.is_visible().map_err(|error| error.to_string())?,
+        "windowMinimized": window.is_minimized().map_err(|error| error.to_string())?,
+        "windowFocused": window.is_focused().map_err(|error| error.to_string())?,
+        "detail": detail,
+    });
+    let serialized = payload.to_string();
+    emit_packaged_proof_report(&format!("ISSUE041_SHELL_READY={serialized}"))?;
+    Ok(serialized)
+}
+
+#[tauri::command]
+fn issue041_emit_checkpoint(checkpoint: String) -> Result<(), String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    if checkpoint.len() > 4096 {
+        return Err("issue 041 checkpoint exceeds the 4096 byte limit".into());
+    }
+    if checkpoint.contains('\n') || checkpoint.contains('\r') {
+        return Err("issue 041 checkpoint must be a single line".into());
+    }
+    println!("ISSUE041_CHECKPOINT={checkpoint}");
+    Ok(())
+}
+
+#[tauri::command]
+fn issue041_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
+    if !issue041_benchmark_enabled() {
+        return Err("issue 041 benchmark instrumentation is disabled".into());
+    }
+    emit_packaged_proof_report(&format!("ISSUE041_REPORT={report}"))?;
+    app.exit(0);
+    Ok(())
+}
+
 /// One real platform input event the issue 040 proof may deliver to an isolated
 /// preview window. Nothing here fabricates DOM events: the AppKit event is
 /// handed to `NSApplication::sendEvent`, so WebKit routes it through its normal
@@ -3091,6 +3333,10 @@ fn percent_decode(input: &str) -> Option<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Issue 041: capture the process-start instant before any other work so
+    // shell-startup samples cannot be shifted by later initialisation.
+    let _ = *ISSUE041_PROCESS_START;
+
     #[cfg(target_os = "macos")]
     match relay_packaged_proof_through_launch_services() {
         Ok(true) => return,
@@ -3255,7 +3501,15 @@ pub fn run() {
             issue040_is_proof_enabled,
             issue040_emit_checkpoint,
             issue040_emit_report,
-            issue040_dispatch_preview_input
+            issue040_dispatch_preview_input,
+            issue041_is_benchmark_enabled,
+            issue041_benchmark_mode,
+            issue041_warm_compile_count,
+            issue041_preview_cycle_count,
+            issue041_shell_ready,
+            issue041_emit_checkpoint,
+            issue041_emit_report,
+            issue041_rss_bytes
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

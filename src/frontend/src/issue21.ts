@@ -1281,6 +1281,22 @@ export async function compileSourcesThroughPersistentCompiler(input: {
   };
 }
 
+/** Issue 041: boot the persistent compiler context through exactly the path a
+ *  compile request takes, without issuing a compile. This lets the benchmark
+ *  harness time cold compiler initialisation separately from the first
+ *  compilation of a project. */
+export async function prepareCompilerContextForBenchmark(): Promise<number> {
+  await ensureIssue21Contexts(false, true);
+  return compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts ?? 0;
+}
+
+/** Issue 041: wait for the shell's own top-level runtime to reach its rendering
+ *  steady state. The benchmark treats this as a precondition (a person clicking
+ *  Run on a settled shell) and excludes it from every reported sample. */
+export async function waitForShellSteadyStateForBenchmark(): Promise<void> {
+  await waitForTopRuntime();
+}
+
 export async function compileLoadStartIssue23(input: {
     assemblyName: string;
     sourcePath: string;
@@ -1302,9 +1318,20 @@ export async function compileLoadStartIssue23(input: {
     issue034Proof?: boolean;
     issue035Proof?: boolean;
     issue036Proof?: boolean;
+    /** Issue 041: passive timing hook. Receives a phase name and the
+     *  `performance.now()` value observed when that phase completed. It never
+     *  changes control flow; omitting it leaves behaviour unchanged. */
+    onPhase?: (phase: string, timestamp: number) => void;
+    /** Issue 041: passive report of what the isolated-preview bootstrap loop
+     *  did, so bootstrap time can be attributed between real runtime work and
+     *  fixed loop overhead. Never changes control flow. */
+    onBootstrapDetail?: (detail: Record<string, unknown>) => void;
     onOutput?: (event: PreviewOutput) => void;
   }): Promise<Issue23RunningPreview> {
+    const mark = (phase: string) => input.onPhase?.(phase, performance.now());
+    mark("request.begin");
     await ensureIssue21Contexts(false, true);
+    mark("contexts.ready");
     const compileId = createUuid();
     const compileCorrelationId = createUuid();
     const compileSources = input.sources ?? [{
@@ -1342,6 +1369,7 @@ export async function compileLoadStartIssue23(input: {
       [],
       30_000,
     ) as ReturnType<typeof validateCompileResponse>;
+    mark("compile.response");
     if (!compiled.message.result.success) {
       throw new Error(`${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
     }
@@ -1378,10 +1406,14 @@ export async function compileLoadStartIssue23(input: {
         issue036Proof: input.issue036Proof === true,
       },
       runtimeCase: input.runtimeCase,
+      onPhase: input.onPhase,
+      onBootstrapDetail: input.onBootstrapDetail,
     });
+    mark("preview.window.created");
 
     // Store binaries for transfer via protocol (no JSON/Base64 bloat)
     await storeBinaryTransfer(invoke, isolatedCtx.transferToken, assembly, pdb);
+    mark("preview.binaries.transferred");
 
     const client = isolatedCtx.protocolClient;
     const bridge = isolatedCtx.bridge;
@@ -1429,6 +1461,7 @@ export async function compileLoadStartIssue23(input: {
     const contentWindowIdentity = nextWindowIdentity++;
 
     await bridge.ready;
+    mark("preview.bridge.ready");
     // Skip frame visibility check — isolated window is managed by Rust
     const frameReadiness = {
       first: 0,
@@ -1469,12 +1502,14 @@ export async function compileLoadStartIssue23(input: {
         transferToken: isolatedCtx.transferToken,
       },
     };
+    mark("preview.load.request");
     const loadResponse = await client.request(
       loadRequest,
       "preview.load.response",
       value => validatePreviewLoadResponse(value, loadCorrelationId, isolatedPreviewId, compileId),
       [],
     ) as ReturnType<typeof validatePreviewLoadResponse>;
+    mark("preview.load.response");
     if (!loadResponse.message.result.success) {
       client.close(new Error("Failed preview load retired."));
       bridge.close();
@@ -1580,6 +1615,7 @@ export async function compileLoadStartIssue23(input: {
     };
     let startResponse: ReturnType<typeof validatePreviewStartResponse>;
     const startRequestAt = performance.now();
+    mark("preview.start.request");
     if (input.expectedStartCode) {
       const issue21Proof = await bridge.request<ContextProof>("snapshot", { name: "issue21" });
       const portIdentity = issue21Proof.bootstrap?.portIdentity;
@@ -1744,6 +1780,7 @@ export async function compileLoadStartIssue23(input: {
       }
     }
     const startedEvent = await startedPromise;
+    mark("preview.started");
     removeListener();
     if (input.startPattern === "same-concurrent") {
       const deadline = performance.now() + 1_000;

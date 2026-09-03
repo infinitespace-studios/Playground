@@ -60,6 +60,7 @@ const MARKDOWN_OUTPUT = join(REPO, "docs/performance-baseline.md");
 
 const FULL_RUN_TIMEOUT_MS = 300_000;
 const SHELL_RUN_TIMEOUT_MS = 120_000;
+const MEMORY_BASELINE_TIMEOUT_MS = 600_000;
 const TERMINATION_GRACE_MS = 5_000;
 
 /** Every phase/kind pair that must reach REQUIRED_SAMPLES_PER_PHASE samples. */
@@ -91,6 +92,9 @@ function parseArguments(argv) {
     maxAttempts: null,
     dryRun: false,
     allowIncomplete: false,
+    memoryBaseline: false,
+    warmCompilesBaseline: 99,
+    previewCyclesBaseline: 20,
   };
   for (let index = 0; index < argv.length; index++) {
     const flag = argv[index];
@@ -103,6 +107,9 @@ function parseArguments(argv) {
       case "--max-attempts": options.maxAttempts = Number(value); index++; break;
       case "--dry-run": options.dryRun = true; break;
       case "--allow-incomplete": options.allowIncomplete = true; break;
+      case "--memory-baseline": options.memoryBaseline = true; break;
+      case "--warm-compiles-baseline": options.warmCompilesBaseline = Number(value); index++; break;
+      case "--preview-cycles-baseline": options.previewCyclesBaseline = Number(value); index++; break;
       default: throw new Error(`unknown argument: ${flag}`);
     }
   }
@@ -180,12 +187,15 @@ async function terminateExact(child, exited) {
  * enabled and return everything it reported.
  */
 async function launch({ attempt, mode, shellLaunchKind, timeoutMs, options }) {
+  const isMemoryBaseline = mode === "memory-baseline";
+  const warmCompiles = isMemoryBaseline ? options.warmCompilesBaseline : options.warmCompiles;
+  const previewCycles = isMemoryBaseline ? options.previewCyclesBaseline : options.previewCycles;
   const env = {
     ...process.env,
     MONOGAME_ISSUE041_BENCHMARK: "1",
     MONOGAME_ISSUE041_MODE: mode,
-    MONOGAME_ISSUE041_WARM_COMPILES: String(options.warmCompiles),
-    MONOGAME_ISSUE041_PREVIEW_CYCLES: String(options.previewCycles),
+    MONOGAME_ISSUE041_WARM_COMPILES: String(warmCompiles),
+    MONOGAME_ISSUE041_PREVIEW_CYCLES: String(previewCycles),
   };
   const stdoutChunks = [];
   const stderrChunks = [];
@@ -721,6 +731,50 @@ export function collectSamples(runs, options) {
       evidence.disposeCounts.push(measured.disposeCount);
       evidence.callbackAfterDisposed.push(measured.callbackAfterDisposedCount);
     }
+
+    // Memory-baseline mode: RSS samples and cleanup verification.
+    if (run.mode === "memory-baseline") {
+      const report = run.report;
+      const mbFailureText = report?.failure
+        ? String(report.failure)
+        : `launch outcome ${run.outcome}`;
+
+      if (!report) {
+        exclusions.push({
+          attempt: run.attempt,
+          phaseId: "memory-baseline",
+          kind: "baseline",
+          reason: `the memory-baseline launch produced no report at all (${mbFailureText})`,
+        });
+      } else {
+        supplementaryRaw.memoryBaselineCompilerRssBytes = supplementaryRaw.memoryBaselineCompilerRssBytes ?? [];
+        supplementaryRaw.memoryBaselinePreviewRssBytes = supplementaryRaw.memoryBaselinePreviewRssBytes ?? [];
+        supplementaryRaw.memoryBaselineCleanupVerification = supplementaryRaw.memoryBaselineCleanupVerification ?? [];
+
+        if (report.compilerRssSamples) {
+          for (const sample of report.compilerRssSamples) {
+            supplementaryRaw.memoryBaselineCompilerRssBytes.push(sample.bytes);
+          }
+        }
+        if (report.previewRssSamples) {
+          for (const sample of report.previewRssSamples) {
+            supplementaryRaw.memoryBaselinePreviewRssBytes.push(sample.bytes);
+          }
+        }
+        if (report.cleanupVerification) {
+          supplementaryRaw.memoryBaselineCleanupVerification.push(report.cleanupVerification);
+        }
+
+        if (report.failures && report.failures.length > 0) {
+          exclusions.push({
+            attempt: run.attempt,
+            phaseId: "memory-baseline",
+            kind: "baseline",
+            reason: `benchmark failures: ${report.failures.join(", ")}`,
+          });
+        }
+      }
+    }
   }
   return { samples, supplementaryRaw, evidence, exclusions, censored, contributionsByLaunch };
 }
@@ -939,13 +993,32 @@ async function main() {
       `  outcome=${shellOnly.outcome} exit=${shellOnly.exitCode} ` +
       `shell=${shellOnly.shellReadyWallClockMs?.toFixed(0) ?? "n/a"}ms\n`);
 
+    // Memory-baseline: 100 compilations + 20 preview cycles with RSS sampling.
+    if (options.memoryBaseline) {
+      process.stdout.write(`[attempt ${attempt}] memory-baseline run…\n`);
+      const memoryBaseline = await launch({
+        attempt,
+        mode: "memory-baseline",
+        shellLaunchKind: "baseline",
+        timeoutMs: MEMORY_BASELINE_TIMEOUT_MS,
+        options,
+      });
+      runs.push(memoryBaseline);
+      process.stdout.write(
+        `  outcome=${memoryBaseline.outcome} exit=${memoryBaseline.exitCode} ` +
+        `wall=${memoryBaseline.wallClockMs.toFixed(0)}ms ` +
+        `${memoryBaseline.report?.failure ? ` failure=${String(memoryBaseline.report.failure).slice(0, 120)}` : ""}\n`);
+    }
+
     attemptRecords.push({
       attempt,
       retryReason,
       startedAt: attemptStartedAt,
       consoleSessionBefore: sessionBefore,
       consoleSessionAfter: consoleSessionState(),
-      launchKeys: [`${attempt}:full`, `${attempt}:shell-only`],
+      launchKeys: options.memoryBaseline
+        ? [`${attempt}:full`, `${attempt}:shell-only`, `${attempt}:memory-baseline`]
+        : [`${attempt}:full`, `${attempt}:shell-only`],
     });
   }
 
@@ -1344,6 +1417,66 @@ async function main() {
     rawRunReports: runs
       .filter(run => run.report !== null)
       .map(run => ({ attempt: run.attempt, mode: run.mode, report: run.report })),
+    memoryBaseline: (() => {
+      const mbRuns = runs.filter(run => run.mode === "memory-baseline");
+      if (mbRuns.length === 0) return null;
+      const mbReports = mbRuns.map(run => run.report).filter(Boolean);
+      if (mbReports.length === 0) return null;
+
+      // Aggregate RSS samples
+      const compilerRssSamples = mbReports.flatMap(r => r.compilerRssSamples ?? []);
+      const previewRssSamples = mbReports.flatMap(r => r.previewRssSamples ?? []);
+      const cleanupVerifications = mbReports.flatMap(r => r.cleanupVerification ? [r.cleanupVerification] : []);
+
+      // Compute RSS stability for compiler samples
+      const compilerRssKb = compilerRssSamples.map(s => s.kilobytes).filter(v => typeof v === "number");
+      const compilerRssFirst = compilerRssKb[0] ?? 0;
+      const compilerRssLast = compilerRssKb[compilerRssKb.length - 1] ?? 0;
+      const compilerGrowthPercent = compilerRssFirst > 0
+        ? ((compilerRssLast - compilerRssFirst) / compilerRssFirst) * 100
+        : 0;
+
+      // Compute RSS stability for preview samples
+      const previewRssKb = previewRssSamples.map(s => s.kilobytes).filter(v => typeof v === "number");
+      const previewRssFirst = previewRssKb[0] ?? 0;
+      const previewRssLast = previewRssKb[previewRssKb.length - 1] ?? 0;
+      const previewGrowthPercent = previewRssFirst > 0
+        ? ((previewRssLast - previewRssFirst) / previewRssFirst) * 100
+        : 0;
+
+      // Cleanup verification results
+      const allCleared = cleanupVerifications.every(c => c.allCleared);
+
+      return {
+        enabled: options.memoryBaseline,
+        runs: mbRuns.length,
+        compilationCount: mbReports[0]?.compilationCount ?? 0,
+        previewCycleCount: mbReports[0]?.previewCycleCount ?? 0,
+        failures: mbReports.flatMap(r => r.failures ?? []),
+        compilerRssStability: {
+          sampleCount: compilerRssKb.length,
+          firstKilobytes: compilerRssFirst,
+          lastKilobytes: compilerRssLast,
+          growthPercent,
+          thresholdPercent: 10,
+          verdict: compilerGrowthPercent <= 10 ? "PASS" : "FAIL",
+          samples: compilerRssKb,
+        },
+        previewRssStability: {
+          sampleCount: previewRssKb.length,
+          firstKilobytes: previewRssFirst,
+          lastKilobytes: previewRssLast,
+          growthPercent,
+          thresholdPercent: 20,
+          verdict: previewGrowthPercent <= 20 ? "PASS" : "FAIL",
+          samples: previewRssKb,
+        },
+        cleanupVerification: {
+          allCleared,
+          details: cleanupVerifications,
+        },
+      };
+    })(),
   };
 
   const problems = validateReport(report);

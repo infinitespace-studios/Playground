@@ -47,8 +47,17 @@ export async function createIsolatedPreview(
     previewId?: UuidV4;
     proofFlags?: Record<string, boolean>;
     runtimeCase?: string;
+    /** Issue 041: passive timing hook; never changes control flow. */
+    onPhase?: (phase: string, timestamp: number) => void;
+    /**
+     * Issue 041: passive report of what the bootstrap-and-poll loop actually
+     * did. Never changes control flow; used to attribute the bootstrap
+     * interval between real runtime work and loop overhead.
+     */
+    onBootstrapDetail?: (detail: Record<string, unknown>) => void;
   } = {},
 ): Promise<IsolatedPreviewContext> {
+  const mark = (phase: string) => opts.onPhase?.(phase, performance.now());
   const contextGeneration = createUuid();
   const previewId = opts.previewId ?? createUuid();
   const generation = contextGeneration.replace(/-/g, "").slice(0, 32);
@@ -56,9 +65,11 @@ export async function createIsolatedPreview(
 
   // Create the isolated WebviewWindow
   const label = await invoke("issue038_create_preview_window", { generation }) as string;
+  mark("preview.window.invoked");
 
   // Wait for window to load _isolated.html
   await new Promise(resolve => globalThis.setTimeout(resolve, 1500));
+  mark("preview.window.settled");
 
   // Editor-side channels: port1 for ProtocolPortClient/Bridge, port2 for relay
   const protocolChannel = new MessageChannel();
@@ -75,6 +86,21 @@ export async function createIsolatedPreview(
     bridgeReadyReject = reject;
   });
   let bridgeClosed = false;
+
+  // Issue 041 instrumentation, passive: observe the readiness promise itself.
+  // The background polling loop started below is this context's real consumer
+  // of `preview.bridge.ready`, so the bootstrap loop further down usually never
+  // sees that message itself. Attaching a resolution observer records when the
+  // preview runtime actually became ready without competing for the message and
+  // without changing any control flow.
+  let bridgeReadyObservedAt: number | null = null;
+  void bridgeReady.then(
+    () => {
+      bridgeReadyObservedAt = performance.now();
+      mark("preview.bridge.ready.observed");
+    },
+    () => { /* closed before ready; the bootstrap detail records that */ },
+  );
 
   bridgeChannel.port1.addEventListener("message", event => {
     const message = event.data;
@@ -232,10 +258,16 @@ export async function createIsolatedPreview(
   };
 
   const bootstrapJson = JSON.stringify(bootstrapData);
-  const bootstrapDeadline = Date.now() + 10_000;
+  const bootstrapDeadlineMs = 10_000;
+  const bootstrapPollPeriodMs = 500;
+  const bootstrapStartedAt = performance.now();
+  const bootstrapDeadline = Date.now() + bootstrapDeadlineMs;
+  let bootstrapIterations = 0;
+  let loopObservedReady = false;
   while (Date.now() < bootstrapDeadline) {
+    bootstrapIterations++;
     await invoke("issue038_bootstrap_preview", { generation, bootstrapJson });
-    await new Promise(resolve => globalThis.setTimeout(resolve, 500));
+    await new Promise(resolve => globalThis.setTimeout(resolve, bootstrapPollPeriodMs));
     const messages = await invoke("issue038_collect_bridge_messages", { generation }) as string[];
     let gotReady = false;
     for (const raw of messages) {
@@ -249,8 +281,25 @@ export async function createIsolatedPreview(
         }
       } catch { /* malformed */ }
     }
-    if (gotReady) break;
+    if (gotReady) {
+      loopObservedReady = true;
+      break;
+    }
   }
+  mark("preview.runtime.bootstrapped");
+  opts.onBootstrapDetail?.({
+    deadlineMs: bootstrapDeadlineMs,
+    pollPeriodMs: bootstrapPollPeriodMs,
+    iterations: bootstrapIterations,
+    elapsedMs: performance.now() - bootstrapStartedAt,
+    exitReason: loopObservedReady ? "loop-observed-ready" : "deadline-exhausted",
+    readyPromiseResolved: bridgeReadyObservedAt !== null,
+    readyPromiseResolvedAtMs: bridgeReadyObservedAt,
+    // True when the runtime was already ready but the background drain above had
+    // consumed `preview.bridge.ready`, so the loop could only exit on its
+    // deadline: the interval is a fixed wait, not preview runtime work.
+    readinessConsumedByBackgroundDrain: bridgeReadyObservedAt !== null && !loopObservedReady,
+  });
 
   return {
     generation,
