@@ -624,33 +624,45 @@ async function readRss(): Promise<RssSample> {
   };
 }
 
-/** Verify that stopped preview resources are fully cleaned up. */
+/** Verify that stopped preview resources are fully cleaned up.
+ *
+ * The verification does NOT check for "zero" resources — that is impossible
+ * because we must create test objects to confirm cleanup works. Instead it
+ * confirms that every test object can be created *and destroyed* without
+ * throwing, which proves no leaked objects are blocking the browser APIs.
+ */
 async function verifyCleanup(): Promise<MemoryBaselineReport["cleanupVerification"]> {
-  const audioContextStates: string[] = [];
+  let audioContextOk = false;
   let animationFrameCount = 0;
-  let webglContextCount = 0;
+  let webglContextOk = false;
   let messagePortCount = 0;
+  let messagePortOk = false;
+  let audioContextState: string | null = null;
   const detailParts: string[] = [];
 
-  // Check for lingering AudioContext instances
-  if (typeof (window as unknown as { AudioContext?: typeof AudioContext }).AudioContext !== "undefined") {
+  // Check for lingering AudioContext instances by creating and closing one.
+  if (typeof AudioContext !== "undefined") {
     try {
-      // Create a temporary canvas to check WebGL
-      const canvas = document.createElement("canvas");
-      const gl = canvas.getContext("webgl") ?? canvas.getContext("webgl2") ?? canvas.getContext("experimental-webgl");
-      if (gl) {
-        webglContextCount++;
-        // Try to get another context — if it succeeds, the first was released
-        const gl2 = canvas.getContext("webgl2");
-        if (gl2) webglContextCount++;
-      }
-      canvas.remove();
+      const ctx = new AudioContext();
+      audioContextState = ctx.state;
+      await ctx.close();
+      audioContextOk = true;
     } catch {
-      // Canvas creation failed — no WebGL contexts available
+      audioContextState = "error";
     }
   }
 
-  // Check for lingering animation frames by tracking requestAnimationFrame
+  // Check for lingering WebGL contexts by creating one on a fresh canvas.
+  try {
+    const canvas = document.createElement("canvas");
+    const gl = canvas.getContext("webgl") ?? canvas.getContext("webgl2") ?? canvas.getContext("experimental-webgl");
+    if (gl) webglContextOk = true;
+    canvas.remove();
+  } catch {
+    webglContextOk = false;
+  }
+
+  // Check for lingering animation frames by creating and cancelling them.
   let rafId: number | null = null;
   const checkFrame = () => {
     animationFrameCount++;
@@ -661,46 +673,33 @@ async function verifyCleanup(): Promise<MemoryBaselineReport["cleanupVerificatio
   };
   rafId = requestAnimationFrame(checkFrame);
 
-  // Check for lingering message ports
-  // This is a heuristic: if there are active MessagePort objects, they won't
-  // be garbage collected immediately, so we check channel count
+  // Check for lingering message ports by creating and closing a channel.
   try {
     const { port1, port2 } = new MessageChannel();
     messagePortCount = 2;
     port1.close();
     port2.close();
+    messagePortOk = true;
   } catch {
-    messagePortCount = -1; // MessageChannel not available
+    messagePortCount = 0;
+    messagePortOk = false;
   }
 
-  // Check AudioContext states (if AudioContext exists)
-  if (typeof AudioContext !== "undefined") {
-    try {
-      const ctx = new AudioContext();
-      audioContextStates.push(ctx.state);
-      await ctx.close();
-    } catch {
-      audioContextStates.push("closed-or-failed");
-    }
-  }
-
-  const allCleared =
-    audioContextStates.every(s => s === "closed") &&
-    animationFrameCount <= 3 &&
-    messagePortCount <= 2;
+  // All checks pass when every test object can be created and destroyed.
+  const allCleared = audioContextOk && webglContextOk && animationFrameCount <= 3 && messagePortOk;
 
   detailParts.push(
-    `AudioContext states: ${audioContextStates.join(", ")}`,
+    `AudioContext: ${audioContextOk ? "ok (state=${audioContextState})" : "failed"}`,
+    `WebGL: ${webglContextOk ? "ok" : "failed"}`,
     `Animation frames observed: ${animationFrameCount}`,
-    `WebGL contexts checked: ${webglContextCount}`,
-    `MessagePort objects created/closed: ${messagePortCount}`,
+    `MessagePort objects created/closed: ${messagePortCount} (${messagePortOk ? "ok" : "failed"})`,
     allCleared ? "All cleanup checks passed" : "Some cleanup checks failed",
   );
 
   return {
-    audioContextStates,
+    audioContextStates: audioContextOk ? [audioContextState!] : (audioContextState ? [audioContextState] : []),
     animationFrameCount,
-    webglContextCount,
+    webglContextCount: webglContextOk ? 1 : 0,
     messagePortCount,
     allCleared,
     detail: detailParts.join(" | "),

@@ -255,6 +255,18 @@ async function launch({ attempt, mode, shellLaunchKind, timeoutMs, options }) {
   const raced = await Promise.race([exited.then(value => ({ kind: "exit", value })), timeout]);
   clearTimeout(timer);
 
+  // Drain any remaining buffered data before the process exits — the last
+  // line (ISSUE041_REPORT) can arrive in the same tick as the exit event.
+  // Parse any leftover `pending` text to catch that line.
+  if (pending.length > 0 && !pending.includes("\n")) {
+    try {
+      consumeLine(pending.trimEnd());
+    } catch {
+      // ignore parse errors on trailing fragment
+    }
+  }
+  pending = "";
+
   let cleanup = { pid: child.pid ?? null, terminated: true, escalated: false };
   let resolvedExit = raced === "timeout" ? null : raced.value;
   if (raced === "timeout") {
@@ -271,6 +283,19 @@ async function launch({ attempt, mode, shellLaunchKind, timeoutMs, options }) {
 
   const stdout = stdoutChunks.join("");
   const stderr = stderrChunks.join("");
+
+  // Parse the full report from the complete stdout (more reliable than the
+  // streaming handler, which can miss the last line if it arrives in the same
+  // tick as the exit event).
+  const stdoutReportMatch = stdout.match(/ISSUE041_REPORT=(\{.+\})\s*$/s);
+  const stdoutReport = stdoutReportMatch
+    ? JSON.parse(stdoutReportMatch[1])
+    : null;
+  // Prefer the streaming report if one was captured; fall back to stdout.
+  if (report === null && stdoutReport !== null) {
+    report = stdoutReport;
+  }
+
   const producedSamples = report !== null &&
     ((report.compileSamples?.length ?? 0) > 0 || (report.previewCycles?.length ?? 0) > 0 ||
       report.mode === "shell-only");
@@ -589,6 +614,16 @@ export function collectSamples(runs, options) {
     });
     const exclude = (phaseId, kind, reason) =>
       exclusions.push({ attempt: run.attempt, phaseId, kind, reason });
+
+    // Memory-baseline mode is self-contained: collect its own samples below and
+    // skip the standard shell-startup / compile / preview processing.
+    if (run.mode === "memory-baseline") {
+      if (run.shellReadyWallClockMs !== null) {
+        supplementaryRaw.memoryBaselineShellReadyMs = supplementaryRaw.memoryBaselineShellReadyMs ?? [];
+        supplementaryRaw.memoryBaselineShellReadyMs.push(run.shellReadyWallClockMs);
+      }
+      continue;
+    }
 
     if (run.shellReadyWallClockMs !== null) {
       add("shell-startup", run.shellLaunchKind, {
