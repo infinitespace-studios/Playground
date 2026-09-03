@@ -1,7 +1,7 @@
 # Measure startup/compile/preview/Stop timings
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [025-restart-preview-with-clean-static-state.md](025-restart-preview-with-clean-static-state.md), [038-force-stop-infinite-update-in-isolation.md](038-force-stop-infinite-update-in-isolation.md)
 **PRD references:** 17, 20.2
 **User stories:** US7, US8
