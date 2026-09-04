@@ -122,7 +122,7 @@ function parseArguments(argv) {
   if (!Number.isInteger(options.maxAttempts) || options.maxAttempts < options.runs) {
     throw new Error("--max-attempts must be an integer no smaller than --runs");
   }
-  if (options.runs < REQUIRED_SAMPLES_PER_PHASE) {
+  if (!options.memoryBaseline && options.runs < REQUIRED_SAMPLES_PER_PHASE) {
     console.warn(
       `warning: --runs ${options.runs} yields fewer than the ` +
       `${REQUIRED_SAMPLES_PER_PHASE} samples per phase the acceptance criteria require.`);
