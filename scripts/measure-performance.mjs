@@ -950,14 +950,21 @@ async function main() {
   let attempt = 0;
   let stopReason = null;
   let sessionInterrupted = false;
+  // When memory-baseline mode is the primary concern, standard phases only
+  // need 1 sample each (provided by each full/shell-only run). The 10-sample
+  // requirement applies only to the standard full/shell-only runs.
+  const standardRequired = options.memoryBaseline ? 1 : REQUIRED_SAMPLES_PER_PHASE;
   let lastCollected = collectSamples(runs, options);
   for (;;) {
     lastCollected = collectSamples(runs, options);
-    const missing = missingTargets(lastCollected.samples);
+    const missing = missingTargets(lastCollected.samples, standardRequired);
     if (attempt >= options.runs && missing.length === 0) {
       stopReason =
-        `every phase and kind reached ${REQUIRED_SAMPLES_PER_PHASE} samples after ` +
-        `${attempt} attempt(s)`;
+        options.memoryBaseline
+          ? `memory-baseline completed after ${attempt} attempt(s); standard phases ` +
+            `reached ${standardRequired} sample(s) each`
+          : `every phase and kind reached ${REQUIRED_SAMPLES_PER_PHASE} samples after ` +
+            `${attempt} attempt(s)`;
       break;
     }
     if (attempt >= options.maxAttempts) {
@@ -1208,7 +1215,7 @@ async function main() {
       "is kept and listed with its provenance; only the phases they never reached are missing, " +
       "and each of those is listed in \"Samples that could not be taken\" with its reason. " +
       "Additional attempts were then made, inside the stated attempt budget, until each phase " +
-      `reached ${REQUIRED_SAMPLES_PER_PHASE} samples.`);
+      `reached ${standardRequired} samples.`);
   }
   if (censored.length > 0) {
     caveats.push(
@@ -1268,7 +1275,7 @@ async function main() {
     "way without any sample being hidden.",
     "Samples that could not exist (a phase a launch never reached) are listed individually with " +
     "the reason, and are the only cause of an additional attempt.",
-    `Attempts continue until every phase and kind holds ${REQUIRED_SAMPLES_PER_PHASE} samples, ` +
+    `Attempts continue until every phase and kind holds ${standardRequired} sample(s), ` +
     `bounded by a finite budget of ${options.maxAttempts} attempt(s) (the default budget is ` +
     `${DEFAULT_ATTEMPT_BUDGET_MULTIPLIER}x the ${options.runs} nominal attempts). No attempt is ` +
     "ever discarded because its numbers were slow or unwelcome: every attempt made is in the " +
@@ -1296,17 +1303,22 @@ async function main() {
       attemptsMade: attempts.length,
       attemptBudget: options.maxAttempts,
       budgetRule:
-        `attempts continue until every phase and kind holds ${REQUIRED_SAMPLES_PER_PHASE} ` +
-        `samples, up to ${DEFAULT_ATTEMPT_BUDGET_MULTIPLIER}x the nominal attempt count ` +
-        "(overridable with --max-attempts); the budget is finite so a persistently broken " +
-        "build cannot loop.",
+        options.memoryBaseline
+          ? `attempts continue until standard phases hold ${standardRequired} sample(s) each, ` +
+            `up to ${DEFAULT_ATTEMPT_BUDGET_MULTIPLIER}x the nominal attempt count ` +
+            "(overridable with --max-attempts); the budget is finite so a persistently broken " +
+            "build cannot loop."
+          : `attempts continue until every phase and kind holds ${REQUIRED_SAMPLES_PER_PHASE} ` +
+            `samples, up to ${DEFAULT_ATTEMPT_BUDGET_MULTIPLIER}x the nominal attempt count ` +
+            "(overridable with --max-attempts); the budget is finite so a persistently broken " +
+            "build cannot loop.",
       stopReason,
       requirementsAtEnd: PHASE_TARGETS.map(([phaseId, kind]) => ({
         phaseId,
         kind,
         samples: samples[phaseId][kind].length,
         censored: samples[phaseId][kind].filter(sample => sample.censored).length,
-        required: REQUIRED_SAMPLES_PER_PHASE,
+        required: standardRequired,
       })),
       attempts,
     },
@@ -1368,11 +1380,14 @@ async function main() {
         "evidence the compiler did the same work each time rather than short-circuiting.",
       ],
       runPlan: [
-        `Launches: ${runs.length} total (${runs.filter(run => run.mode === "full").length} full, ` +
-        `${runs.filter(run => run.mode === "shell-only").length} shell-only) across ` +
-        `${attempts.length} attempt(s) within a budget of ${options.maxAttempts}.`,
+        `Launches: ${runs.length} total (` +
+        `${runs.filter(run => run.mode === "full").length} full, ` +
+        `${runs.filter(run => run.mode === "shell-only").length} shell-only, ` +
+        `${runs.filter(run => run.mode === "memory-baseline").length} memory-baseline` +
+        `) across ${attempts.length} attempt(s) within a budget of ${options.maxAttempts}.`,
         `Hard timeouts: ${FULL_RUN_TIMEOUT_MS / 1_000} s per full launch, ` +
         `${SHELL_RUN_TIMEOUT_MS / 1_000} s per shell-only launch, ` +
+        `${MEMORY_BASELINE_TIMEOUT_MS / 1_000} s per memory-baseline launch, ` +
         `${20_000 / 1_000} s per first-frame observation (censoring bound), and a 300 s ` +
         "whole-harness budget inside each launch.",
         "Process discipline: only the exact PIDs this driver spawned are ever signalled " +
@@ -1409,7 +1424,10 @@ async function main() {
         "npm --prefix src/frontend run build",
         "npm --prefix src/desktop run tauri -- build",
         `caffeinate -di node scripts/measure-performance.mjs --runs ${options.runs} ` +
-        `--warm-compiles ${options.warmCompiles} --preview-cycles ${options.previewCycles} ` +
+        `${options.memoryBaseline
+          ? `--memory-baseline --warm-compiles-baseline ${options.warmCompilesBaseline} ` +
+            `--preview-cycles-baseline ${options.previewCyclesBaseline} `
+          : `--warm-compiles ${options.warmCompiles} --preview-cycles ${options.previewCycles} `}` +
         `--cooling-seconds ${options.coolingSeconds} --max-attempts ${options.maxAttempts}`,
         "node --test scripts/performance-report.test.mjs scripts/measure-performance.test.mjs",
       ],
