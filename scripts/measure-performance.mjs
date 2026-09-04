@@ -1501,7 +1501,7 @@ async function main() {
           sampleCount: previewRssKb.length,
           firstKilobytes: previewRssFirst,
           lastKilobytes: previewRssLast,
-          growthPercent,
+          growthPercent: previewGrowthPercent,
           thresholdPercent: 20,
           verdict: previewGrowthPercent <= 20 ? "PASS" : "FAIL",
           samples: previewRssKb,
