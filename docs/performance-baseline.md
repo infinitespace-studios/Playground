@@ -402,6 +402,36 @@ Sample provenance (which attempt and launch produced each sample):
 - Message ports: 2
 - Detail: AudioContext: ok (state=${audioContextState}) | WebGL: ok | Animation frames observed: 0 | MessagePort objects created/closed: 2 (ok) | All cleanup checks passed
 
+
+
+## Release Package Size (Issue 043)
+
+- **Total compressed size:** 84.41 MB
+- **100 MB target:** PASS
+- **Debug symbols:** stripped
+
+### Category breakdown (uncompressed)
+
+| Category | Size |
+| --- | --- |
+| Shell native binary | 109.51 MB |
+| Frontend shell (HTML/JS/CSS) | 0.15 MB |
+| Compiler runtime (Roslyn WASM + refs) | 37.81 MB |
+| Preview runtime (Blazor WASM + MonoGame) | 43.79 MB |
+| MonoGame managed assemblies | 1.23 MB |
+| .NET runtime (shared _framework) | 14.23 MB |
+| Audio dependencies | 3.64 MB |
+
+### Fixture verification (Release build)
+
+| Fixture | Description | Result |
+| --- | --- | --- |
+| issue030 | Two-file cross-call compile/run | PASS |
+| issue031 | Policy rejection (supported API) | PASS |
+| issue032 | Policy rejection (native JS interop) | PASS |
+| issue039 | Texture2D content validation | FAIL |
+| issue040 | SoundEffect playback | FAIL |
+
 ## Caveats and known gaps
 
 - Cold shell samples in this report span 351-351 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.
