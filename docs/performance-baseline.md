@@ -6,7 +6,7 @@
 
 **Report schema version:** 2
 
-**Generated:** 2026-09-04T17:54:06.006Z
+**Generated:** 2026-09-04T20:06:00.477Z
 
 **Issue:** 041 — measure startup/compile/preview/Stop timings (PRD 17, 20.2)
 
@@ -78,14 +78,14 @@ Each threshold uses exactly the inclusivity PRD section 17 words. "Warm compilat
 
 | Phase | Kind | n | censored | p50 | p95 | Threshold | Verdict |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Application shell startup | cold | 1 | 0 | 343.7 ms | 343.7 ms | p95 <= 3000.0 ms | **PASS** |
-| Application shell startup | warm | 1 | 0 | 306.6 ms | 306.6 ms | p95 <= 3000.0 ms | **PASS** |
-| Compilation of the five-file benchmark project | cold | 1 | 0 | 1134.0 ms | 1134.0 ms | p95 < 5000.0 ms | **PASS** |
-| Compilation of the five-file benchmark project | warm | 10 | 0 | 174.0 ms | 231.0 ms | p95 < 2000.0 ms | **PASS** |
-| Preview visibly active after successful compilation | cold | 1 | 0 | 12354.0 ms | 12354.0 ms | p95 <= 3000.0 ms | **FAIL** |
-| Preview visibly active after successful compilation | warm | 1 | 0 | 12339.0 ms | 12339.0 ms | p95 <= 3000.0 ms | **FAIL** |
-| Stop returns control to the editor | cold | 1 | 0 | 267.0 ms | 267.0 ms | p95 <= 2000.0 ms | **PASS** |
-| Stop returns control to the editor | warm | 1 | 0 | 263.0 ms | 263.0 ms | p95 <= 2000.0 ms | **PASS** |
+| Application shell startup | cold | 1 | 0 | 350.8 ms | 350.8 ms | p95 <= 3000.0 ms | **PASS** |
+| Application shell startup | warm | 1 | 0 | 299.0 ms | 299.0 ms | p95 <= 3000.0 ms | **PASS** |
+| Compilation of the five-file benchmark project | cold | 1 | 0 | 1271.0 ms | 1271.0 ms | p95 < 5000.0 ms | **PASS** |
+| Compilation of the five-file benchmark project | warm | 10 | 0 | 185.0 ms | 246.0 ms | p95 < 2000.0 ms | **PASS** |
+| Preview visibly active after successful compilation | cold | 1 | 0 | 12345.0 ms | 12345.0 ms | p95 <= 3000.0 ms | **FAIL** |
+| Preview visibly active after successful compilation | warm | 1 | 0 | 12342.0 ms | 12342.0 ms | p95 <= 3000.0 ms | **FAIL** |
+| Stop returns control to the editor | cold | 1 | 0 | 282.0 ms | 282.0 ms | p95 <= 2000.0 ms | **PASS** |
+| Stop returns control to the editor | warm | 1 | 0 | 241.0 ms | 241.0 ms | p95 <= 2000.0 ms | **PASS** |
 
 `>=` marks a statistic that lands on a right-censored sample: the true value is at least the number shown. A phase whose p95 is a censored lower bound can be a definitive FAIL (the bound already breaches the threshold) but can never be a PASS; such a phase is reported as INDETERMINATE.
 
@@ -104,24 +104,24 @@ Each threshold uses exactly the inclusivity PRD section 17 words. "Warm compilat
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-343.7
+350.8
 ```
 
 Sorted ascending (ms):
 
 ```
-343.7
+350.8
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 343.7 ms | 343.7 ms | 343.7 ms | 343.7 ms | 343.7 ms | **PASS** | 2656.3 ms |
+| 350.8 ms | 350.8 ms | 350.8 ms | 350.8 ms | 350.8 ms | **PASS** | 2649.2 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 343.7 ms | no | 1 | driver wall clock: spawn() → ISSUE041_SHELL_READY |
+| 1 | 350.8 ms | no | 1 | driver wall clock: spawn() → ISSUE041_SHELL_READY |
 
 #### warm samples (n = 1, 0 right-censored)
 
@@ -132,24 +132,24 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-306.6
+299.0
 ```
 
 Sorted ascending (ms):
 
 ```
-306.6
+299.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 306.6 ms | 306.6 ms | 306.6 ms | 306.6 ms | 306.6 ms | **PASS** | 2693.4 ms |
+| 299.0 ms | 299.0 ms | 299.0 ms | 299.0 ms | 299.0 ms | **PASS** | 2701.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 306.6 ms | no | 1 | driver wall clock: spawn() → ISSUE041_SHELL_READY |
+| 1 | 299.0 ms | no | 1 | driver wall clock: spawn() → ISSUE041_SHELL_READY |
 
 ### Compilation of the five-file benchmark project
 
@@ -164,24 +164,24 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-1134.0
+1271.0
 ```
 
 Sorted ascending (ms):
 
 ```
-1134.0
+1271.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1134.0 ms | 1134.0 ms | 1134.0 ms | 1134.0 ms | 1134.0 ms | **PASS** | 3866.0 ms |
+| 1271.0 ms | 1271.0 ms | 1271.0 ms | 1271.0 ms | 1271.0 ms | **PASS** | 3729.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 1134.0 ms | no | 1 | compiler-context boot + first compilation in that context |
+| 1 | 1271.0 ms | no | 1 | compiler-context boot + first compilation in that context |
 
 #### warm samples (n = 10, 0 right-censored)
 
@@ -192,33 +192,33 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-231.0, 207.0, 191.0, 187.0, 181.0, 174.0, 167.0, 167.0, 163.0, 164.0
+246.0, 219.0, 201.0, 197.0, 192.0, 185.0, 177.0, 178.0, 171.0, 174.0
 ```
 
 Sorted ascending (ms):
 
 ```
-163.0, 164.0, 167.0, 167.0, 174.0, 181.0, 187.0, 191.0, 207.0, 231.0
+171.0, 174.0, 177.0, 178.0, 185.0, 192.0, 197.0, 201.0, 219.0, 246.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 163.0 ms | 174.0 ms | 183.2 ms | 231.0 ms | 231.0 ms | **PASS** | 1769.0 ms |
+| 171.0 ms | 185.0 ms | 194.0 ms | 246.0 ms | 246.0 ms | **PASS** | 1754.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 231.0 ms | no | 1 | warm compilation #1 in the retained context |
-| 2 | 207.0 ms | no | 1 | warm compilation #2 in the retained context |
-| 3 | 191.0 ms | no | 1 | warm compilation #3 in the retained context |
-| 4 | 187.0 ms | no | 1 | warm compilation #4 in the retained context |
-| 5 | 181.0 ms | no | 1 | warm compilation #5 in the retained context |
-| 6 | 174.0 ms | no | 1 | warm compilation #6 in the retained context |
-| 7 | 167.0 ms | no | 1 | warm compilation #7 in the retained context |
-| 8 | 167.0 ms | no | 1 | warm compilation #8 in the retained context |
-| 9 | 163.0 ms | no | 1 | warm compilation #9 in the retained context |
-| 10 | 164.0 ms | no | 1 | warm compilation #10 in the retained context |
+| 1 | 246.0 ms | no | 1 | warm compilation #1 in the retained context |
+| 2 | 219.0 ms | no | 1 | warm compilation #2 in the retained context |
+| 3 | 201.0 ms | no | 1 | warm compilation #3 in the retained context |
+| 4 | 197.0 ms | no | 1 | warm compilation #4 in the retained context |
+| 5 | 192.0 ms | no | 1 | warm compilation #5 in the retained context |
+| 6 | 185.0 ms | no | 1 | warm compilation #6 in the retained context |
+| 7 | 177.0 ms | no | 1 | warm compilation #7 in the retained context |
+| 8 | 178.0 ms | no | 1 | warm compilation #8 in the retained context |
+| 9 | 171.0 ms | no | 1 | warm compilation #9 in the retained context |
+| 10 | 174.0 ms | no | 1 | warm compilation #10 in the retained context |
 
 ### Preview visibly active after successful compilation
 
@@ -233,24 +233,24 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-12354.0
+12345.0
 ```
 
 Sorted ascending (ms):
 
 ```
-12354.0
+12345.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 12354.0 ms | 12354.0 ms | 12354.0 ms | 12354.0 ms | 12354.0 ms | **FAIL** | -9354.0 ms |
+| 12345.0 ms | 12345.0 ms | 12345.0 ms | 12345.0 ms | 12345.0 ms | **FAIL** | -9345.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 12354.0 ms | no | 1 | preview cycle 0: compile response → first drawn frame |
+| 1 | 12345.0 ms | no | 1 | preview cycle 0: compile response → first drawn frame |
 
 #### warm samples (n = 1, 0 right-censored)
 
@@ -261,24 +261,24 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-12339.0
+12342.0
 ```
 
 Sorted ascending (ms):
 
 ```
-12339.0
+12342.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 12339.0 ms | 12339.0 ms | 12339.0 ms | 12339.0 ms | 12339.0 ms | **FAIL** | -9339.0 ms |
+| 12342.0 ms | 12342.0 ms | 12342.0 ms | 12342.0 ms | 12342.0 ms | **FAIL** | -9342.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 12339.0 ms | no | 1 | preview cycle 1: compile response → first drawn frame |
+| 1 | 12342.0 ms | no | 1 | preview cycle 1: compile response → first drawn frame |
 
 ### Stop returns control to the editor
 
@@ -293,24 +293,24 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-267.0
+282.0
 ```
 
 Sorted ascending (ms):
 
 ```
-267.0
+282.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 267.0 ms | 267.0 ms | 267.0 ms | 267.0 ms | 267.0 ms | **PASS** | 1733.0 ms |
+| 282.0 ms | 282.0 ms | 282.0 ms | 282.0 ms | 282.0 ms | **PASS** | 1718.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 267.0 ms | no | 1 | preview cycle 0: Stop → controller idle |
+| 1 | 282.0 ms | no | 1 | preview cycle 0: Stop → controller idle |
 
 #### warm samples (n = 1, 0 right-censored)
 
@@ -321,46 +321,46 @@ Sample provenance (which attempt and launch produced each sample):
 Raw samples in collection order (ms, `>=` marks a censored lower bound):
 
 ```
-263.0
+241.0
 ```
 
 Sorted ascending (ms):
 
 ```
-263.0
+241.0
 ```
 
 | min | p50 | mean | p95 | max | Verdict | Margin to threshold |
 | --- | --- | --- | --- | --- | --- | --- |
-| 263.0 ms | 263.0 ms | 263.0 ms | 263.0 ms | 263.0 ms | **PASS** | 1737.0 ms |
+| 241.0 ms | 241.0 ms | 241.0 ms | 241.0 ms | 241.0 ms | **PASS** | 1759.0 ms |
 
 Sample provenance (which attempt and launch produced each sample):
 
 | # | Value | Censored | Attempt | Source |
 | --- | --- | --- | --- | --- |
-| 1 | 263.0 ms | no | 1 | preview cycle 1: Stop → controller idle |
+| 1 | 241.0 ms | no | 1 | preview cycle 1: Stop → controller idle |
 
 ## Supplementary measurements (not PRD thresholds)
 
 | Measurement | n | p50 | p95 | Note |
 | --- | --- | --- | --- | --- |
-| Shell startup measured inside the process (Rust process-start instant → shell ready) | 2 | 301.5 ms | 326.2 ms | Excludes exec/dyld time before `main`; the PASS/FAIL phase above uses the driver's wall clock from `spawn()`, which is the strict superset. |
-| Compiler-context boot alone (no compilation) | 1 | 220.0 ms | 220.0 ms | The cold compilation phase above is this value plus the first compile. |
-| Compile response → `preview.started` lifecycle event (cold) | 1 | 12162.0 ms | 12162.0 ms | Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing. |
-| Compile response → `preview.started` lifecycle event (warm) | 1 | 12167.0 ms | 12167.0 ms | Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing. |
-| Issue 024 in-protocol Stop latency (cold) | 1 | 266.0 ms | 266.0 ms | Stop request sent → `preview.stopped` observed and resources released, inside the shell. |
-| Issue 024 in-protocol Stop latency (warm) | 1 | 263.0 ms | 263.0 ms | Stop request sent → `preview.stopped` observed and resources released, inside the shell. |
-| Stop latency restricted to previews that had drawn frames | 2 | 263.0 ms | 267.0 ms | Same measurement as the Stop phase above, restricted to cycles whose preview was confirmed drawing. Published so the Stop distribution can be read with and without the non-rendering cycles; the PASS/FAIL phase above includes every Stop. |
-| Measured lower bound on the first-frame instant (compile response → `preview.start.request`) | 2 | 12037.0 ms | 12053.0 ms | The Game cannot draw before the start request leaves the shell, so the true first-frame time is bracketed between this row and the reported first-frame sample. |
-| Frame-rate corrected estimate of the first-frame instant | 2 | 12159.0 ms | 12168.1 ms | The reported sample minus (frames already drawn at the first observation - 1) divided by the frame rate measured immediately afterwards. An estimate only: no verdict uses it. |
-| Frame rate of the running preview (frames per second) | 2 | 59.2 ms | 66.7 ms | Measured after the first-frame sample was taken, over a 250 ms window, from the Game's own frame counter. Used only to quantify the first-frame overshoot. |
-| Bridge round trip of the observation that saw the first frame | 2 | 66.0 ms | 86.0 ms | The preview-bridge round trip that returned the observation, plus one 5 ms poll interval when polling was needed. This bounds only the latency of the final observation, not the whole overshoot: frames drawn before that observation are accounted for by the frame-rate corrected estimate above. |
-| Preview startup breakdown: `issue038_create_preview_window` invoke | 2 | 38.0 ms | 46.0 ms | Creating the isolated preview WebviewWindow through the Rust command. |
-| Preview startup breakdown: fixed settle delay | 2 | 1503.0 ms | 1508.0 ms | Unconditional 1500 ms sleep in `createIsolatedPreview` after the window is created. |
-| Preview startup breakdown: real preview-runtime work (settle → `preview.bridge.ready`) | 2 | 64.0 ms | 65.0 ms | Measured on the bridge-readiness promise itself, observed passively inside `createIsolatedPreview`, so it is the instant the preview .NET/MonoGame WASM runtime actually reported readiness. |
-| Preview startup breakdown: bootstrap-loop wait after the runtime was already ready | 2 | 10256.0 ms | 10282.0 ms | `createIsolatedPreview` starts a background message drain before its bootstrap loop, and that drain consumes `preview.bridge.ready`. The bootstrap loop therefore never sees the readiness message it polls for and can only exit when its fixed 10 000 ms deadline expires. This row is that fixed wait, not preview runtime work and not poll quantisation. |
-| Preview startup breakdown: whole bootstrap interval (settle → loop exit) | 2 | 10320.0 ms | 10347.0 ms | The sum of the two rows above: real runtime readiness plus the fixed deadline the bootstrap loop waits out. |
-| Preview startup breakdown: assembly load + start → `preview.started` | 2 | 260.0 ms | 306.0 ms | Everything after the preview runtime is ready: DLL/PDB transfer, `preview.load` and `preview.start`. |
+| Shell startup measured inside the process (Rust process-start instant → shell ready) | 2 | 293.6 ms | 333.8 ms | Excludes exec/dyld time before `main`; the PASS/FAIL phase above uses the driver's wall clock from `spawn()`, which is the strict superset. |
+| Compiler-context boot alone (no compilation) | 1 | 348.0 ms | 348.0 ms | The cold compilation phase above is this value plus the first compile. |
+| Compile response → `preview.started` lifecycle event (cold) | 1 | 12175.0 ms | 12175.0 ms | Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing. |
+| Compile response → `preview.started` lifecycle event (warm) | 1 | 12193.0 ms | 12193.0 ms | Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing. |
+| Issue 024 in-protocol Stop latency (cold) | 1 | 281.0 ms | 281.0 ms | Stop request sent → `preview.stopped` observed and resources released, inside the shell. |
+| Issue 024 in-protocol Stop latency (warm) | 1 | 241.0 ms | 241.0 ms | Stop request sent → `preview.stopped` observed and resources released, inside the shell. |
+| Stop latency restricted to previews that had drawn frames | 2 | 241.0 ms | 282.0 ms | Same measurement as the Stop phase above, restricted to cycles whose preview was confirmed drawing. Published so the Stop distribution can be read with and without the non-rendering cycles; the PASS/FAIL phase above includes every Stop. |
+| Measured lower bound on the first-frame instant (compile response → `preview.start.request`) | 2 | 12023.0 ms | 12083.0 ms | The Game cannot draw before the start request leaves the shell, so the true first-frame time is bracketed between this row and the reported first-frame sample. |
+| Frame-rate corrected estimate of the first-frame instant | 2 | 12136.2 ms | 12139.2 ms | The reported sample minus (frames already drawn at the first observation - 1) divided by the frame rate measured immediately afterwards. An estimate only: no verdict uses it. |
+| Frame rate of the running preview (frames per second) | 2 | 49.3 ms | 57.5 ms | Measured after the first-frame sample was taken, over a 250 ms window, from the Game's own frame counter. Used only to quantify the first-frame overshoot. |
+| Bridge round trip of the observation that saw the first frame | 2 | 43.0 ms | 85.0 ms | The preview-bridge round trip that returned the observation, plus one 5 ms poll interval when polling was needed. This bounds only the latency of the final observation, not the whole overshoot: frames drawn before that observation are accounted for by the frame-rate corrected estimate above. |
+| Preview startup breakdown: `issue038_create_preview_window` invoke | 2 | 39.0 ms | 46.0 ms | Creating the isolated preview WebviewWindow through the Rust command. |
+| Preview startup breakdown: fixed settle delay | 2 | 1515.0 ms | 1518.0 ms | Unconditional 1500 ms sleep in `createIsolatedPreview` after the window is created. |
+| Preview startup breakdown: real preview-runtime work (settle → `preview.bridge.ready`) | 2 | 65.0 ms | 88.0 ms | Measured on the bridge-readiness promise itself, observed passively inside `createIsolatedPreview`, so it is the instant the preview .NET/MonoGame WASM runtime actually reported readiness. |
+| Preview startup breakdown: bootstrap-loop wait after the runtime was already ready | 2 | 10261.0 ms | 10312.0 ms | `createIsolatedPreview` starts a background message drain before its bootstrap loop, and that drain consumes `preview.bridge.ready`. The bootstrap loop therefore never sees the readiness message it polls for and can only exit when its fixed 10 000 ms deadline expires. This row is that fixed wait, not preview runtime work and not poll quantisation. |
+| Preview startup breakdown: whole bootstrap interval (settle → loop exit) | 2 | 10349.0 ms | 10377.0 ms | The sum of the two rows above: real runtime readiness plus the fixed deadline the bootstrap loop waits out. |
+| Preview startup breakdown: assembly load + start → `preview.started` | 2 | 262.0 ms | 262.0 ms | Everything after the preview runtime is ready: DLL/PDB transfer, `preview.load` and `preview.start`. |
 
 ## Memory baseline (Issue 042 — RSS stability after 100 compiles and 20 preview cycles)
 
@@ -371,26 +371,26 @@ Sample provenance (which attempt and launch produced each sample):
 - **Threshold:** p95 growth ≤ 10%
 - **Verdict:** **PASS**
 - **Sample count:** 10
-- **First RSS:** 215968.0 KB
-- **Last RSS:** 215648.0 KB
-- **Growth:** -0.15%
+- **First RSS:** 215024.0 KB
+- **Last RSS:** 213808.0 KB
+- **Growth:** -0.57%
 
 | min | p50 | mean | p95 | max | Growth% | Verdict |
 | --- | --- | ---- | --- | --- | ------- | ------- |
-| 215648.0 KB | 215664.0 KB | 215739.2 KB | 215968.0 KB | 215968.0 KB | -0.15% | **PASS** |
+| 213808.0 KB | 214736.0 KB | 214388.8 KB | 215072.0 KB | 215072.0 KB | -0.57% | **PASS** |
 
 ### Preview RSS after 20 Run/Stop cycles
 
 - **Threshold:** p95 growth ≤ 20%
 - **Verdict:** **PASS**
 - **Sample count:** 20
-- **First RSS:** 188976.0 KB
-- **Last RSS:** 201360.0 KB
-- **Growth:** 6.55%
+- **First RSS:** 192688.0 KB
+- **Last RSS:** 199504.0 KB
+- **Growth:** 3.54%
 
 | min | p50 | mean | p95 | max | Growth% | Verdict |
 | --- | --- | ---- | --- | --- | ------- | ------- |
-| 181712.0 KB | 194432.0 KB | 192938.4 KB | 200672.0 KB | 201360.0 KB | 6.55% | **PASS** |
+| 178256.0 KB | 192688.0 KB | 191006.4 KB | 198768.0 KB | 199504.0 KB | 3.54% | **PASS** |
 
 ### Resource cleanup verification
 
@@ -404,13 +404,13 @@ Sample provenance (which attempt and launch produced each sample):
 
 ## Caveats and known gaps
 
-- Cold shell samples in this report span 344-344 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.
+- Cold shell samples in this report span 351-351 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.
 - Cold/warm for the shell phase is defined by process and cache state that this driver controls: cold launches are preceded by an enforced idle gap with no application process running, warm launches start immediately after the previous process exited. The OS page cache cannot be purged without root, so "cold" here means cold application state, not a cold file cache.
 - Preview startup includes a fixed 1500 ms settle delay that the current isolated-preview implementation performs after creating the preview window (`createIsolatedPreview` in `src/frontend/src/issue38-bridge.ts`). It is production code on the measured path, so it is measured; removing it is optimization work and is out of scope for this measurement issue (PRD 24 / issue 44 gate).
-- Preview startup also includes a fixed 10 000 ms bootstrap wait, and this report measures it as such rather than describing it as runtime work or poll quantisation. `createIsolatedPreview` starts a background message drain before its bootstrap loop; the drain consumes the `preview.bridge.ready` message, so the loop that polls for that same message never observes it and exits only when its fixed 10 000 ms deadline expires. Measured passively on the readiness promise itself, the preview runtime is actually ready 64 ms (p50) after the settle delay, while the bootstrap loop then waits a further 10256 ms (p50) / 10282 ms (p95) with the runtime already ready. 2 of 2 measured cycles exited that loop on the deadline rather than on the message. Removing the race is optimization work and is out of scope here (PRD 24 / issue 44 gate).
+- Preview startup also includes a fixed 10 000 ms bootstrap wait, and this report measures it as such rather than describing it as runtime work or poll quantisation. `createIsolatedPreview` starts a background message drain before its bootstrap loop; the drain consumes the `preview.bridge.ready` message, so the loop that polls for that same message never observes it and exits only when its fixed 10 000 ms deadline expires. Measured passively on the readiness promise itself, the preview runtime is actually ready 65 ms (p50) after the settle delay, while the bootstrap loop then waits a further 10261 ms (p50) / 10312 ms (p95) with the runtime already ready. 2 of 2 measured cycles exited that loop on the deadline rather than on the message. Removing the race is optimization work and is out of scope here (PRD 24 / issue 44 gate).
 - The measured Run path enables the issue 021/023/024 preview proof instrumentation, because the frame counters that prove the preview is visibly active are exposed by that instrumentation. Each reported sample therefore contains that instrumentation's own cost, so as an estimate of the same phase in an uninstrumented build every observed sample is an upper bound. This is a separate statement from the observation bounds above: a censored sample is a lower bound on the instrumented run itself and implies nothing about an uninstrumented one.
 - The benchmark harness and its Tauri commands are inert unless `MONOGAME_ISSUE041_BENCHMARK=1` is set in the process environment.
-- Uncensored preview-startup samples are upper bounds on the true first-frame instant: the observation is a poll through the preview bridge, and the Game had already drawn 12-13 frames when the observation landed. The overshoot is therefore larger than the bridge round trip alone. It is quantified in the supplementary table by the frame-rate corrected estimate (measured frame rate p50 59.2 fps), and the true first-frame instant is bracketed below by the measured compile-response to `preview.start.request` interval. Censored samples are the opposite case: they are lower bounds, and are marked as such wherever they appear.
+- Uncensored preview-startup samples are upper bounds on the true first-frame instant: the observation is a poll through the preview bridge, and the Game had already drawn 11-13 frames when the observation landed. The overshoot is therefore larger than the bridge round trip alone. It is quantified in the supplementary table by the frame-rate corrected estimate (measured frame rate p50 49.3 fps), and the true first-frame instant is bracketed below by the measured compile-response to `preview.start.request` interval. Censored samples are the opposite case: they are lower bounds, and are marked as such wherever they appear.
 - Samples were collected on one machine in one session; they are a feasibility baseline, not a cross-machine guarantee.
 - At least one threshold FAILED. Per this issue's scope, no optimization was attempted; the failure is recorded as a known gap for the issue 044 feasibility gate review.
 
@@ -455,6 +455,6 @@ node --test scripts/performance-report.test.mjs scripts/measure-performance.test
 
 | Attempt | Mode | Shell launch kind | Exit code | Duration | Outcome |
 | --- | --- | --- | --- | --- | --- |
-| 1 | full | cold | 0 | 29886.3 ms | ok |
-| 1 | shell-only | warm | 0 | 313.8 ms | ok |
-| 1 | memory-baseline | baseline | 0 | 279408.3 ms | ok |
+| 1 | full | cold | 0 | 30110.2 ms | ok |
+| 1 | shell-only | warm | 0 | 305.8 ms | ok |
+| 1 | memory-baseline | baseline | 0 | 280342.0 ms | ok |
