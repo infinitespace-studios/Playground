@@ -116,6 +116,7 @@ export function summarizeSamples(samples) {
   const maxSample = normalized.reduce(
     (largest, sample) => (sample.valueMs > largest.valueMs ? sample : largest), normalized[0]);
   return {
+    sampleCount: normalized.length,
     ...numeric,
     censoredCount,
     observedCount: normalized.length - censoredCount,
