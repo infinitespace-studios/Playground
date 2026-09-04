@@ -1070,7 +1070,7 @@ async function main() {
 
   const { samples, supplementaryRaw, evidence, exclusions, censored, contributionsByLaunch } =
     lastCollected;
-  const aggregated = aggregate(samples);
+  const aggregated = aggregate(samples, { requiredSamples: standardRequired });
   const webviewEvidence = runs.find(run => run.report?.environment)?.report.environment ?? null;
   const machine = collectMachineFacts(webviewEvidence);
   const failedRuns = runs.filter(run => run.outcome !== "ok");
