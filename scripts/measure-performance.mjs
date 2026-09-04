@@ -1492,7 +1492,7 @@ async function main() {
           sampleCount: compilerRssKb.length,
           firstKilobytes: compilerRssFirst,
           lastKilobytes: compilerRssLast,
-          growthPercent,
+          growthPercent: compilerGrowthPercent,
           thresholdPercent: 10,
           verdict: compilerGrowthPercent <= 10 ? "PASS" : "FAIL",
           samples: compilerRssKb,
