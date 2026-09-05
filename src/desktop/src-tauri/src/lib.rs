@@ -3304,7 +3304,10 @@ fn issue038_handle_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<V
 }
 
 fn navigation_allowed(url: &tauri::Url) -> bool {
-    matches!(url.scheme(), "tauri" | "playground-preview" | "about")
+    matches!(
+        url.scheme(),
+        "tauri" | "playground-preview" | "about" | "http" | "https"
+    )
 }
 
 /// Decode percent-encoded UTF-8 string (e.g. from encodeURIComponent).
@@ -3366,18 +3369,17 @@ pub fn run() {
             preview_protocol_response(request.method(), &uri_string)
         })
         .setup(|app| {
-            let window_config = app
-                .config()
-                .app
-                .windows
-                .iter()
-                .find(|w| w.label == "main")
-                .cloned()
-                .ok_or("main window configuration is missing")?;
-            tauri::WebviewWindowBuilder::from_config(app.handle(), &window_config)?
-                .on_navigation(|url| navigation_allowed(url))
-                .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
-                .build()?;
+            let window = tauri::WebviewWindowBuilder::new(
+                app.handle(),
+                "main",
+                tauri::WebviewUrl::External("http://127.0.0.1:5173/".parse().unwrap()),
+            )
+            .title("MonoGame Playground")
+            .inner_size(1280.0, 800.0)
+            .on_navigation(|url| navigation_allowed(url))
+            .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
+            .build()?;
+            window.show()?;
 
             if packaged_pipeline_proof_enabled() {
                 #[cfg(target_os = "macos")]
@@ -3410,7 +3412,6 @@ pub fn run() {
                     #[allow(deprecated)]
                     native_app.activateIgnoringOtherApps(true);
                     if let Some(window) = app.get_webview_window("main") {
-                        window.show()?;
                         window.unminimize()?;
                         window.set_focus()?;
                     }
