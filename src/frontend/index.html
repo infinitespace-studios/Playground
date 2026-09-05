@@ -44,40 +44,14 @@
         <!-- Editor region -->
         <section class="editor">
           <div class="panel-head"><strong>Game1.cs</strong><span class="dirty">● UNSAVED</span></div>
-          <textarea class="code" spellcheck="false" readonly>using Microsoft.Xna.Framework;
-using Microsoft.Xna.Framework.Graphics;
-using Microsoft.Xna.Framework.Input;
-
-public sealed class Game1 : Game
-{
-    private readonly GraphicsDeviceManager _graphics;
-
-    public Game1()
-    {
-        _graphics = new GraphicsDeviceManager(this);
-        IsMouseVisible = true;
-    }
-
-    protected override void Update(GameTime gameTime)
-    {
-        if (Keyboard.GetState().IsKeyDown(Keys.Escape))
-            Exit();
-        base.Update(gameTime);
-    }
-
-    protected override void Draw(GameTime gameTime)
-    {
-        GraphicsDevice.Clear(Color.CornflowerBlue);
-        base.Draw(gameTime);
-    }
-}</textarea>
+          <div id="editor-host" class="editor-host"></div>
         </section>
 
         <!-- Preview region -->
         <section class="preview">
           <div class="panel-head"><strong>PREVIEW / 800 × 480</strong><span>WEBGL2 · 60HZ</span></div>
           <div class="scope" id="canvas-frame">
-            <div class="screen-label" id="preview-context-status">PRESS RUN TO START</div>
+            <div class="screen-label" id="preview-context-status">Press Run to start the preview</div>
             <iframe
               id="preview-frame"
               title="Release preview runtime proof"

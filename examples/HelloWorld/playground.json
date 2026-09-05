@@ -1,0 +1,9 @@
+{
+  "name": "Hello World",
+  "schemaVersion": 1,
+  "contentProfile": "Web",
+  "preview": {
+    "width": 800,
+    "height": 480
+  }
+}

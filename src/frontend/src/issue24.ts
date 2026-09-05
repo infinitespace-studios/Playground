@@ -80,17 +80,35 @@ public sealed class CooperativeStopGame : Game
     }
 }`;
 
-const start = (proofMode: boolean, onOutput?: Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]) =>
-  compileLoadStartIssue23({
-  assemblyName: proofMode ? "Issue024ProofGame" : "Issue024Game",
-  sourcePath: "src/CooperativeStopGame.cs",
-  sourceText,
-  proofMode,
-  issue024Proof: proofMode,
-  onOutput,
-});
+const start = (
+  proofMode: boolean,
+  onOutput?: Parameters<typeof compileLoadStartIssue23>[0]["onOutput"],
+  sourceProvider?: () => string,
+) => {
+  // Issue 047: when a live editor source provider is supplied (real UI, non
+  // proof), compile the current in-memory editor buffer — including unsaved
+  // edits (PRD 8.6) — as the user's Game1.cs. Proof mode keeps the fixed
+  // cooperative-stop source so the issue 024 stop proof stays deterministic.
+  if (!proofMode && sourceProvider) {
+    return compileLoadStartIssue23({
+      assemblyName: "PlaygroundGame",
+      sourcePath: "Game1.cs",
+      sourceText: sourceProvider(),
+      proofMode: false,
+      onOutput,
+    });
+  }
+  return compileLoadStartIssue23({
+    assemblyName: proofMode ? "Issue024ProofGame" : "Issue024Game",
+    sourcePath: "src/CooperativeStopGame.cs",
+    sourceText,
+    proofMode,
+    issue024Proof: proofMode,
+    onOutput,
+  });
+};
 
-function createRunStopController(proofMode: boolean) {
+function createRunStopController(proofMode: boolean, sourceProvider?: () => string) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
   const status = document.querySelector<HTMLElement>("#run-clear-color-status");
@@ -103,7 +121,7 @@ function createRunStopController(proofMode: boolean) {
       return start(proofMode, event => {
         output.append(document.createTextNode(
           `[${event.payload.source} ${event.payload.stream}] ${event.payload.text}\n`));
-      });
+      }, sourceProvider);
     },
     stop: (preview, reason) => preview.stop(reason),
     observeFailure: preview => preview.failure,
@@ -118,8 +136,11 @@ function createRunStopController(proofMode: boolean) {
   return { controller, runButton, stopButton, status };
 }
 
-export function installIssue024RunStopControl(gate?: () => Promise<boolean>): void {
-  const { controller, runButton, stopButton } = createRunStopController(false);
+export function installIssue024RunStopControl(
+  gate?: () => Promise<boolean>,
+  sourceProvider?: () => string,
+): void {
+  const { controller, runButton, stopButton } = createRunStopController(false, sourceProvider);
   runButton.addEventListener("click", () => {
     if (gate) {
       void gate().then(proceed => {
