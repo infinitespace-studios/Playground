@@ -430,6 +430,41 @@ body[data-running="true"] .screen-label {
   color: var(--red);
 }
 
+/* Issue 048: severity cue is the bold text label (ERROR/WARNING/INFO), never
+   color alone (issue 46 accessibility). Colour is a secondary reinforcement. */
+.problem[data-severity="warning"] b {
+  color: var(--amber);
+}
+
+.problem[data-severity="info"] b {
+  color: var(--muted);
+}
+
+.problem-location {
+  color: var(--muted);
+  text-align: right;
+}
+
+.problem:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -2px;
+}
+
+/* Project-level diagnostic (e.g. PG0001 with no source position): shown in the
+   list but not navigable. */
+.problem[data-project-level] {
+  cursor: default;
+}
+
+.problem[data-project-level]:hover {
+  background: transparent;
+}
+
+.problem-empty {
+  color: var(--muted);
+  padding: 7px;
+}
+
 /* Status bar */
 .status {
   display: flex;

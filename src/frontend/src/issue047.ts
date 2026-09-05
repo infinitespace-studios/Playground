@@ -70,6 +70,8 @@ export function installIssue047Editor(): {
   getValue: () => string;
   setValue: (content: string) => void;
   onDidChangeContent: (listener: () => void) => void;
+  setMarkers: (markers: monaco.editor.IMarkerData[]) => void;
+  revealAndFocus: (line: number, column: number) => void;
 } {
   const host = document.querySelector<HTMLElement>("#editor-host");
   if (!host) throw new Error("Issue 047 editor host (#editor-host) is missing.");
@@ -111,6 +113,24 @@ export function installIssue047Editor(): {
     // can recompute dirty state on every keystroke.
     onDidChangeContent: (listener: () => void) => {
       editorInstance?.onDidChangeModelContent(() => listener());
+    },
+    // Issue 048: set inline diagnostic markers (squiggles) on the model under
+    // the "playground" owner. Passing an empty array clears them.
+    setMarkers: (markers: monaco.editor.IMarkerData[]) => {
+      const activeModel = editorInstance?.getModel();
+      if (activeModel) {
+        monaco.editor.setModelMarkers(activeModel, "playground", markers);
+      }
+    },
+    // Issue 048: move the cursor to a diagnostic's location, scroll it into
+    // view, and focus the editor (click-to-navigate from the Problems panel).
+    revealAndFocus: (line: number, column: number) => {
+      if (!editorInstance) return;
+      const safeLine = Math.max(1, line);
+      const safeColumn = Math.max(1, column);
+      editorInstance.revealLineInCenter(safeLine);
+      editorInstance.setPosition({ lineNumber: safeLine, column: safeColumn });
+      editorInstance.focus();
     },
   };
 }

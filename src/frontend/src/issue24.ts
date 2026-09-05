@@ -84,6 +84,7 @@ const start = (
   proofMode: boolean,
   onOutput?: Parameters<typeof compileLoadStartIssue23>[0]["onOutput"],
   sourceProvider?: () => string,
+  onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
 ) => {
   // Issue 047: when a live editor source provider is supplied (real UI, non
   // proof), compile the current in-memory editor buffer — including unsaved
@@ -96,6 +97,7 @@ const start = (
       sourceText: sourceProvider(),
       proofMode: false,
       onOutput,
+      onDiagnostics,
     });
   }
   return compileLoadStartIssue23({
@@ -108,7 +110,11 @@ const start = (
   });
 };
 
-function createRunStopController(proofMode: boolean, sourceProvider?: () => string) {
+function createRunStopController(
+  proofMode: boolean,
+  sourceProvider?: () => string,
+  onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
+) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
   const status = document.querySelector<HTMLElement>("#run-clear-color-status");
@@ -121,7 +127,7 @@ function createRunStopController(proofMode: boolean, sourceProvider?: () => stri
       return start(proofMode, event => {
         output.append(document.createTextNode(
           `[${event.payload.source} ${event.payload.stream}] ${event.payload.text}\n`));
-      }, sourceProvider);
+      }, sourceProvider, onDiagnostics);
     },
     stop: (preview, reason) => preview.stop(reason),
     observeFailure: preview => preview.failure,
@@ -139,8 +145,9 @@ function createRunStopController(proofMode: boolean, sourceProvider?: () => stri
 export function installIssue024RunStopControl(
   gate?: () => Promise<boolean>,
   sourceProvider?: () => string,
+  onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
 ): void {
-  const { controller, runButton, stopButton } = createRunStopController(false, sourceProvider);
+  const { controller, runButton, stopButton } = createRunStopController(false, sourceProvider, onDiagnostics);
   runButton.addEventListener("click", () => {
     if (gate) {
       void gate().then(proceed => {

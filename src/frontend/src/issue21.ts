@@ -2,6 +2,7 @@ import {
   PROTOCOL_VERSION,
   type BinaryProof,
   type CompileRequest,
+  type Diagnostic,
   type PreviewLoadRequest,
   type PreviewOutput,
   type PreviewStartRequest,
@@ -511,7 +512,7 @@ function previewStatusFallback(message: string) {
 }
 
 async function ensureIssue21Contexts(allowLockedSession = false, compilerOnly = false) {
-  if (!allowLockedSession) await waitForTopRuntime();
+  if (!allowLockedSession && !compilerOnly) await waitForTopRuntime();
   if (!previewFrame.srcdoc) loadPreviewIframe(previewFrame);
 
   registerPreviewProbeExpectation = (
@@ -1327,6 +1328,12 @@ export async function compileLoadStartIssue23(input: {
      *  fixed loop overhead. Never changes control flow. */
     onBootstrapDetail?: (detail: Record<string, unknown>) => void;
     onOutput?: (event: PreviewOutput) => void;
+    /** Issue 048: passive diagnostics hook. Fired with the compiler's
+     *  diagnostics after every compile — `"failure"` when compilation failed
+     *  (errors that block the run) and `"success"` when it succeeded (any
+     *  warnings). Never changes control flow; omitting it leaves behaviour
+     *  unchanged. */
+    onDiagnostics?: (diagnostics: readonly Diagnostic[], outcome: "success" | "failure") => void;
   }): Promise<Issue23RunningPreview> {
     const mark = (phase: string) => input.onPhase?.(phase, performance.now());
     mark("request.begin");
@@ -1371,10 +1378,17 @@ export async function compileLoadStartIssue23(input: {
     ) as ReturnType<typeof validateCompileResponse>;
     mark("compile.response");
     if (!compiled.message.result.success) {
+      // Issue 048: surface structured diagnostics to the Problems panel before
+      // throwing. On failure the existing preview is left untouched (PRD 8.4):
+      // this throw happens before retireInitialPreviewContext() below.
+      input.onDiagnostics?.(compiled.message.result.error.diagnostics ?? [], "failure");
       throw new Error(`${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
     }
 
     const data = compiled.message.result.data;
+    // Issue 048: report any successful-compile warnings so the Problems panel
+    // (and Monaco markers) reflect the current build.
+    input.onDiagnostics?.(data.diagnostics, "success");
     const assembly = standaloneBuffer(new Uint8Array(data.assembly));
     const pdb = standaloneBuffer(new Uint8Array(data.pdb));
     if (!input.auxiliary) await retireInitialPreviewContext();

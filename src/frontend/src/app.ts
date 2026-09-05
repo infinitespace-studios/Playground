@@ -1,6 +1,7 @@
 import { installIssue024RunStopControl } from "./issue24";
 import { gateFirstRun } from "./issue37";
 import { installIssue047Editor, defaultExampleSource } from "./issue047";
+import { installIssue048ProblemsPanel } from "./issue048";
 import installIssue050Tracker from "./issue050";
 
 // Workbench application controller wiring
@@ -58,9 +59,18 @@ if (saveButton) {
   });
 }
 
+// Issue 048: Problems panel — renders compiler diagnostics, wires drawer tab
+// switching, adds Monaco markers, and supports click-to-navigate. Its
+// onDiagnostics hook is handed to the Run control below so a failed compile
+// populates and reveals the Problems tab.
+const problems = installIssue048ProblemsPanel({
+  setMarkers: editor.setMarkers,
+  revealAndFocus: editor.revealAndFocus,
+});
+
 installIssue024RunStopControl(() => {
   // Gate Run behind first-run warning acknowledgement.
   // In non-Tauri environments (dev mode), allow Run without gating.
   if (!(window as any).__TAURI_INTERNALS__?.invoke) return Promise.resolve(true);
   return gateFirstRun();
-}, editor.getValue);
+}, editor.getValue, problems.onDiagnostics);
