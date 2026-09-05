@@ -571,15 +571,67 @@ html[data-runtime="error"] .runtime-state-light {
 #run-clear-color-status[data-state="ready"] { color: var(--green); }
 #run-clear-color-status[data-state="error"] { color: var(--red); }
 
-/* Proof pre blocks */
-#preview-context-diagnostics,
-#preview-managed-output {
-  max-height: 135px;
-  margin: 0;
-  overflow: auto;
+/* Issue 049: Output panel rows and runtime-error blocks. Source/stream is
+   conveyed by the literal `[source:stream]` text tag (issue 46 non-color cue);
+   colour is only secondary reinforcement. */
+.output-row {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 8px;
+  padding: 2px 0;
   color: #bdc8c3;
-  font: 9px/1.35 "SFMono-Regular", monospace;
+  font: 11px/1.5 ui-monospace, monospace;
+}
+
+.output-tag {
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.output-row[data-stream="stderr"] .output-tag {
+  color: var(--red);
+}
+
+.output-row[data-source="native"] .output-tag {
+  color: var(--amber);
+}
+
+.output-text {
   white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.runtime-error {
+  margin: 8px 0;
+  padding: 8px 10px;
+  border: 1px solid var(--red);
+  border-left-width: 3px;
+  background: #241a1a;
+}
+
+.runtime-error-heading {
+  color: var(--red);
+  font: 700 11px/1.5 ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+
+.runtime-error-message {
+  color: #e6d2d0;
+  font: 11px/1.5 ui-monospace, monospace;
+  margin: 3px 0 6px;
+  white-space: pre-wrap;
+}
+
+.runtime-error-frames {
+  margin: 0;
+  padding-left: 16px;
+  color: var(--muted);
+  font: 11px/1.6 ui-monospace, monospace;
+}
+
+.runtime-error-noframes {
+  color: var(--muted);
+  font: 11px/1.5 ui-monospace, monospace;
 }
 
 /* ---------- Responsive layout (PRD 14.6 requirement) ---------- */

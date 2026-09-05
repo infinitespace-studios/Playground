@@ -4,6 +4,7 @@ import {
   type Issue23RunningPreview,
 } from "./issue21";
 import type { PreviewOutput } from "../../shared/MessageContracts";
+import { getIssue049OutputPanel, formatOutputLine } from "./issue049";
 
 const sourceText = `
 using Microsoft.Xna.Framework;
@@ -95,10 +96,8 @@ function assertPrefix(events: readonly PreviewOutput[]) {
 }
 
 async function runCycle(index: number) {
-  const standIn = document.querySelector<HTMLElement>("#preview-managed-output");
-  if (!standIn)
-    throw new Error("Managed output stand-in is unavailable.");
-  standIn.textContent = "";
+  const panel = getIssue049OutputPanel();
+  panel.clear();
   const displayed: string[] = [];
   const preview = await compileLoadStartIssue23({
     assemblyName: `Issue027ManagedOutput${index}`,
@@ -107,9 +106,8 @@ async function runCycle(index: number) {
     proofMode: true,
     issue024Proof: true,
     onOutput(event) {
-      const line = `[${event.payload.source} ${event.payload.stream}] ${event.payload.text}`;
-      displayed.push(line);
-      standIn.append(document.createTextNode(`${line}\n`));
+      displayed.push(formatOutputLine(event));
+      panel.appendOutput(event);
     },
   });
   const deadline = performance.now() + 10_000;
@@ -146,8 +144,8 @@ async function runCycle(index: number) {
   await wait(100);
   if (preview.outputEvents.length !== countAfterStop)
     throw new Error("Output was accepted after preview retirement.");
-  if (standIn.textContent !== `${displayed.join("\n")}\n`)
-    throw new Error("The frontend output stand-in did not preserve received order.");
+  if (JSON.stringify(panel.outputLineTexts()) !== JSON.stringify(displayed))
+    throw new Error("The Output panel did not preserve received order.");
   return {
     previewId: preview.previewId,
     contextGeneration: preview.contextGeneration,

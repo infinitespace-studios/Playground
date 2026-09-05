@@ -2,6 +2,7 @@ import { installIssue024RunStopControl } from "./issue24";
 import { gateFirstRun } from "./issue37";
 import { installIssue047Editor, defaultExampleSource } from "./issue047";
 import { installIssue048ProblemsPanel } from "./issue048";
+import { installIssue049OutputPanel } from "./issue049";
 import installIssue050Tracker from "./issue050";
 
 // Workbench application controller wiring
@@ -68,9 +69,19 @@ const problems = installIssue048ProblemsPanel({
   revealAndFocus: editor.revealAndFocus,
 });
 
+// Issue 049: Output panel — renders managed/native preview output (tagged) and
+// runtime failures (distinct blocks). Its hooks are handed to the Run control
+// so live output streams in and a runtime exception is displayed. The editor
+// and Problems tab stay interactive after a failure (PRD 8.5).
+const output = installIssue049OutputPanel();
+
 installIssue024RunStopControl(() => {
   // Gate Run behind first-run warning acknowledgement.
   // In non-Tauri environments (dev mode), allow Run without gating.
   if (!(window as any).__TAURI_INTERNALS__?.invoke) return Promise.resolve(true);
   return gateFirstRun();
-}, editor.getValue, problems.onDiagnostics);
+}, editor.getValue, problems.onDiagnostics, {
+  onRunStart: () => output.clear(),
+  onOutputLine: event => output.appendOutput(event),
+  onRuntimeFailure: payload => output.appendFailure(payload),
+});

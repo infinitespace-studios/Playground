@@ -3,6 +3,7 @@ import {
   preparePackagedProofRuntime,
 } from "./issue21";
 import type { PreviewOutput } from "../../shared/MessageContracts";
+import { getIssue049OutputPanel, formatOutputLine } from "./issue049";
 
 const sourceText = `
 using Microsoft.Xna.Framework;
@@ -37,9 +38,8 @@ function count(events: readonly PreviewOutput[], source: string, stream: string,
 }
 
 async function runCycle(index: number) {
-  const standIn = document.querySelector<HTMLElement>("#preview-managed-output");
-  if (!standIn) throw new Error("Preview output stand-in is unavailable.");
-  standIn.textContent = "";
+  const panel = getIssue049OutputPanel();
+  panel.clear();
   const displayed: string[] = [];
   const preview = await compileLoadStartIssue23({
     assemblyName: `Issue028NativeOutput${index}`,
@@ -49,11 +49,8 @@ async function runCycle(index: number) {
     issue024Proof: true,
     issue028Proof: true,
     onOutput(event) {
-      const line =
-        `[${event.payload.source} ${event.payload.stream} ${event.payload.category}] ` +
-        event.payload.text;
-      displayed.push(line);
-      standIn.append(document.createTextNode(`${line}\n`));
+      displayed.push(formatOutputLine(event));
+      panel.appendOutput(event);
     },
   });
   await preview.proof("issue028-emit");
@@ -104,8 +101,8 @@ async function runCycle(index: number) {
       snapshot.droppedOverflowMessages !== 0 || snapshot.teeErrors !== 0) {
     throw new Error(`Native buffer proof mismatched: ${JSON.stringify(snapshot)}`);
   }
-  if (standIn.textContent !== `${displayed.join("\n")}\n`)
-    throw new Error("Output stand-in order mismatched.");
+  if (JSON.stringify(panel.outputLineTexts()) !== JSON.stringify(displayed))
+    throw new Error("Output panel order mismatched.");
   const sequences = events.map(event => event.payload.sequence);
   if (!sequences.every((sequence, position) => position === 0 || sequence > sequences[position - 1]))
     throw new Error(`Output sequence regressed: ${sequences}`);

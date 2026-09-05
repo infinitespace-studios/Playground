@@ -114,23 +114,43 @@ function createRunStopController(
   proofMode: boolean,
   sourceProvider?: () => string,
   onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
+  onOutputLine?: (event: Parameters<NonNullable<Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]>>[0]) => void,
+  onRuntimeFailure?: (payload: Record<string, unknown>) => void,
+  onRunStart?: () => void,
 ) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
   const status = document.querySelector<HTMLElement>("#run-clear-color-status");
-  const output = document.querySelector<HTMLElement>("#preview-managed-output");
-  if (!runButton || !stopButton || !status || !output)
+  if (!runButton || !stopButton || !status)
     throw new Error("Issue 024 Run/Stop control is missing.");
   const controller = createIssue024RunStopController({
     start: () => {
-      output.textContent = "";
+      // Issue 049: each Run clears the Output panel, then streams live output
+      // into it (replacing the temporary #preview-managed-output stand-in).
+      onRunStart?.();
       return start(proofMode, event => {
-        output.append(document.createTextNode(
-          `[${event.payload.source} ${event.payload.stream}] ${event.payload.text}\n`));
+        onOutputLine?.(event);
       }, sourceProvider, onDiagnostics);
     },
     stop: (preview, reason) => preview.stop(reason),
-    observeFailure: preview => preview.failure,
+    observeFailure: preview => {
+      // Issue 049: render the runtime failure in the Output panel when the
+      // preview's failure promise resolves, then hand the result back to the
+      // controller unchanged so its own recovery/status logic still runs.
+      const failure = preview.failure;
+      if (onRuntimeFailure) {
+        void failure.then(
+          result => {
+            const failedPayload =
+              (result as { failedEvent?: { payload?: Record<string, unknown> } })
+                .failedEvent?.payload;
+            if (failedPayload) onRuntimeFailure(failedPayload);
+          },
+          () => { /* rejection surfaces through the controller's own path */ },
+        );
+      }
+      return failure;
+    },
     setRunDisabled: disabled => { runButton.disabled = disabled; },
     setStopDisabled: disabled => { stopButton.disabled = disabled; },
     setStatus: (state, text) => {
@@ -142,12 +162,26 @@ function createRunStopController(
   return { controller, runButton, stopButton, status };
 }
 
+export interface Issue024OutputHooks {
+  onOutputLine?: (event: Parameters<NonNullable<Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]>>[0]) => void;
+  onRuntimeFailure?: (payload: Record<string, unknown>) => void;
+  onRunStart?: () => void;
+}
+
 export function installIssue024RunStopControl(
   gate?: () => Promise<boolean>,
   sourceProvider?: () => string,
   onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
+  outputHooks?: Issue024OutputHooks,
 ): void {
-  const { controller, runButton, stopButton } = createRunStopController(false, sourceProvider, onDiagnostics);
+  const { controller, runButton, stopButton } = createRunStopController(
+    false,
+    sourceProvider,
+    onDiagnostics,
+    outputHooks?.onOutputLine,
+    outputHooks?.onRuntimeFailure,
+    outputHooks?.onRunStart,
+  );
   runButton.addEventListener("click", () => {
     if (gate) {
       void gate().then(proceed => {
