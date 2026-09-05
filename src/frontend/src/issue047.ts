@@ -66,7 +66,11 @@ function defineThemes(): void {
  * editor buffer (unsaved edits included). Must be called after the DOM has
  * been parsed.
  */
-export function installIssue047Editor(): { getValue: () => string } {
+export function installIssue047Editor(): {
+  getValue: () => string;
+  setValue: (content: string) => void;
+  onDidChangeContent: (listener: () => void) => void;
+} {
   const host = document.querySelector<HTMLElement>("#editor-host");
   if (!host) throw new Error("Issue 047 editor host (#editor-host) is missing.");
 
@@ -99,6 +103,15 @@ export function installIssue047Editor(): { getValue: () => string } {
     // PRD 8.6: Run must compile the current in-memory source, so always read
     // the live buffer rather than any previously saved copy.
     getValue: () => editorInstance?.getValue() ?? defaultGame1Source,
+    // Replace the entire buffer (used by New/Open to load fresh content).
+    setValue: (content: string) => {
+      editorInstance?.setValue(content);
+    },
+    // Subscribe to live buffer edits so callers (issue 050 dirty tracking)
+    // can recompute dirty state on every keystroke.
+    onDidChangeContent: (listener: () => void) => {
+      editorInstance?.onDidChangeModelContent(() => listener());
+    },
   };
 }
 

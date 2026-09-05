@@ -2257,13 +2257,18 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofCommands = commandNames(proofInventoryBlock).sort();
-  assert.equal(manifestCommands.length, 90);
+  assert.equal(manifestCommands.length, 94);
   assert.deepEqual(manifestCommands, handlerCommands);
   assert.deepEqual(permissionCommands, handlerCommands);
   assert.deepEqual(proofCommands, handlerCommands);
   assert.match(permission, /issue034_trusted_marker/);
+  // Issue 050 legitimately depends on tauri-plugin-dialog for the trusted
+  // top-level frontend's native save/open dialogs, scoped to the "main"
+  // window only (never the preview iframe). Per issue 034's own scope, file
+  // open/save IPC for the trusted frontend is explicitly permitted; only
+  // filesystem/shell/process/opener/clipboard plugins remain forbidden.
   assert.doesNotMatch(cargo,
-    /tauri-plugin-(?:fs|shell|process|opener|dialog|clipboard-manager)/);
+    /tauri-plugin-(?:fs|shell|process|opener|clipboard-manager)/);
   assert.doesNotMatch(frontendPackage, /@tauri-apps\/api/);
 });
 

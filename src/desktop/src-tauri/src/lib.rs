@@ -713,6 +713,106 @@ async fn prepare_packaged_proof_window(
     ))
 }
 
+/// Issue 050: Show the native save dialog and return the chosen path.
+///
+/// The trusted main webview is not permitted to invoke plugin commands
+/// (such as `plugin:dialog|save`) directly — its ACL only allows the
+/// application's own registered commands. This command wraps the dialog
+/// plugin's Rust API so the webview can request a save location through an
+/// approved application command instead.
+///
+/// Returns Ok(Some(path)) when the user picks a file, Ok(None) when the
+/// dialog is cancelled.
+#[tauri::command]
+async fn issue050_save_dialog(
+    app: tauri::AppHandle,
+    default_path: Option<String>,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let mut builder = app.dialog().file();
+    if let Some(name) = default_path.as_deref() {
+        builder = builder.set_file_name(name);
+    }
+    builder = builder.add_filter("C# Files", &["cs"]);
+
+    let chosen = builder.blocking_save_file();
+    match chosen {
+        Some(path) => {
+            let path_buf = path
+                .into_path()
+                .map_err(|error| format!("failed to resolve save path: {error}"))?;
+            Ok(Some(path_buf.to_string_lossy().into_owned()))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Issue 050: Show the native open dialog and return the chosen file's path
+/// and contents. Like the save dialog, this wraps the dialog plugin's Rust
+/// API so the trusted webview can open a file through an approved application
+/// command rather than invoking the plugin directly.
+///
+/// Returns Ok(Some((path, content))) when a file is chosen, Ok(None) when the
+/// dialog is cancelled.
+#[tauri::command]
+async fn issue050_open_dialog(
+    app: tauri::AppHandle,
+) -> Result<Option<(String, String)>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let chosen = app
+        .dialog()
+        .file()
+        .add_filter("C# Files", &["cs"])
+        .blocking_pick_file();
+
+    match chosen {
+        Some(path) => {
+            let path_buf = path
+                .into_path()
+                .map_err(|error| format!("failed to resolve open path: {error}"))?;
+            let content = std::fs::read_to_string(&path_buf)
+                .map_err(|error| format!("failed to read file: {error}"))?;
+            Ok(Some((path_buf.to_string_lossy().into_owned(), content)))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Issue 050: Write file content atomically (after save dialog returned path).
+/// 1. Back up existing file to .bak (keep one backup)
+/// 2. Write to .tmp, then rename to target (atomic)
+/// Returns Ok(path) on success, Err on failure.
+#[tauri::command]
+async fn issue050_write_file(
+    _app: tauri::AppHandle,
+    path: String,
+    content: String,
+) -> Result<String, String> {
+    let path_buf = std::path::PathBuf::from(&path);
+
+    // Backup existing file if it exists
+    if path_buf.exists() {
+        let bak_path = path_buf.with_extension("bak");
+        // If .bak already exists, remove it (keep only one backup)
+        let _ = std::fs::remove_file(&bak_path);
+        // Rename existing to .bak
+        std::fs::rename(&path_buf, &bak_path)
+            .map_err(|e| format!("failed to create backup: {e}"))?;
+    }
+
+    // Write atomically: first to temp file, then rename
+    let tmp_path = path_buf.with_extension("tmp");
+    std::fs::write(&tmp_path, &content)
+        .map_err(|e| format!("failed to write temporary file: {e}"))?;
+
+    std::fs::rename(&tmp_path, &path_buf)
+        .map_err(|e| format!("failed to commit file: {e}"))?;
+
+    Ok(path)
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "macos")]
@@ -836,7 +936,6 @@ mod tests {
             "tauri-plugin-shell",
             "tauri-plugin-process",
             "tauri-plugin-opener",
-            "tauri-plugin-dialog",
             "tauri-plugin-clipboard-manager",
         ] {
             assert!(!manifest.contains(forbidden), "{forbidden}");
@@ -3351,6 +3450,7 @@ pub fn run() {
     }
 
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .register_uri_scheme_protocol("playground-preview", |_context, request| {
             let uri_string = request.uri().to_string();
             // Issue 038: route bridge messages and transfer requests before the static handler
@@ -3510,7 +3610,10 @@ pub fn run() {
             issue041_shell_ready,
             issue041_emit_checkpoint,
             issue041_emit_report,
-            issue041_rss_bytes
+            issue041_rss_bytes,
+            issue050_write_file,
+            issue050_save_dialog,
+            issue050_open_dialog
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");

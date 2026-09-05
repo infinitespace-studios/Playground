@@ -95,6 +95,9 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue041_emit_checkpoint",
   "issue041_emit_report",
   "issue041_rss_bytes",
+  "issue050_write_file",
+  "issue050_save_dialog",
+  "issue050_open_dialog",
 ] as const;
 
 const source = `

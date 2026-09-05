@@ -816,3 +816,78 @@ body[data-theme="light"] .theme-switch span::after {
     opacity: 0.7;
   }
 }
+
+/* Confirmation dialog (issue 050) */
+.confirmation-dialog {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--panel);
+  color: var(--text);
+  padding: 20px;
+  min-width: 320px;
+  max-width: 480px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+}
+
+.confirmation-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.confirmation-dialog h3 {
+  margin: 0 0 12px 0;
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.confirmation-dialog p {
+  margin: 0 0 16px 0;
+  font-size: 14px;
+  line-height: 1.4;
+}
+
+.dialog-buttons {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.dialog-buttons button {
+  padding: 8px 16px;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  background: var(--panel2);
+  color: var(--text);
+  font-size: 13px;
+  cursor: pointer;
+  min-width: 80px;
+}
+
+.dialog-buttons button:hover {
+  background: var(--line);
+}
+
+.dialog-buttons .btn-confirm {
+  background: var(--amber);
+  color: #fff;
+  border-color: var(--amber);
+}
+
+.dialog-buttons .btn-confirm:hover {
+  background: #e6a817;
+  border-color: #e6a817;
+}
+
+/* Dirty indicator (issue 050) */
+.dirty-indicator {
+  display: inline-block;
+  font-size: 14px;
+  font-weight: bold;
+  color: var(--amber);
+  margin-left: 4px;
+  min-width: 16px;
+  text-align: center;
+}
+
+.dirty-indicator[hidden] {
+  display: none;
+}

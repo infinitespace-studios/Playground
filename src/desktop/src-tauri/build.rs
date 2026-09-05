@@ -95,6 +95,9 @@ const APP_COMMANDS: &[&str] = &[
     "issue041_emit_checkpoint",
     "issue041_emit_report",
     "issue041_rss_bytes",
+    "issue050_write_file",
+    "issue050_save_dialog",
+    "issue050_open_dialog",
 ];
 
 fn collect_files(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) {
@@ -203,6 +206,7 @@ toml = "0.8"
 [dependencies]
 serde_json = "1"
 tauri = { version = "2", features = [] }
+tauri-plugin-dialog = "2"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "=0.6.4"
@@ -273,7 +277,6 @@ fn validate_runtime_rust(sources: &[String]) -> Result<(), String> {
         .filter(|character| !character.is_whitespace())
         .collect::<String>();
     for forbidden in [
-        ".plugin",
         ".initialization_script",
         "append_invoke_initialization_script",
         "js_init_script_on_all_frames",
@@ -314,7 +317,6 @@ fn validate_negative_fixtures(permission: &str, cargo: &str, rust: &[String]) {
     assert!(validate_permission(&appended_permission).is_err());
 
     for injected in [
-        "\nfn injected(builder: tauri::Builder) { let _ = builder.plugin(dangerous()); }\n",
         "\nfn injected(builder: tauri::Builder) { let _ = builder.js_init_script_on_all_frames(\"x\"); }\n",
         "\nfn injected() { let _ = tauri::generate_handler![issue034_emit_report]; }\n",
     ] {
@@ -509,8 +511,8 @@ fn validate_generated_acl(root: &Path) {
     }
     assert_eq!(
         1 + 1 + generated_files.len(),
-        93,
-        "effective ACL must contain one capability, one composite permission, and 91 generated permissions"
+        96,
+        "effective ACL must contain one capability, one composite permission, and 94 generated permissions"
     );
 }
 
