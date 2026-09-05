@@ -19,12 +19,7 @@ import { runIssue038ForceStopProof } from "./issue38";
 import { runIssue039ContentProof } from "./issue039";
 import { runIssue040AudioProof } from "./issue040";
 import { reportIssue041ShellReady, runIssue041Benchmark } from "./issue041";
-
-interface RuntimeBuild {
-  buildConfiguration: string;
-  monogameCommitSha: string;
-  fileCount: number;
-}
+import { initTheme } from "./issue46";
 
 interface RuntimeDiagnostics {
   consoleErrors: string[];
@@ -119,25 +114,8 @@ declare global {
   }
 }
 
-const status = document.querySelector<HTMLElement>("#runtime-status");
-const build = document.querySelector<HTMLElement>("#runtime-build");
-const wasmStatus = document.querySelector<HTMLElement>("#wasm-diagnostic");
-const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
 const previewFrame = document.querySelector<HTMLIFrameElement>("#preview-frame");
-const previewStatus = document.querySelector<HTMLElement>("#preview-context-status");
-const previewDiagnostics = document.querySelector<HTMLElement>("#preview-context-diagnostics");
-
-if (
-  !status ||
-  !build ||
-  !wasmStatus ||
-  !canvas ||
-  !previewFrame ||
-  !previewStatus ||
-  !previewDiagnostics
-) {
-  throw new Error("MonoGame runtime shell elements are missing");
-}
+if (!previewFrame) throw new Error("Preview iframe element is missing");
 
 const parentRealmToken = crypto.randomUUID();
 let issue020ReportSent = false;
@@ -173,28 +151,6 @@ const previewDiagnosticsSnapshot = () => {
   };
 };
 
-const updatePreviewDiagnostics = () => {
-  try {
-    const snapshot = previewDiagnosticsSnapshot();
-    previewDiagnostics.textContent = JSON.stringify(snapshot, null, 2);
-    if (snapshot.childProof?.errors.length) {
-      previewStatus.textContent = `Preview startup error: ${snapshot.childProof.errors.at(-1)}`;
-    } else if (snapshot.childProof?.ping) {
-      previewStatus.textContent =
-        `Ping=${String(snapshot.childProof.ping.message)}; one nested runtime; ` +
-        `trusted=${String(snapshot.childProof.ping.trusted)}`;
-    } else if (snapshot.childProof?.ready) {
-      previewStatus.textContent = "Nested Release runtime ready; use its proof button.";
-    }
-  } catch (error: unknown) {
-    previewStatus.textContent =
-      `Preview context diagnostics unavailable: ${error instanceof Error ? error.message : String(error)}`;
-  }
-};
-
-previewFrame.addEventListener("load", updatePreviewDiagnostics);
-window.setInterval(updatePreviewDiagnostics, 250);
-
 const diagnostics: RuntimeDiagnostics = {
   consoleErrors: [],
   mimeWarnings: [],
@@ -213,23 +169,6 @@ const diagnostics: RuntimeDiagnostics = {
 };
 
 window.__MONOGAME_DIAGNOSTICS__ = diagnostics;
-
-const publishWasmDiagnostics = () => {
-  const wasm = diagnostics.wasm;
-  const streaming = wasm.instantiateStreamingSucceeded
-    ? "succeeded"
-    : wasm.streamingError
-      ? "failed"
-      : wasm.instantiateStreamingCalled
-        ? "called"
-        : "waiting";
-
-  wasmStatus.textContent =
-    `WASM ${wasm.requestedUrl ?? "URL pending"} · ${wasm.contentType ?? "content-type pending"} · ` +
-    `instantiateStreaming ${streaming} · buffer fallback ${wasm.bufferFallbackUsed ? "used" : "not used"} · ` +
-    `MIME warnings ${diagnostics.mimeWarnings.length}`;
-  console.log("[wasm-diagnostic]", JSON.stringify(wasm));
-};
 
 const originalInstantiateStreaming = WebAssembly.instantiateStreaming.bind(WebAssembly);
 const originalCompileStreaming = WebAssembly.compileStreaming.bind(WebAssembly);
@@ -257,18 +196,15 @@ const instantiateNativeRuntime = async () => {
 
   nativeInstantiationStarted = true;
   diagnostics.wasm.instantiateStreamingCalled = true;
-  publishWasmDiagnostics();
 
   try {
     const result = await originalInstantiateStreaming(nativeResponse, nativeImports);
     diagnostics.wasm.instantiateStreamingSucceeded = true;
     nativeSuccessCallback(result.instance, result.module);
     resolveCompiledModule(result.module);
-    publishWasmDiagnostics();
   } catch (error: unknown) {
     diagnostics.wasm.streamingError = error instanceof Error ? error.message : String(error);
     diagnostics.wasm.bufferFallbackUsed = true;
-    publishWasmDiagnostics();
 
     try {
       const fallbackResponse = await fetch(diagnostics.wasm.requestedUrl!);
@@ -292,7 +228,6 @@ WebAssembly.compileStreaming = (async (source) => {
   diagnostics.wasm.contentType = response.headers.get("content-type");
   diagnostics.wasm.compileStreamingCalled = true;
   nativeResponse = response;
-  publishWasmDiagnostics();
 
   const compiledModule = new Promise<WebAssembly.Module>((resolve, reject) => {
     resolveCompiledModule = resolve;
@@ -302,21 +237,16 @@ WebAssembly.compileStreaming = (async (source) => {
   return compiledModule;
 }) as typeof WebAssembly.compileStreaming;
 
-const setFailure = (message: string) => {
-  document.documentElement.dataset.runtime = "error";
-  status.textContent = message;
-};
-
 window.addEventListener("error", (event) => {
   const message = event.error instanceof Error ? event.error.stack ?? event.error.message : event.message;
   diagnostics.unhandledErrors.push(message);
-  setFailure("Runtime exception — inspect WebView console");
+  document.documentElement.dataset.runtime = "error";
 });
 
 window.addEventListener("unhandledrejection", (event) => {
   const message = event.reason instanceof Error ? event.reason.stack ?? event.reason.message : String(event.reason);
   diagnostics.unhandledErrors.push(message);
-  setFailure("Unhandled runtime rejection — inspect WebView console");
+  document.documentElement.dataset.runtime = "error";
 });
 
 const originalConsoleError = console.error.bind(console);
@@ -332,7 +262,7 @@ console.error = (...args: unknown[]) => {
     return;
   }
   diagnostics.consoleErrors.push(message);
-  setFailure("WebView console error — inspect packaged runtime diagnostics");
+  document.documentElement.dataset.runtime = "error";
   originalConsoleError(...args);
 };
 
@@ -341,8 +271,7 @@ console.warn = (...args: unknown[]) => {
   const message = args.map(String).join(" ");
   if (/mime|content[- ]type|streaming compile|arraybuffer instantiation/i.test(message)) {
     diagnostics.mimeWarnings.push(message);
-    publishWasmDiagnostics();
-    setFailure("WASM MIME warning — inspect packaged runtime diagnostics");
+    document.documentElement.dataset.runtime = "error";
   }
   originalConsoleWarn(...args);
 };
@@ -351,37 +280,15 @@ const originalConsoleLog = console.log.bind(console);
 console.log = (...args: unknown[]) => {
   const message = args.map(String).join(" ");
 
-  if (message.includes("Content loading complete, starting game")) {
-    document.documentElement.dataset.runtime = "starting";
-    status.textContent = "Starting MonoGame Example.Web…";
-  }
-
   if (/Draw #\d+: complete/.test(message)) {
     diagnostics.renderedFramesObserved += 1;
     if (diagnostics.consoleErrors.length === 0 && diagnostics.unhandledErrors.length === 0) {
       document.documentElement.dataset.runtime = "rendering";
-      status.textContent = "Rendering animated Example.Web scene · 0 console errors";
     }
   }
 
   originalConsoleLog(...args);
 };
-
-fetch("/monogame-build.json")
-  .then((response) => {
-    if (!response.ok) {
-      throw new Error(`Build metadata returned HTTP ${response.status}`);
-    }
-    return response.json() as Promise<RuntimeBuild>;
-  })
-  .then((metadata) => {
-    build.textContent =
-      `MonoGame ${metadata.buildConfiguration} · ${metadata.fileCount} verified files · ` +
-      metadata.monogameCommitSha.slice(0, 12);
-  })
-  .catch((error: unknown) => {
-    console.error("Unable to read packaged MonoGame build metadata", error);
-  });
 
 interface DotnetHostBuilder {
   withModuleConfig(config: {
@@ -393,8 +300,16 @@ interface DotnetHostBuilder {
 }
 
 const startMonoGame = async () => {
-  const dotnetModulePath = "/_framework/dotnet.js";
-  const { dotnet } = (await import(/* @vite-ignore */ dotnetModulePath)) as {
+  const fetchModule = async (path: string) => {
+    const response = await fetch(path);
+    const blob = await response.blob();
+    const url = URL.createObjectURL(blob);
+    const result = await import(url);
+    URL.revokeObjectURL(url);
+    return result;
+  };
+
+  const { dotnet } = (await fetchModule("/_framework/dotnet.js")) as {
     dotnet: DotnetHostBuilder;
   };
 
@@ -407,8 +322,7 @@ const startMonoGame = async () => {
     },
   });
 
-  const mainModulePath = "/main.js";
-  await import(/* @vite-ignore */ mainModulePath);
+  await fetchModule("/main.js");
 };
 
 void startMonoGame().catch((error: unknown) => {
@@ -420,6 +334,11 @@ const runIssue009Proof = async () => {
   if (!invoke || !(await invoke<boolean>("issue009_is_proof_enabled"))) {
     return;
   }
+
+  const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+  if (!canvas) throw new Error("Issue 009 proof could not find #canvas");
+  const status = document.querySelector<HTMLElement>("#runtime-status");
+  if (!status) throw new Error("Issue 009 proof could not find #runtime-status");
 
   const wait = (milliseconds: number) =>
     new Promise<void>((resolve) => window.setTimeout(resolve, milliseconds));
@@ -699,6 +618,9 @@ const runIssue011Proof = async () => {
   if (!invoke || !(await invoke<boolean>("issue011_is_proof_enabled"))) {
     return;
   }
+
+  const canvas = document.querySelector<HTMLCanvasElement>("#canvas");
+  if (!canvas) throw new Error("Issue 011 proof could not find #canvas");
 
   let contextLostEvents = 0;
   let contextRestoredEvents = 0;
@@ -1257,12 +1179,6 @@ void runIssue022AutoProof().catch((error: unknown) => {
   console.error("Issue 022 proof instrumentation failed", error);
 });
 
-installIssue024RunStopControl(() => {
-  // Issue 037: gate Run behind first-run warning acknowledgement.
-  // In non-Tauri environments (dev mode), allow Run without gating.
-  if (!window.__TAURI_INTERNALS__?.invoke) return Promise.resolve(true);
-  return gateFirstRun();
-});
 void runIssue023AutoProof().catch((error: unknown) => {
   void window.__TAURI_INTERNALS__?.invoke("issue023_emit_report", {
     report: JSON.stringify({
@@ -1465,6 +1381,12 @@ void runIssue040AudioProof().catch((error: unknown) => {
   });
   console.error("Issue 040 proof instrumentation failed", error);
 });
+
+// Workbench application controller wiring (imported after main module)
+import "./app";
+
+// Issue 046: persistent theme + accessibility
+initTheme();
 
 // Issue 041: benchmark instrumentation. Shell readiness is reported first so the
 // startup sample is never delayed by the later measurement phases.

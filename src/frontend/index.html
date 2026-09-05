@@ -6,98 +6,124 @@
     <title>MonoGame Playground</title>
     <script type="module" src="/src/main.ts"></script>
   </head>
-  <body>
-    <div class="shell">
-      <header class="masthead">
-        <div class="wordmark">
-          <span class="wordmark-mark" aria-hidden="true">MG</span>
-          <div>
-            <p class="eyebrow">Desktop feasibility build</p>
-            <h1>MonoGame Playground</h1>
-          </div>
-        </div>
-        <div class="build-chip" aria-label="Release desktop shell using verified Debug MonoGame runtime">
-          <span class="build-chip-light" aria-hidden="true"></span>
-          Release shell · Debug runtime
-        </div>
+  <body data-phase="ready" data-running="false">
+    <main class="app">
+      <!-- Toolbar -->
+      <header class="bar">
+        <div class="brand">MONO<i>GAME</i> / WORKBENCH</div>
+        <button class="tool" type="button">New</button>
+        <button class="tool" type="button">Open</button>
+        <button class="tool" type="button">Save</button>
+        <button class="tool theme-switch" data-theme-toggle aria-label="Switch color theme" title="Switch between light and dark theme"><span></span></button>
+        <span class="lamp" aria-hidden="true"></span>
+        <span id="runtime-status" class="label" style="padding:0" role="status" aria-live="polite">STOPPED</span>
+        <button id="run-clear-color" class="tool primary" type="button">▶ Run</button>
+        <button id="stop-clear-color" class="tool stop" type="button" disabled>■ Stop</button>
+        <!-- Hidden proof element (issue 23) -->
+        <p id="run-clear-color-status" role="status" aria-live="polite" hidden></p>
+        <!-- Hidden proof elements (issue 21/22) -->
+        <button id="compile-load" type="button" hidden>Compile + load Foo</button>
+        <p id="compile-load-status" role="status" aria-live="polite" hidden></p>
       </header>
 
-      <main class="runtime">
-        <section class="viewport" aria-labelledby="viewport-title">
-          <div class="viewport-heading">
-            <div>
-              <p class="eyebrow">Example.Web / live output</p>
-              <h2 id="viewport-title">Render surface</h2>
-            </div>
-            <span class="verified-label">Verified payload</span>
+      <!-- Workspace -->
+      <section class="workspace">
+        <!-- File rail -->
+        <aside class="rail">
+          <div class="label">Project / hello-world</div>
+          <div class="project">
+            <button class="file active" data-file="Game1.cs">Game1.cs</button>
+            <button class="file" data-file="Player.cs">Player.cs</button>
+            <button class="file" data-file="playground.json">playground.json</button>
+            <button class="file" data-file="Content/player.xnb">Content/player.xnb</button>
           </div>
+          <div class="mini-meter"><b>WASM HEAP / 128 MB</b><div class="meter"><span style="width:62%"></span></div></div>
+          <div class="mini-meter"><b>PINNED RUNTIME</b><span style="font:10px ui-monospace;color:var(--green)">eb687a0ec</span></div>
+        </aside>
 
-          <div class="canvas-frame">
-            <div class="canvas-grid" aria-hidden="true"></div>
-            <canvas
-              id="canvas"
-              tabindex="0"
-              aria-label="Animated MonoGame Example.Web scene"
-              oncontextmenu="event.preventDefault()"
-            >
-              MonoGame requires a browser with WebGL 2 canvas support.
-            </canvas>
-            <div class="corner corner-nw" aria-hidden="true"></div>
-            <div class="corner corner-ne" aria-hidden="true"></div>
-            <div class="corner corner-sw" aria-hidden="true"></div>
-            <div class="corner corner-se" aria-hidden="true"></div>
+        <!-- Editor region -->
+        <section class="editor">
+          <div class="panel-head"><strong>Game1.cs</strong><span class="dirty">● UNSAVED</span></div>
+          <textarea class="code" spellcheck="false" readonly>using Microsoft.Xna.Framework;
+using Microsoft.Xna.Framework.Graphics;
+using Microsoft.Xna.Framework.Input;
+
+public sealed class Game1 : Game
+{
+    private readonly GraphicsDeviceManager _graphics;
+
+    public Game1()
+    {
+        _graphics = new GraphicsDeviceManager(this);
+        IsMouseVisible = true;
+    }
+
+    protected override void Update(GameTime gameTime)
+    {
+        if (Keyboard.GetState().IsKeyDown(Keys.Escape))
+            Exit();
+        base.Update(gameTime);
+    }
+
+    protected override void Draw(GameTime gameTime)
+    {
+        GraphicsDevice.Clear(Color.CornflowerBlue);
+        base.Draw(gameTime);
+    }
+}</textarea>
+        </section>
+
+        <!-- Preview region -->
+        <section class="preview">
+          <div class="panel-head"><strong>PREVIEW / 800 × 480</strong><span>WEBGL2 · 60HZ</span></div>
+          <div class="scope" id="canvas-frame">
+            <div class="screen-label" id="preview-context-status">PRESS RUN TO START</div>
+            <iframe
+              id="preview-frame"
+              title="Release preview runtime proof"
+              data-src="playground-preview://localhost/index.html"
+              sandbox="allow-scripts"
+            ></iframe>
           </div>
         </section>
-        <aside class="preview-proof" aria-labelledby="preview-proof-title">
-          <div class="preview-proof-heading">
-            <p class="eyebrow">Distinct iframe / Release runtime</p>
-            <h2 id="preview-proof-title">Preview context</h2>
+
+        <!-- Bottom drawer -->
+        <section class="drawer">
+          <nav class="tabs">
+            <button class="tab active" data-panel="output">OUTPUT</button>
+            <button class="tab" data-panel="problems">PROBLEMS <em>1</em></button>
+            <button class="tab" data-panel="assets">ASSETS</button>
+          </nav>
+          <div class="drawer-body">
+            <div data-panel-view="output" data-log>
+              <div class="log-row"><time>18:10:02</time><span>Runtime ready · MonoGame.Framework.Native</span></div>
+              <div class="log-row"><time>18:10:03</time><span>Press Ctrl+Enter to compile and run</span></div>
+            </div>
+            <div data-panel-view="problems" hidden>
+              <div class="problem" data-diagnostic><b>WARNING</b><span>IDE0058 Expression value is never used</span><span>Game1.cs:18:29</span></div>
+            </div>
+            <div data-panel-view="assets" hidden>Content/player.xnb <span style="color:var(--green)">WEB PROFILE · VALID</span></div>
+            <!-- Proof elements kept for backward compatibility -->
+            <pre id="preview-context-diagnostics" aria-label="Preview context diagnostics" hidden></pre>
+            <pre id="preview-managed-output" aria-label="Managed preview output" hidden></pre>
           </div>
-          <iframe
-            id="preview-frame"
-            title="Release preview runtime proof"
-            data-src="playground-preview://localhost/index.html"
-            sandbox="allow-scripts"
-          ></iframe>
-          <p id="preview-context-status" role="status" aria-live="polite">
-            Waiting for the nested preview runtime...
-          </p>
-          <button id="compile-load" type="button">Compile + load Foo</button>
-          <p id="compile-load-status" role="status" aria-live="polite">Binary pipeline readying…</p>
-          <button id="run-clear-color" type="button">Run clear-color Game</button>
-          <button id="stop-clear-color" type="button" disabled>Stop Game</button>
-          <p id="run-clear-color-status" role="status" aria-live="polite">
-            Ready when clicked; uses compile, load, and start protocol.
-          </p>
-          <iframe
-            id="compiler-frame"
-            title="Persistent compiler runtime"
-            data-src="/compiler/index.html"
-            hidden
-          ></iframe>
-          <pre id="preview-context-diagnostics" aria-label="Preview context diagnostics"></pre>
-          <pre id="preview-managed-output" aria-label="Managed preview output"></pre>
-          <p class="preview-security-note">
-            Separate lifecycle and JS/.NET globals only. Security boundary hardening is issue 33.
-          </p>
-        </aside>
-      </main>
+        </section>
+      </section>
 
-      <footer class="runtime-footer">
-        <div class="runtime-state">
-          <span class="runtime-state-light" aria-hidden="true"></span>
-          <span id="runtime-status" role="status" aria-live="polite">
-            Loading verified Debug Example.Web payload…
-          </span>
-        </div>
-        <div class="runtime-diagnostics">
-          <span id="wasm-diagnostic" role="status" aria-live="polite">
-            WASM URL pending · content-type pending · instantiateStreaming waiting · buffer fallback not used · MIME warnings 0
-          </span>
-          <span id="runtime-build">MonoGame artifacts: verifying</span>
-        </div>
+      <!-- Status bar -->
+      <footer class="status">
+        <span>main*</span>
+        <span>Ln 18, Col 29</span>
+        <span>Spaces: 4</span>
+        <span id="wasm-diagnostic" role="status" aria-live="polite">WASM URL pending · content-type pending · instantiateStreaming waiting</span>
+        <span class="runtime">● OFFLINE RUNTIME READY</span>
       </footer>
-    </div>
+    </main>
 
+    <!-- Hidden proof elements kept for compatibility -->
+    <iframe id="compiler-frame" title="Persistent compiler runtime" data-src="/compiler/index.html" hidden></iframe>
+    <span id="runtime-build" hidden>MonoGame artifacts: verifying</span>
+    <!-- Proof element: unfocused input focus target (issue 009) -->
+    <div id="runtime-status" hidden role="status" aria-live="polite">STOPPED</div>
   </body>
 </html>
