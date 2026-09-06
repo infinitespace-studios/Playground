@@ -1,5 +1,27 @@
 # Plan — Issue 052 Task 3: Re-point the security proofs to the in-page iframe boundary
 
+## STATUS (updated 2026-09-06)
+
+- **Issue 33 (+ 033nwe negative): DONE and packaged-verified** (commit `412171f`).
+  The reusable runner `runInPagePreviewForProof` and the negative probe
+  `probeInPageNoWasmEvalBoot` are ALREADY BUILT in `src/frontend/src/issue21.ts`
+  (do not re-create them). Issue 33 re-pointed; full `prove-issue038-macos.sh`
+  run is all-green.
+- **Issues 34, 35, 36: OPEN.** Still on the isolated window
+  (`compileLoadStartIssue23`). Re-point them by pointing their `start()` helper
+  at `runInPagePreviewForProof` and inverting the window-specific assertions
+  (origin `"null"`, `parentDomDenied` true) — same pattern as issue 33.
+- **Issue 34 is the sharp edge** — see the risks section (the
+  `issue034-acl-invoke-probe`: on the iframe, `__TAURI_INTERNALS__` is never
+  injected, so assert the bridge is ABSENT/unreachable rather than "N ACL
+  rejections").
+- **Verify each** by running `scripts/prove-issue038-macos.sh` (packaged,
+  env-gated) — the packaged proof run IS the ground-truth verification.
+
+The sections below are the original grounded plan (written before any code).
+
+---
+
 Status: PLAN ONLY (no code changes). Grounded in a read of the actual proof
 code, preview.js probes, the proof runner, and the issue specs.
 

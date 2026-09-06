@@ -136,6 +136,36 @@ be called BEFORE `appendChild` to avoid an about:blank load-race that hung
    in-page bridge does not reintroduce a comparable delay; if confirmed, note it
    against the Issue 041 baseline.
 
+## Pre-existing bugs found + fixed while getting the packaged suite running (2026-09-06)
+
+The whole 045-052 workbench UI had only ever been tested in `tauri dev`; the
+first packaged proof run surfaced a stack of pre-existing breakage (mostly from
+`c475b84` "fix blank window in dev mode", which was itself dev-only tested).
+All fixed as standalone commits; the full `scripts/prove-issue038-macos.sh` run
+is now all-green:
+
+- `2795d1d` — main window was hardcoded to `WebviewUrl::External(dev URL)` → white
+  window when packaged. Now `WebviewUrl::App("index.html")`.
+- `0ed0118` — packaged proof readiness gate required the top-level issue-007
+  MonoGame demo to render, but issue 45's workbench removed its `#canvas`; the
+  demo's failure also poisoned `consoleErrors`. Gated the demo off when `#canvas`
+  is absent; redefined `waitForTopRuntime`/`preparePackagedProofRuntime` to gate
+  on shell paint, not the demo.
+- `453f723` — `navigation_allowed` had been broadened to permit ALL http/https (a
+  host-navigation security hole vs issue 035, and a failing unit test). Now http
+  is allowed only for the dev-server origin `http://127.0.0.1:5173`.
+
+### Known follow-up (pre-existing, out of 052 scope)
+
+Issues 009 (input) and 011 (resize) exercise the **top-level** shell MonoGame
+demo, which renders into `#canvas`. Issue 45's workbench removed that element, so
+`startMonoGame` is now gated off (see `src/frontend/src/main.ts`). Those two
+Phase-1 proofs are therefore **non-exercisable in the workbench** until a proper
+top-level-shell-proof reconciliation. They are NOT in
+`scripts/prove-issue038-macos.sh` (which runs 023-041), so the current packaged
+suite is unaffected. Record/track this separately before the MVP acceptance gate
+(issue 056).
+
 Once the live path is the iframe, the focus/input plan below works as written
 (`iframe.contentWindow.focus()`), and the status-indicator / resize
 requirements (PRD 14.4) apply to a real embedded panel.
