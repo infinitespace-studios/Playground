@@ -312,23 +312,28 @@ public static partial class PreviewExports
             }
 
             // Content-type-aware admission (issue 052). Route by the asset's
-            // extension so each supported kind is validated appropriately and the
-            // FINAL bytes to stage are produced:
-            //   .xnb                  -> ContentValidator.Validate (unchanged; the
+            // MAGIC BYTES, not its extension: the frontend renames a raw `.wav`
+            // to a `.xnb` mount path (so Content.Load<SoundEffect> resolves and
+            // CommitMount's proof re-derivation stays consistent), so the file's
+            // extension no longer identifies its real contents. Detecting by
+            // content is also strictly more robust (a mislabelled file can't slip
+            // through). Each kind is validated appropriately and the FINAL bytes
+            // to stage are produced:
+            //   XNB magic ('XNB')     -> ContentValidator.Validate (unchanged; the
             //                            issue 39/40 path is byte-identical), stage raw
-            //   .wav                  -> WavToXnb.Convert -> ContentValidator.Validate
+            //   RIFF/WAVE magic       -> WavToXnb.Convert -> ContentValidator.Validate
             //                            the result, stage the transcoded XNB
-            //   .png/.jpg/.jpeg/.bmp  -> image magic-byte sniff, stage raw (the
-            //                            MonoGame Web runtime's Texture2D.FromStream
-            //                            fallback loads these directly)
+            //   PNG/JPEG/BMP magic    -> image sniff (+ extension guard), stage raw
+            //                            (MonoGame Web's Texture2D.FromStream fallback
+            //                            loads these directly by extension)
             // The integrity checks below (sha256/byteLength vs the manifest) run
             // against the RAW transferred bytes; `stagedBytes` is what gets written.
             var canonical = pathResult.CanonicalPath!;
-            byte[] stagedBytes;
             var extension = GetAssetExtension(canonical);
-            switch (extension)
+            byte[] stagedBytes;
+            switch (DetectContentKind(bytes))
             {
-                case "xnb":
+                case ContentKind.Xnb:
                 {
                     var validation = ContentValidator.Validate(bytes, canonical);
                     if (!validation.Valid)
@@ -338,7 +343,7 @@ public static partial class PreviewExports
                     stagedBytes = bytes;
                     break;
                 }
-                case "wav":
+                case ContentKind.Wav:
                 {
                     var transcode = WavToXnb.Convert(bytes, canonical);
                     if (!transcode.Success)
@@ -355,10 +360,7 @@ public static partial class PreviewExports
                     stagedBytes = transcode.Xnb!;
                     break;
                 }
-                case "png":
-                case "jpg":
-                case "jpeg":
-                case "bmp":
+                case ContentKind.Image:
                 {
                     var image = ImageContent.Validate(bytes, canonical, extension);
                     if (!image.Valid)
@@ -370,10 +372,10 @@ public static partial class PreviewExports
                 }
                 default:
                     return AbortPendingMount("PREVIEW_LOAD_FAILED",
-                        $"The content file '{canonical}' has an unsupported type. " +
-                        "Supported: .xnb, .png, .jpg, .jpeg, .bmp, .wav.",
+                        $"The content file '{canonical}' is not a recognized asset. " +
+                        "Supported: XNB, PNG, JPEG, BMP, or PCM WAV.",
                         "PG0212_CONTENT_UNSUPPORTED_EXTENSION",
-                        $"Unsupported content extension for '{canonical}'.");
+                        $"Unsupported content for '{canonical}'.");
             }
 
             var sha256 = Convert.ToHexString(
@@ -916,6 +918,39 @@ public static partial class PreviewExports
         if (lastDot < 0 || lastDot < lastSlash || lastDot == canonicalPath.Length - 1)
             return string.Empty;
         return canonicalPath[(lastDot + 1)..].ToLowerInvariant();
+    }
+
+    private enum ContentKind { Unknown, Xnb, Wav, Image }
+
+    /// <summary>
+    /// Identify a mounted asset by its leading MAGIC BYTES (issue 052). Routing
+    /// by content rather than extension is required because the frontend renames
+    /// a raw `.wav` to a `.xnb` mount path, and is more robust against a
+    /// mislabelled file. Returns the coarse kind; per-kind validators
+    /// (ContentValidator / WavToXnb / ImageContent) do the exact checks.
+    /// </summary>
+    private static ContentKind DetectContentKind(ReadOnlySpan<byte> b)
+    {
+        // XNB: 'X' 'N' 'B'
+        if (b.Length >= 3 && b[0] == (byte)'X' && b[1] == (byte)'N' && b[2] == (byte)'B')
+            return ContentKind.Xnb;
+        // RIFF/WAVE: "RIFF" .... "WAVE"
+        if (b.Length >= 12 &&
+            b[0] == (byte)'R' && b[1] == (byte)'I' && b[2] == (byte)'F' && b[3] == (byte)'F' &&
+            b[8] == (byte)'W' && b[9] == (byte)'A' && b[10] == (byte)'V' && b[11] == (byte)'E')
+            return ContentKind.Wav;
+        // PNG: 89 50 4E 47 0D 0A 1A 0A
+        if (b.Length >= 8 &&
+            b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47 &&
+            b[4] == 0x0D && b[5] == 0x0A && b[6] == 0x1A && b[7] == 0x0A)
+            return ContentKind.Image;
+        // JPEG: FF D8 FF
+        if (b.Length >= 3 && b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF)
+            return ContentKind.Image;
+        // BMP: 'B' 'M'
+        if (b.Length >= 2 && b[0] == 0x42 && b[1] == 0x4D)
+            return ContentKind.Image;
+        return ContentKind.Unknown;
     }
 
     private static void ClearAllMountState()
