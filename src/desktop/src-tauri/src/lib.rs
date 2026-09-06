@@ -3605,7 +3605,11 @@ pub fn run() {
             let window = tauri::WebviewWindowBuilder::new(
                 app.handle(),
                 "main",
-                tauri::WebviewUrl::External("http://127.0.0.1:5173/".parse().unwrap()),
+                // WebviewUrl::App resolves to the Vite dev server in `tauri dev`
+                // and to the bundled frontend (index.html) in packaged builds.
+                // A hardcoded External(devUrl) here loads nothing when packaged
+                // (no dev server) — a blank white window.
+                tauri::WebviewUrl::App("index.html".into()),
             )
             .title("MonoGame Playground")
             .inner_size(1280.0, 800.0)
