@@ -1,4 +1,4 @@
-import { compileLoadStartIssue23, preparePackagedProofRuntime } from "./issue21";
+import { runInPagePreviewForProof, preparePackagedProofRuntime } from "./issue21";
 
 const source = `
 using Microsoft.Xna.Framework;
@@ -31,11 +31,13 @@ interface NavigationSecurityEvidence {
 }
 
 async function startAndWait(name: string) {
-  const preview = await compileLoadStartIssue23({
+  // Issue 052 task 3: render in the in-page opaque-origin sandboxed iframe
+  // (runInPagePreviewForProof already waits for preview.started before returning)
+  // rather than the isolated WebviewWindow (compileLoadStartIssue23).
+  const preview = await runInPagePreviewForProof({
     assemblyName: name,
     sourcePath: "src/Issue035Game.cs",
     sourceText: source,
-    proofMode: true,
     issue035Proof: true,
   });
   const frameDeadline = performance.now() + 10_000;
@@ -73,8 +75,11 @@ export async function runIssue035AutoProof(): Promise<void> {
   const mainTitleAfter = document.title;
   const mainUrlAfter = location.href;
 
-  // Hard assertions
-  const expectedOrigin = "playground-preview://localhost";
+  // Hard assertions (in-page sandboxed-iframe boundary, issue 052 task 3)
+  // The opaque-origin iframe reports origin "null"; navigation/popups/network
+  // are denied by the sandbox (no allow-popups / allow-top-navigation) + CSP,
+  // and the cross-origin same-origin-policy boundary to the trusted parent.
+  const expectedOrigin = "null";
   const connectViolation = firstSecurity.violations.find(v =>
     v.effectiveDirective.startsWith("connect-src") &&
     v.blockedUri === "https://example.com/issue035-probe");
@@ -84,18 +89,22 @@ export async function runIssue035AutoProof(): Promise<void> {
     !firstSecurity.fetchBlocked ||
     !connectViolation ||
     connectViolation.effectiveDirective !== "connect-src" ||
-    // Exact origin
+    // Opaque origin (sandbox="allow-scripts", no allow-same-origin)
     firstSecurity.serializedOrigin !== expectedOrigin ||
-    // Popup denied (on_new_window hook returns Deny)
-    !firstSecurity.popupDenied || // _top popup may return self in top-level window
-    // popupTopDenied: _top = self in isolated top-level window; navigation blocked by hook
-    // Main window unchanged
+    // Popup denied (sandbox has no allow-popups — window.open returns null)
+    !firstSecurity.popupDenied ||
+    // NOTE: popupTopDenied / topLocationDenied are reported but NOT hard-asserted:
+    // a sandbox lacking allow-top-navigation may block navigation SILENTLY (no
+    // throw), so those catch-based booleans are browser-dependent. The robust
+    // proof that top navigation was denied is the trusted-parent window staying
+    // unchanged (mainTitle/mainUrl below).
+    // Main (trusted parent) window unchanged
     mainTitleAfter !== mainTitleBefore ||
     mainUrlAfter !== mainUrlBefore ||
     // Second generation same evidence
     !secondSecurity.fetchBlocked ||
     secondSecurity.serializedOrigin !== expectedOrigin ||
-    !secondSecurity.popupDenied // topDenied not checked: _top = self in top-level window
+    !secondSecurity.popupDenied
   ) {
     throw new Error(`Issue 035 navigation security evidence failed: ${JSON.stringify({
       firstSecurity, secondSecurity,
@@ -108,7 +117,7 @@ export async function runIssue035AutoProof(): Promise<void> {
     report: JSON.stringify({
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
-      architecture: "isolated-webview-window",
+      architecture: "in-page-sandboxed-iframe",
       first: {
         origin: firstSecurity.serializedOrigin,
         fetchBlocked: firstSecurity.fetchBlocked,
@@ -135,9 +144,11 @@ export async function runIssue035AutoProof(): Promise<void> {
       },
       enforcementLayers: {
         cspConnectSrc: "playground-preview: only",
-        onNavigation: "navigation_allowed: tauri/playground-preview/about only",
-        onNewWindow: "NewWindowResponse::Deny",
-        processIsolation: "separate WKWebView — no shared DOM",
+        opaqueOrigin: "sandbox=\"allow-scripts\" with no allow-same-origin (origin null)",
+        popupsDenied: "sandbox has no allow-popups — window.open returns null",
+        topNavigationDenied:
+          "sandbox has no allow-top-navigation; cross-origin parent.location writes throw (same-origin policy)",
+        parentDomIsolation: "opaque-origin iframe cannot reach the trusted parent DOM",
       },
     }),
   });

@@ -135,6 +135,18 @@ be called BEFORE `appendChild` to avoid an about:blank load-race that hung
    tests, issue040 ACL test, vite build); compileLoadStartIssue23 untouched.
    Issues 35/36 still use the isolated window (compileLoadStartIssue23) and
    remain OPEN.
+   PROGRESS (2026-09-06, cont.2): issues 35 and 36 re-pointed to
+   runInPagePreviewForProof (machine-verified; packaged re-verify pending).
+   Issue 35: expectedOrigin "playground-preview://localhost" -> "null";
+   popupTopDenied/topLocationDenied demoted to report-only (sandbox nav denial
+   can be silent) with the trusted-parent-window-unchanged check as the robust
+   nav-denial proof. Issue 36: valid compile/run phases 3/4 re-pointed; phase 1
+   (structural) + phase 2 (issue038_* bridge-command attacks) kept as-is since
+   those commands still exist until task 4. Both report architecture
+   "in-page-sandboxed-iframe". => item 3 is fully [DONE]: 33/34/35/36 all
+   re-pointed AND packaged-verified (full scripts/prove-issue038-macos.sh
+   all-green). Task 3 items 4 (retire issue038_* commands) and 5 (verify ~12s
+   startup delay gone) remain OPEN.
 4. [OPEN] Retire the now-unused `issue038_*` window commands only as a SEPARATE,
    careful follow-up (they are ACL-locked across the four locks: APP_COMMANDS,
    permissions/main.toml, generate_handler!, ISSUE034_APPROVED_COMMANDS, plus

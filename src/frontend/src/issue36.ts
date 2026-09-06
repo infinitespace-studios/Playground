@@ -1,4 +1,4 @@
-import { compileLoadStartIssue23, preparePackagedProofRuntime } from "./issue21";
+import { runInPagePreviewForProof, preparePackagedProofRuntime } from "./issue21";
 import {
   LIMITS,
   inspectClone,
@@ -151,15 +151,20 @@ export async function runIssue036AutoProof(): Promise<void> {
   // Phase 1: structural validation (unit-level, no preview)
   const structural = testStructuralValidation();
 
-  // Phase 2: bridge protocol attacks (Rust command surface)
+  // Phase 2: bridge protocol attacks (Rust command surface). These issue038_*
+  // commands still exist and remain ACL-registered until task 4's deliberate
+  // retirement, so this continues to prove they reject forged/malformed input
+  // (stale/invalid generations, path-escape tokens, oversized/empty transfers).
   const bridgeAttacks = await testBridgeAttacks(invoke);
 
-  // Phase 3: valid compile/run through isolated window (proves attacks didn't corrupt state)
-  const first = await compileLoadStartIssue23({
+  // Phase 3: valid compile/run through the in-page opaque-origin sandboxed iframe
+  // (issue 052 task 3) — proves the forged-message attacks did not corrupt the
+  // transport the live path now uses. runInPagePreviewForProof waits for
+  // preview.started before returning.
+  const first = await runInPagePreviewForProof({
     assemblyName: "Issue036First",
     sourcePath: "src/Issue036Game.cs",
     sourceText: source,
-    proofMode: true,
     issue036Proof: true,
   });
 
@@ -178,11 +183,10 @@ export async function runIssue036AutoProof(): Promise<void> {
   const firstStopped = await first.stop("user");
 
   // Phase 4: second generation — proves first cleanup was complete
-  const second = await compileLoadStartIssue23({
+  const second = await runInPagePreviewForProof({
     assemblyName: "Issue036Second",
     sourcePath: "src/Issue036Game.cs",
     sourceText: source,
-    proofMode: true,
     issue036Proof: true,
   });
 
@@ -219,7 +223,7 @@ export async function runIssue036AutoProof(): Promise<void> {
     report: JSON.stringify({
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
-      architecture: "isolated-webview-window",
+      architecture: "in-page-sandboxed-iframe",
       structural,
       bridgeAttacks,
       first: {

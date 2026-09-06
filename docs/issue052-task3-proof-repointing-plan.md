@@ -28,6 +28,21 @@
 > (`directInvoke` "unreachable", `globals.internals`/`invoke` "undefined") —
 > stronger than counting ACL rejections. `ISSUE034_APPROVED_COMMANDS` kept as the
 > ACL inventory guard. **Issues 35, 36 remain OPEN.**
+>
+> UPDATE2 (2026-09-06): **issues 35 and 36 re-pointed + PACKAGED-VERIFIED**
+> (`scripts/prove-issue038-macos.sh` all-green; 035 report `origin: "null"`,
+> 036 report structural + bridgeAttacks all green). Both now report
+> `architecture: "in-page-sandboxed-iframe"`.
+> Issue 35: origin expectation → `"null"`; `popupTopDenied`/`topLocationDenied`
+> demoted to report-only (sandbox nav denial can be silent — no throw), with the
+> trusted-parent-window-unchanged check as the robust nav-denial proof. Issue 36:
+> valid compile/run phases 3/4 re-pointed; phase 1 (structural) + phase 2
+> (`issue038_*` bridge-command attacks) kept as-is (commands still exist until
+> task 4).
+>
+> **Item 3 (re-point 33/34/35/36) is now fully DONE + packaged-verified.**
+> Remaining task-3 items: 4 (retire `issue038_*` commands, ACL-locked) and 5
+> (verify the ~12s startup delay is gone) — both still OPEN.
 
 The sections below are the original grounded plan (written before any code).
 
