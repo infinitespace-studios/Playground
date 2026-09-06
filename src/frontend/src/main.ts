@@ -325,9 +325,20 @@ const startMonoGame = async () => {
   await fetchModule("/main.js");
 };
 
-void startMonoGame().catch((error: unknown) => {
-  console.error("Unable to start packaged MonoGame runtime", error);
-});
+// Issue 052 task-A: the top-level MonoGame demo (issues 007/009/011) renders
+// into a `#canvas` element. Issue 45's workbench UI replaced that page and has
+// no `#canvas`, so this demo is obsolete there. Auto-run it ONLY when its
+// render target exists — otherwise its blob-import loader fails and poisons
+// `diagnostics.consoleErrors`/`runtime="error"`, which the packaged proof
+// readiness gate and issues 025/027/030's clean-console assertions depend on.
+// (Gated off, not removed: the demo code stays for a future reconciliation of
+// the top-level-shell proofs. Issues 009/011 are non-exercisable in the
+// workbench as a known, pre-existing follow-up.)
+if (document.querySelector("#canvas")) {
+  void startMonoGame().catch((error: unknown) => {
+    console.error("Unable to start packaged MonoGame runtime", error);
+  });
+}
 
 const runIssue009Proof = async () => {
   const invoke = window.__TAURI_INTERNALS__?.invoke;

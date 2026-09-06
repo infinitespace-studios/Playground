@@ -341,16 +341,22 @@ previewFrame.addEventListener("load", () => {
 });
 
 async function waitForTopRuntime() {
+  // Issue 052 task-A: "shell ready" no longer means the top-level MonoGame demo
+  // rendered a frame — the workbench (issue 45) removed that demo's `#canvas`,
+  // so the demo is obsolete and gated off (see main.ts). Readiness is now: the
+  // document is visible and the page has painted at least one animation frame.
+  // The compiler/preview iframes (which the proofs actually use) load the WASM
+  // runtime directly and gate themselves via their own bridges.
   const deadline = performance.now() + 120_000;
-  while ((document.documentElement.dataset.runtime !== "rendering" ||
-          window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved === 0) &&
-         performance.now() < deadline) {
+  const paintedFrame = () => new Promise<boolean>(resolve => {
+    const timer = window.setTimeout(() => resolve(false), 500);
+    requestAnimationFrame(() => { window.clearTimeout(timer); resolve(true); });
+  });
+  while (performance.now() < deadline) {
+    if (document.visibilityState === "visible" && await paintedFrame()) return;
     await new Promise(resolve => window.setTimeout(resolve, 100));
   }
-  if (document.documentElement.dataset.runtime !== "rendering" ||
-      window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved === 0) {
-    throw new Error("Top-level MonoGame runtime did not render.");
-  }
+  throw new Error("Top-level shell did not reach a painting steady state.");
 }
 
 export async function preparePackagedProofRuntime(): Promise<Record<string, unknown>> {
@@ -407,8 +413,12 @@ export async function preparePackagedProofRuntime(): Promise<Record<string, unkn
         nativeActivation.visible && nativeActivation.focused && !nativeActivation.minimized) {
       animationFrameBefore = await nextAnimationFrame();
       animationFrameAfter = animationFrameBefore === null ? null : await nextAnimationFrame();
+      // Issue 052 task-A: readiness is the window being visible/active and the
+      // page painting (two progressing animation frames) — NOT the obsolete
+      // top-level MonoGame demo rendering (issue 45 removed its #canvas; the
+      // proofs' own compiler/preview iframes drive the WASM runtime).
       if (animationFrameBefore !== null && animationFrameAfter !== null &&
-          window.__MONOGAME_DIAGNOSTICS__.renderedFramesObserved > framesBefore) break;
+          animationFrameAfter > animationFrameBefore) break;
     }
 
     if (performance.now() >= nextActivationAt && activationRounds < 3) {
@@ -423,7 +433,7 @@ export async function preparePackagedProofRuntime(): Promise<Record<string, unkn
       !nativeActivation.applicationActive || !nativeActivation.nativeWindowFocused ||
       !nativeActivation.visible || !nativeActivation.focused || nativeActivation.minimized ||
       animationFrameBefore === null || animationFrameAfter === null ||
-      animationFrameAfter <= animationFrameBefore || framesAfter <= framesBefore) {
+      animationFrameAfter <= animationFrameBefore) {
     throw new Error(`Packaged proof readiness failed: ${JSON.stringify({
       nativeActivation,
       activationRounds,
