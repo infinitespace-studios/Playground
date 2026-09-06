@@ -31,6 +31,8 @@ export interface Issue049OutputPanel {
   appendOutput: (event: PreviewOutput) => void;
   /** Append a distinctly-formatted runtime-failure block (preview.failed). */
   appendFailure: (payload: RuntimeFailurePayload) => void;
+  /** Issue 052: append a labelled content-loading error (mount/validation). */
+  appendContentError: (code: string, message: string) => void;
   /** Clear all rendered entries (called at the start of each Run). */
   clear: () => void;
   /** Literal text of each rendered output row, in order (for proofs). */
@@ -139,6 +141,29 @@ export function installIssue049OutputPanel(): Issue049OutputPanel {
     outputView.scrollTop = outputView.scrollHeight;
   }
 
+  function appendContentError(code: string, message: string): void {
+    // Issue 052: a clear, user-facing content error (non-Web contentProfile, an
+    // unsupported/incompatible asset, a failed mount). Reuses the runtime-error
+    // visual block but with a literal "Content error" label (non-color cue).
+    const block = document.createElement("div");
+    block.className = "runtime-error";
+    block.setAttribute("role", "group");
+
+    const heading = document.createElement("div");
+    heading.className = "runtime-error-heading";
+    heading.textContent = code && code.length > 0
+      ? `Content error \u2014 ${code}`
+      : "Content error";
+
+    const messageEl = document.createElement("div");
+    messageEl.className = "runtime-error-message";
+    messageEl.textContent = message;
+
+    block.append(heading, messageEl);
+    outputView.appendChild(block);
+    outputView.scrollTop = outputView.scrollHeight;
+  }
+
   function clear(): void {
     outputView.replaceChildren();
   }
@@ -155,7 +180,7 @@ export function installIssue049OutputPanel(): Issue049OutputPanel {
     return outputView.querySelectorAll(".output-row").length;
   }
 
-  installed = { appendOutput, appendFailure, clear, outputLineTexts, outputCount };
+  installed = { appendOutput, appendFailure, appendContentError, clear, outputLineTexts, outputCount };
   return installed;
 }
 

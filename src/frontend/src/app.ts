@@ -6,6 +6,7 @@ import { installIssue049OutputPanel } from "./issue049";
 import installIssue050Tracker from "./issue050";
 import { installIssue051ProjectManager } from "./issue051";
 import { installIssue052PreviewPanel } from "./issue052";
+import { prepareProjectContent } from "./issue052-content";
 
 // Workbench application controller wiring
 // Run/Stop buttons are wired into the workbench toolbar (see index.html)
@@ -188,4 +189,18 @@ installIssue024RunStopControl(() => {
     if (sources.length === 0 || primary === null) return null;
     return { sources, primarySourcePath: primary };
   },
+  // Issue 052: mount the open project's Content/ assets before Run. A non-Web
+  // contentProfile is surfaced as an Output-panel content error and aborts the
+  // run before anything is mounted (PRD §15). Per-asset mount/validation
+  // failures are surfaced by the runner via onContentError below.
+  contentProvider: () => {
+    const prepared = prepareProjectContent(project.getContent());
+    if (prepared === null) return null;
+    if (!prepared.ok) {
+      output.appendContentError(prepared.code, prepared.message);
+      throw new Error(`${prepared.code}: ${prepared.message}`);
+    }
+    return { assets: prepared.assets, contentRootDirectory: "Content" };
+  },
+  onContentError: (code, message) => output.appendContentError(code, message),
 });

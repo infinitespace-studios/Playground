@@ -87,6 +87,8 @@ const start = (
   sourceProvider?: () => string,
   onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
   multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
+  contentProvider?: () => { assets: ReadonlyArray<{ path: string; bytes: ArrayBuffer }>; contentRootDirectory?: string } | null,
+  onContentError?: (code: string, message: string) => void,
 ) => {
   // Issue 047: when a live editor source provider is supplied (real UI, non
   // proof), compile the current in-memory editor buffer — including unsaved
@@ -103,12 +105,17 @@ const start = (
     const primarySourcePath = multi && multi.sources.length > 0
       ? multi.primarySourcePath
       : "Game1.cs";
+    // Issue 052: mount the project's Content/ assets before Run.
+    const content = contentProvider?.();
     return runLivePreviewInPage({
       assemblyName: "PlaygroundGame",
       sources,
       primarySourcePath,
       onOutput,
       onDiagnostics,
+      contentAssets: content?.assets,
+      contentRootDirectory: content?.contentRootDirectory,
+      onContentError,
     });
   }
   return compileLoadStartIssue23({
@@ -130,6 +137,8 @@ function createRunStopController(
   onRunStart?: () => void,
   multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
   onLifecycle?: (state: import("./issue24-controller").Issue052PreviewLifecycle) => void,
+  contentProvider?: () => { assets: ReadonlyArray<{ path: string; bytes: ArrayBuffer }>; contentRootDirectory?: string } | null,
+  onContentError?: (code: string, message: string) => void,
 ) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
@@ -143,7 +152,7 @@ function createRunStopController(
       onRunStart?.();
       return start(proofMode, event => {
         onOutputLine?.(event);
-      }, sourceProvider, onDiagnostics, multiSourceProvider);
+      }, sourceProvider, onDiagnostics, multiSourceProvider, contentProvider, onContentError);
     },
     stop: (preview, reason) => preview.stop(reason),
     observeFailure: preview => {
@@ -184,6 +193,10 @@ export interface Issue024OutputHooks {
   multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null;
   /** Issue 052: preview-panel status indicator lifecycle updates. */
   onLifecycle?: (state: import("./issue24-controller").Issue052PreviewLifecycle) => void;
+  /** Issue 052: the open project's prepared Content/ assets to mount before Run. */
+  contentProvider?: () => { assets: ReadonlyArray<{ path: string; bytes: ArrayBuffer }>; contentRootDirectory?: string } | null;
+  /** Issue 052: labelled content-error entry for the Output panel. */
+  onContentError?: (code: string, message: string) => void;
 }
 
 export function installIssue024RunStopControl(
@@ -201,6 +214,8 @@ export function installIssue024RunStopControl(
     outputHooks?.onRunStart,
     outputHooks?.multiSourceProvider,
     outputHooks?.onLifecycle,
+    outputHooks?.contentProvider,
+    outputHooks?.onContentError,
   );
   runButton.addEventListener("click", () => {
     if (gate) {

@@ -34,10 +34,18 @@ interface Issue051File {
   dirty: boolean;
 }
 
+interface ProjectContentFile {
+  relativePath: string;
+  extension: string;
+  byteLength: number;
+  base64: string;
+}
+
 interface ProjectReadResult {
   root: string;
   folderName: string;
   csFiles: Array<{ relativePath: string; absolutePath: string; content: string }>;
+  contentFiles?: ProjectContentFile[];
   manifestText: string | null;
 }
 
@@ -48,6 +56,8 @@ let projectFolderName = "";
 let files: Issue051File[] = [];
 let activePath: string | null = null;
 let manifest: Issue051Manifest | null = null;
+/** Issue 052: raw Content/ assets discovered at Open (base64), for pre-Run mount. */
+let contentFiles: ProjectContentFile[] = [];
 /** True when the manifest existed on disk at Open (vs. created-on-first-Save). */
 let manifestOnDisk = false;
 
@@ -151,6 +161,16 @@ export interface Issue051Api {
   isDirty: () => boolean;
   /** The primary source path for compilation (Game1.cs if present, else first). */
   primarySourcePath: () => string | null;
+  /**
+   * Issue 052: the project's discovered Content/ assets + the manifest's
+   * declared contentProfile, for pre-Run mounting. Returns null when no folder
+   * project is open. `contentFiles` is the raw discovery (base64, disk paths);
+   * preparation (base64 decode, .wav->.xnb rename) happens in issue052-content.
+   */
+  getContent: () => {
+    contentProfile: string;
+    contentFiles: ReadonlyArray<{ relativePath: string; extension: string; byteLength: number; base64: string }>;
+  } | null;
 }
 
 export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api {
@@ -208,6 +228,13 @@ export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api
       const game = files.find(f => f.relativePath === "Game1.cs" || f.relativePath.endsWith("/Game1.cs"));
       return (game ?? files[0]).relativePath;
     },
+    getContent: () => {
+      if (projectRoot === null) return null;
+      return {
+        contentProfile: manifest?.contentProfile ?? "Web",
+        contentFiles,
+      };
+    },
     syncActiveBuffer,
     switchTo,
     openFolder: async () => {
@@ -253,6 +280,7 @@ export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api
       projectFolderName = project.folderName;
       manifest = parsedManifest;
       manifestOnDisk = existedOnDisk;
+      contentFiles = project.contentFiles ?? [];
       files = project.csFiles.map(f => ({
         relativePath: f.relativePath,
         absolutePath: f.absolutePath,

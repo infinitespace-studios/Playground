@@ -1,5 +1,6 @@
 import {
   PROTOCOL_VERSION,
+  type AssetMountRequest,
   type BinaryProof,
   type CompileRequest,
   type Diagnostic,
@@ -19,6 +20,7 @@ import {
   ProtocolPortClient,
   sha256,
   standaloneBuffer,
+  validateAssetMountResponse,
   validateCompileResponse,
   validatePreviewLoadResponse,
   validatePreviewLifecycleEvent,
@@ -2018,6 +2020,17 @@ export async function runLivePreviewInPage(input: {
   primarySourcePath: string;
   onOutput?: (event: PreviewOutput) => void;
   onDiagnostics?: (diagnostics: readonly Diagnostic[], outcome: "success" | "failure") => void;
+  // Issue 052: content assets discovered under the project's Content/ folder,
+  // mounted into the preview VFS AFTER load and BEFORE start so
+  // Content.Load<T>(...) resolves. `path` is the logical Content-relative path
+  // (e.g. "textures/player.png" or "audio/blip.xnb"); `bytes` is a standalone
+  // ArrayBuffer transferred to the preview. `.wav` sources must already have
+  // been prepared to a ".xnb" path by the caller (issue052-content).
+  contentAssets?: readonly { path: string; bytes: ArrayBuffer }[];
+  contentRootDirectory?: string;
+  // Issue 052: surface a content-mount failure as a labelled Output-panel entry
+  // (issue 049), distinct from compile diagnostics (Problems panel).
+  onContentError?: (code: string, message: string) => void;
 }): Promise<LivePreviewHandle> {
   await ensureIssue21Contexts(false, true);
 
@@ -2153,6 +2166,49 @@ export async function runLivePreviewInPage(input: {
       retire();
       throw new Error(
         `${loadResponse.message.result.error.code}: ${loadResponse.message.result.error.message}`);
+    }
+
+    // ── Mount discovered Content/ assets (issue 052) BEFORE start ──
+    // Inline transfer over the same in-page protocol port (no Rust relay). Each
+    // asset's bytes go through the preview's content-type-aware mount gate
+    // (wav->xnb transcode / image sniff / xnb validate). A mount failure aborts
+    // the run and surfaces a labelled content error via onDiagnostics (issue 049
+    // Output panel), leaving no preview running.
+    if (input.contentAssets && input.contentAssets.length > 0) {
+      const mountCorrelationId = createUuid();
+      const mountId = createUuid();
+      const mountAssets = input.contentAssets.map(asset => ({
+        path: asset.path,
+        bytes: standaloneBuffer(new Uint8Array(asset.bytes)),
+      }));
+      const mountRequest: AssetMountRequest = {
+        protocolVersion: PROTOCOL_VERSION,
+        correlationId: mountCorrelationId,
+        type: "asset.mount.request",
+        payload: {
+          previewId,
+          mountId,
+          contentRootDirectory: input.contentRootDirectory ?? "Content",
+          assets: mountAssets,
+        },
+      };
+      const mountResponse = await client.request(
+        mountRequest,
+        "asset.mount.response",
+        value => validateAssetMountResponse(value, mountCorrelationId, previewId, mountId),
+        mountAssets.map(asset => asset.bytes),
+      ) as ReturnType<typeof validateAssetMountResponse>;
+      if (!mountResponse.message.result.success) {
+        const error = mountResponse.message.result.error;
+        // Surface the content error in the real Output panel (issue 049), then
+        // abort the run without starting a game (PRD 8.4/§15: fail clearly, don't
+        // render). Also mirror any structured diagnostics to the Problems panel.
+        input.onContentError?.(error.code, error.message);
+        const diagnostics = (error as { diagnostics?: Diagnostic[] }).diagnostics;
+        if (diagnostics && diagnostics.length > 0) input.onDiagnostics?.(diagnostics, "failure");
+        retire();
+        throw new Error(`${error.code}: ${error.message}`);
+      }
     }
 
     // ── Wire output + runtime-failure listeners (issues 049 / 029) ──
