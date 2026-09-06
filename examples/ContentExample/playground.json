@@ -1,0 +1,9 @@
+{
+  "name": "Content Example",
+  "schemaVersion": 1,
+  "contentProfile": "Web",
+  "preview": {
+    "width": 800,
+    "height": 480
+  }
+}

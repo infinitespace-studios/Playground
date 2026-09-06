@@ -149,3 +149,33 @@ the real `SoundEffectReader.Read()` path in the pinned MonoGame runtime.
 - `external/MonoGame/MonoGame.Framework/Content/ContentReaders/SoundEffectReader.cs` — runtime reader that consumes this fixture
 - `external/MonoGame/MonoGame.Framework/Audio/SoundEffect.cs` — PCM branch (`wFormatTag == 1`) used by this fixture
 - `external/MonoGame/MonoGame.Framework/Platform/Native/SoundEffect.Native.cs` — FAudio buffer creation used by the Web (Native profile) runtime
+
+## textures/sprite.png and audio/tone.wav (RAW fixtures — issue 052)
+
+These two are **raw** assets that need no MGCB step: the preview loads
+`sprite.png` via the MonoGame Web runtime's `Texture2D.FromStream` fallback, and
+transcodes `tone.wav` (raw PCM) into an XNB SoundEffect at mount time
+(`src/preview/WavToXnb.cs`). They demonstrate the issue 052 content workflow
+(see `docs/content-workflow.md`).
+
+- **textures/sprite.png**: 8×8 truecolour-with-alpha PNG (colour type 6), a
+  deterministic gradient. Signature + IHDR + IDAT (zlib `deflateSync`) + IEND,
+  each chunk CRC-32'd.
+- **audio/tone.wav**: RIFF/WAVE PCM, mono, 22,050 Hz, 16-bit, wrapping the
+  **same** integer sine-table PCM as `audio/blip.xnb` (issue 040). Transcoding it
+  produces byte-for-byte the committed `blip.xnb` SoundEffect body (verified: the
+  transcoded XNB is 44,280 bytes, identical to `blip.xnb`).
+
+### Build method
+
+Generated deterministically (no `Math.*` in the sample path) by
+`scripts/build-issue052-content-fixtures.mjs`:
+
+```
+node scripts/build-issue052-content-fixtures.mjs          # rewrite both
+node scripts/build-issue052-content-fixtures.mjs --check   # verify committed bytes
+```
+
+Both were verified to pass the real preview validators on the host:
+`ImageContent.Validate` (png) and `WavToXnb.Convert` → `ContentValidator.Validate`
+(wav → xnb), the exact code paths the packaged preview mount gate runs.
