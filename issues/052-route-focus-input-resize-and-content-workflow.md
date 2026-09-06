@@ -286,9 +286,84 @@ indicator could not track it. Owning the per-editor option makes behaviour +
 label a single source of truth. Header shows `⇥ Tab indents · ⌃⇧M to move focus`
 vs `⇥ Tab moves focus · ⌃⇧M to restore indent`.
 
-**Items 3-6 OPEN:** content discovery/validation -> Output panel (needs issue 51
-folder logic + issue 39/40 mount pipeline), `examples/ContentExample/` with real
-Web-profile `.xnb` fixtures (needs MGCB toolchain), and `docs/content-workflow.md`.
+**Items 3-6 DONE (GUI-verified 2026-09-06; independent verifier still required
+before the commit gate is satisfied).** The content workflow uses a raw-asset-
+first design (a MonoGame Web-runtime insight, see below), so it does NOT require
+the MGCB toolchain for the two MVP content types:
+
+- **Content discovery (item 3)** — `issue051_read_project` (Rust) also enumerates
+  the project's `Content/` directory and returns each supported asset
+  (`{ relativePath, extension, byteLength, base64 }`); own bounds (16 MiB/file,
+  24 MiB total, 256 files); hand-rolled RFC 4648 base64 (no new crate — respects
+  the issue-034 `tauri = { features = [] }` lock). Extracted as the unit-tested
+  sync helper `issue052_discover_content`.
+- **Content-type-aware mount gate (steps 1-2, C#)** — `MountSingleAsset` routes
+  by MAGIC BYTES (not extension): `XNB` -> `ContentValidator.Validate`
+  (byte-identical to the issue 39/40 path); `RIFF/WAVE` -> `WavToXnb.Convert`
+  (raw PCM WAV transcoded to an XNB SoundEffect at mount) -> validate;
+  PNG/JPEG/BMP -> `ImageContent` magic sniff, staged raw (the MonoGame Web
+  runtime's `Texture2D.FromStream` fallback loads images with no `.xnb`).
+- **Live-runner mount (item 3, step 4b)** — `runLivePreviewInPage` mounts the
+  prepared assets over the in-page protocol port (inline `assets`, no Rust
+  relay) AFTER load and BEFORE start.
+- **Content errors -> Output panel (item 4)** — `issue052-content.ts` prepares
+  assets (base64 decode, `.wav`->`.xnb` path rename so `Content.Load<SoundEffect>`
+  resolves) and gates on `contentProfile === "Web"` (non-Web -> immediate
+  `PG0215` Output error, no mount). Mount/validation failures surface via a new
+  `appendContentError` in `issue049.ts` (labelled "Content error — CODE" block).
+- **Worked example (item 5)** — `examples/ContentExample/`: `player.xnb`
+  (precompiled) + `sprite.png` (RAW) + `blip.xnb` (precompiled) + `tone.wav`
+  (RAW), a `playground.json` with `contentProfile: "Web"`, and a `Game1.cs` that
+  loads all of them (draws both textures, plays the tone on Space). Raw fixtures
+  are deterministic (`scripts/build-issue052-content-fixtures.mjs`, with
+  `--check`); `tone.wav` transcodes byte-for-byte to the committed `blip.xnb`.
+- **Docs (item 6)** — `docs/content-workflow.md`: supported formats, the
+  raw-vs-`.xnb` story, the worked example, fixture-repro commands, and the
+  content-error code reference.
+
+**Key design decision — raw-asset-first (verified against pinned MonoGame).**
+The MonoGame Web runtime loads raw `.png/.jpg/.bmp` via `Texture2D.FromStream`
+(no pipeline), and an audio `.xnb` body IS just `WAVEFORMATEX` + PCM + a small
+trailer — the same bytes a PCM `.wav` already holds — so `.wav` is transcoded to
+`.xnb` at mount with no MGCB step. Only shaders/`SpriteFont`/`Model` and
+compressed audio would still need MGCB (all out of MVP scope). This makes the
+example and the user workflow far lighter than the issue text's `.xnb`-only
+assumption while still exercising the `.xnb` path (`player.xnb`/`blip.xnb`).
+
+### Two GUI-found bugs fixed during the pass (both committed)
+
+- `e44395e` — the mount gate first routed by file EXTENSION, so a raw `.wav`
+  renamed to a `.xnb` mount path was validated as XNB -> `PG0201`. Fixed to route
+  by magic bytes.
+- `9ecd548` — a content error (non-Web `contentProfile`) left Run/Stop disabled
+  and the status stuck on "Loading": `contentProvider` throws SYNCHRONOUSLY, which
+  bypassed the controller's `.then(onRejected)` recovery. Fixed by converting a
+  synchronous `start()` throw into a rejection; added a controller unit test
+  (protocol.test.ts, 102/102).
+
+### Build/staging process note (cost a debugging round-trip — READ THIS)
+
+The preview is a SEPARATE WASM project whose bytes are **embedded into the Rust
+binary at compile time** by `build.rs` from `src/frontend/dist/preview` (the
+`vite build` / `npm run stage:preview` output). Consequences when iterating on
+preview C# (`src/preview/*.cs`):
+
+- `dotnet build` in `src/preview` updates `bin/` ONLY — the app never sees it.
+- `tauri dev`'s `beforeDevCommand` is `npm run dev`, which stages to
+  `.generated-public/preview` (dev) and does NOT rebuild `dist/preview`.
+- To get a preview C# change into the running app you must: (1) `npm --prefix
+  src/frontend run build` (republishes + stages into `dist/preview`), then
+  (2) let cargo RECOMPILE so `build.rs` re-embeds it (restart `tauri dev`; if the
+  directory `rerun-if-changed` doesn't trigger, `touch src/desktop/src-tauri/
+  build.rs` or `cargo build`).
+- Frontend-only changes (`src/frontend/src/*.ts`, css) need no restage — vite
+  HMR / a refresh suffices.
+
+Host-harness verification of preview C# proves the LOGIC but not that the running
+binary has it; always restage + recompile before a GUI test of a preview change.
+
+**Items 3-6 status:** DONE, GUI-verified. Independent verification of the full
+issue still required before the commit gate (see Verification record).
 
 ## What to build
 
@@ -335,10 +410,52 @@ Open `examples/ContentExample/`, press Run, and confirm the texture renders and 
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+### Implementer pass (2026-09-06) — GUI-verified by the requester, NOT yet independently verified
+
+- **Verdict:** Implemented + GUI-confirmed by the requesting developer; PENDING
+  independent verification before the commit gate is satisfied.
+- **Verifier:** Implementer + requesting developer (same session — does NOT meet
+  the "separate agent or human reviewer" bar; recorded here as evidence, not as
+  the gate.)
+- **Date:** 2026-09-06
+- **Evidence — GUI (requester, `tauri dev` on macOS):**
+  - Test 1 (content render): opened `examples/ContentExample/`, pressed Run — both
+    textures render (precompiled `player.xnb` + RAW `sprite.png`), zero manual
+    wiring. PASS.
+  - Test 2 (audio from raw WAV): clicked the preview, held Space — the `tone.wav`
+    (transcoded to XNB at mount) plays and the background tints green; Escape
+    stops it. PASS.
+  - Test 3 (content error): a non-Web `contentProfile` shows a labelled
+    `PG0215_CONTENT_PROFILE_NOT_WEB` "Content error" entry in the real Output
+    panel and the game does not start. PASS. (Two bugs found + fixed here:
+    magic-byte routing `e44395e`, Run/Stop recovery `9ecd548`.)
+  - Focus/input routing + status indicator (items 1-2) GUI-verified earlier the
+    same session (Space-turns-red game; keys reach the game only when the preview
+    is focused, Monaco only when the editor is; indicator cycles Idle/Loading/
+    Running/Stopped/Error with glyph+text cues). PASS.
+- **Evidence — machine:** frontend `tsc` clean (only the pre-existing
+  `issue041.ts:771` error, unrelated); 102/102 `protocol.test.ts` (incl. a new
+  synchronous-start-throw recovery test); `issue039`/`issue040` tests green
+  (their `.xnb` fixtures untouched); 56/56 `cargo test` (incl. 3 new Content
+  discovery / base64 tests); full WASM preview build 0 warn/0 err; vite build
+  clean. Host-harness round-trips confirmed the raw fixtures pass the REAL
+  preview validators (`ImageContent.Validate`; `WavToXnb.Convert` ->
+  `ContentValidator.Validate`), and `tone.wav` transcodes byte-for-byte to the
+  committed `blip.xnb`.
+- **NOT yet done (required for the gate):** independent verifier (separate agent
+  or human) inspects the diff and personally re-runs the Verification checks;
+  packaged verification via `scripts/prove-issue038-macos.sh` remains all-green
+  (the task-3 security re-points were already packaged-verified this session; the
+  content-workflow changes are additive and dev-GUI-verified but not yet run in
+  the packaged binary). Resize (PRD 14.4) was NOT implemented this session — see
+  the note below.
+
+### Deferred within this issue's scope
+
+- **Preview panel RESIZE (PRD 14.4).** The issue's "What to build" lists resizing
+  the preview panel; this session delivered focus/input, the status indicator,
+  and the full content workflow, but not an interactive resize affordance. Track
+  before the MVP acceptance gate (issue 056) or split into a follow-up.
 
 ## Commit gate
 
