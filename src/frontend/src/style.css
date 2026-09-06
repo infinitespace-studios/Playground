@@ -525,12 +525,20 @@ body[data-running="true"] .screen-label {
   overflow: hidden;
 }
 
-/* Preview iframe (proof element) */
-#preview-frame {
+/* Preview iframe (proof element) + issue 052 live preview iframe */
+#preview-frame,
+.live-preview-frame {
   width: 100%;
   height: 100%;
   border: 0;
   background: transparent;
+}
+
+/* Issue 052: the live preview iframe overlays the panel; on top of the
+   status label and centered like the proof frame. */
+.live-preview-frame {
+  position: absolute;
+  inset: 0;
 }
 
 /* Runtime state light (proof footer element) */

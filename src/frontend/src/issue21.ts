@@ -1970,6 +1970,285 @@ export async function compileLoadStartIssue23(input: {
     };
 }
 
+// ── Issue 052: live preview in the in-page sandboxed iframe ──────────────────
+//
+// The real Run flow (issue 24) renders the user's game in the on-page
+// `#preview-frame` panel iframe rather than the isolated WebviewWindow (issue
+// 038). Per the issue 052 decision: a same-process sandboxed iframe keeps the
+// issue 033/034 security boundary (opaque origin — `sandbox="allow-scripts"`
+// with no `allow-same-origin`, so `__TAURI_INTERNALS__` is never injected and
+// no app command is reachable) while giving an embedded preview. The tradeoff
+// (accepted): an infinite loop inside a single Game.Tick freezes the shared
+// thread. Force-stop is cooperative (issue 024) + iframe removal on stop.
+//
+// This is a SEPARATE code path from compileLoadStartIssue23 so every existing
+// lifecycle/security proof (issues 23/25/27-30/33-37) stays byte-for-byte on
+// the isolated window until those proofs are deliberately re-pointed.
+
+export interface LivePreviewHandle {
+  /** Resolves if the running game reports an unhandled runtime failure. */
+  readonly failure: Promise<Record<string, unknown>>;
+  /** Cooperatively stop the game and remove the preview iframe. */
+  stop: (reason?: "user" | "restart") => Promise<Record<string, unknown>>;
+}
+
+// Track the current live preview iframe so a restart retires the previous one.
+let livePreviewFrame: HTMLIFrameElement | null = null;
+
+/**
+ * Compile the given sources and run the resulting game in a fresh sandboxed
+ * iframe mounted into the preview panel. Returns a handle exposing the runtime
+ * failure promise and a cooperative stop. Fires onDiagnostics (issue 048) and
+ * onOutput (issue 049) exactly like the isolated path.
+ */
+export async function runLivePreviewInPage(input: {
+  assemblyName: string;
+  sources: readonly { path: string; text: string }[];
+  primarySourcePath: string;
+  onOutput?: (event: PreviewOutput) => void;
+  onDiagnostics?: (diagnostics: readonly Diagnostic[], outcome: "success" | "failure") => void;
+}): Promise<LivePreviewHandle> {
+  await ensureIssue21Contexts(false, true);
+
+  // ── Compile (keep diagnostics on both outcomes for the Problems panel) ──
+  const compileId = createUuid();
+  const compileCorrelationId = createUuid();
+  const compileRequest: CompileRequest = {
+    protocolVersion: PROTOCOL_VERSION,
+    correlationId: compileCorrelationId,
+    type: "compile.request",
+    payload: {
+      compileId,
+      assemblyName: input.assemblyName,
+      sources: [...input.sources],
+      primarySourcePath: input.primarySourcePath,
+      timeoutMs: 30_000,
+      settings: {
+        languageVersion: "13.0",
+        nullable: "disable",
+        optimization: "debug",
+        allowUnsafe: false,
+        warningsAsErrors: false,
+      },
+    },
+  };
+  const compiled = await compilerClient.request(
+    compileRequest,
+    "compile.response",
+    value => validateCompileResponse(value, compileCorrelationId, compileId, {
+      assemblyName: input.assemblyName,
+      sourcePaths: input.sources.map(source => source.path),
+      primarySourcePath: input.primarySourcePath,
+    }),
+    [],
+    30_000,
+  ) as ReturnType<typeof validateCompileResponse>;
+  if (!compiled.message.result.success) {
+    // Surface diagnostics to the Problems panel before throwing (PRD 8.4: an
+    // already-running preview is left untouched — we have not created one yet).
+    input.onDiagnostics?.(compiled.message.result.error.diagnostics ?? [], "failure");
+    throw new Error(
+      `${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
+  }
+  const data = compiled.message.result.data;
+  input.onDiagnostics?.(data.diagnostics, "success");
+  const assembly = standaloneBuffer(new Uint8Array(data.assembly));
+  const pdb = standaloneBuffer(new Uint8Array(data.pdb));
+
+  // ── Retire any previous live preview, then mount a fresh sandboxed iframe ──
+  await retireInitialPreviewContext();
+  if (livePreviewFrame && livePreviewFrame.isConnected) {
+    livePreviewFrame.remove();
+  }
+  const canvasFrame = document.getElementById("canvas-frame");
+  if (!canvasFrame) throw new Error("Preview panel host (#canvas-frame) is missing.");
+  // Hide the "Press Run to start" placeholder while the game is mounted.
+  const statusLabel = document.getElementById("preview-context-status");
+  if (statusLabel) statusLabel.hidden = true;
+
+  const frame = createPreviewIframe();
+  frame.className = "live-preview-frame";
+  frame.title = "Running Game (in-page preview)";
+  const bridge = createPreviewBridge(frame);
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, createUuid());
+  const previewId = createUuid();
+  const generation = createUuid();
+
+  const loaded = new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error("Preview iframe load timed out.")), 60_000);
+    frame.addEventListener("load", () => {
+      window.clearTimeout(timer);
+      const target = frame.contentWindow;
+      if (!target) return reject(new Error("Preview contentWindow is unavailable."));
+      // Opaque-origin iframe: post with "*" and transfer the protocol + bridge
+      // ports. It has no same-origin access and no Tauri bridge (issue 033/034).
+      // preview.js's installPrivatePortBootstrap requires issue021Proof (bool)
+      // and runGamePipeline:true to actually run the user's Game (not a proof).
+      target.postMessage(
+        {
+          type: "protocol.bootstrap",
+          contextGeneration: generation,
+          previewId,
+          issue021Proof: false,
+          runGamePipeline: true,
+        },
+        "*",
+        [channel.port2, bridge.childPort],
+      );
+      resolve();
+    }, { once: true });
+  });
+
+  livePreviewFrame = frame;
+  // Set srcdoc BEFORE appending to the DOM. Appending first fires a `load`
+  // event for the initial about:blank document, which a { once: true } listener
+  // would consume — the bootstrap would then post to the blank frame and the
+  // real preview.js load would never be observed (bridge.ready hangs). This is
+  // the order the proven proof paths use.
+  loadPreviewIframe(frame);
+  canvasFrame.appendChild(frame);
+
+  const retire = () => {
+    client.close(new Error("Live preview retired."));
+    bridge.close();
+    if (frame.isConnected) frame.remove();
+    if (livePreviewFrame === frame) livePreviewFrame = null;
+    // Restore the placeholder label now the panel is empty again.
+    const label = document.getElementById("preview-context-status");
+    if (label) label.hidden = false;
+  };
+
+  try {
+    await loaded;
+    await bridge.ready;
+
+    // ── Load the compiled binaries (inline transfer, same-process) ──
+    const loadCorrelationId = createUuid();
+    const loadRequest: PreviewLoadRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: loadCorrelationId,
+      type: "preview.load.request",
+      payload: { previewId, compileId, assembly, pdb, binaryProof: data.binaryProof },
+    };
+    const loadResponse = await client.request(
+      loadRequest,
+      "preview.load.response",
+      value => validatePreviewLoadResponse(value, loadCorrelationId, previewId, compileId),
+      [assembly, pdb],
+    ) as ReturnType<typeof validatePreviewLoadResponse>;
+    if (!loadResponse.message.result.success) {
+      retire();
+      throw new Error(
+        `${loadResponse.message.result.error.code}: ${loadResponse.message.result.error.message}`);
+    }
+
+    // ── Wire output + runtime-failure listeners (issues 049 / 029) ──
+    const startCorrelationId = createUuid();
+    let resolveFailure!: (value: Record<string, unknown>) => void;
+    const failure = new Promise<Record<string, unknown>>(resolve => { resolveFailure = resolve; });
+    let failureCorrelation: string | null = null;
+    let runtimeFailedEvent: unknown = null;
+
+    const removeOutput = client.onOutputEvent(message => {
+      if (message.correlationId !== startCorrelationId) return;
+      const validated = validatePreviewOutputEvent(message, previewId, startCorrelationId);
+      input.onOutput?.(validated.message);
+    });
+    const removeFailure = client.onLifecycleEvent(message => {
+      if (message.type === "preview.failed" && message.payload.phase === "running") {
+        if (failureCorrelation !== null) return;
+        const validated = validatePreviewLifecycleEvent(message, previewId);
+        failureCorrelation = validated.message.correlationId;
+        runtimeFailedEvent = validated.message;
+        return;
+      }
+      if (message.type !== "preview.stopped" || message.correlationId !== failureCorrelation) return;
+      const validated = validatePreviewLifecycleEvent(message, previewId, failureCorrelation);
+      removeOutput();
+      removeFailure();
+      retire();
+      resolveFailure({ failedEvent: runtimeFailedEvent, stoppedEvent: validated.message });
+    });
+
+    // ── Start the game ──
+    const startedPromise = new Promise<unknown>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("preview.started timed out.")), 10_000);
+      const removeStarted = client.onLifecycleEvent(message => {
+        if (message.correlationId !== startCorrelationId) return;
+        const validated = validatePreviewLifecycleEvent(message, previewId, startCorrelationId);
+        if (validated.message.type === "preview.started") {
+          window.clearTimeout(timer);
+          removeStarted();
+          resolve(validated.message);
+        }
+      });
+    });
+    const startRequest: PreviewStartRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: startCorrelationId,
+      type: "preview.start.request",
+      payload: { previewId, timeoutMs: 10_000 },
+    };
+    const startResponse = await client.request(
+      startRequest,
+      "preview.start.response",
+      value => validatePreviewStartResponse(value, startCorrelationId, previewId),
+      [],
+    ) as ReturnType<typeof validatePreviewStartResponse>;
+    if (!startResponse.message.result.success) {
+      removeOutput();
+      removeFailure();
+      retire();
+      throw new Error(
+        `${startResponse.message.result.error.code}: ${startResponse.message.result.error.message}`);
+    }
+    await startedPromise;
+
+    // ── Cooperative stop (issue 024) + iframe removal ──
+    let stopOperation: Promise<Record<string, unknown>> | null = null;
+    const stop = (reason: "user" | "restart" = "user") => {
+      if (stopOperation) return stopOperation;
+      stopOperation = (async () => {
+        const correlationId = createUuid();
+        const request: PreviewStopRequest = {
+          protocolVersion: PROTOCOL_VERSION,
+          correlationId,
+          type: "preview.stop.request",
+          payload: { previewId, reason, timeoutMs: 2_000 },
+        };
+        try {
+          const response = await client.request(
+            request,
+            "preview.stop.response",
+            value => validatePreviewStopResponse(value, correlationId, previewId),
+            [],
+            2_000,
+          ) as ReturnType<typeof validatePreviewStopResponse>;
+          removeOutput();
+          removeFailure();
+          retire();
+          return { correlationId, response: response.message };
+        } catch (error) {
+          // Even if the cooperative stop times out (e.g. an in-tick hang), tear
+          // the iframe down so the panel returns to a clean state.
+          removeOutput();
+          removeFailure();
+          retire();
+          throw error instanceof Error ? error : new Error(String(error));
+        }
+      })();
+      return stopOperation;
+    };
+
+    return { failure, stop };
+  } catch (error) {
+    retire();
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
 /** Compile C# source through the persistent Roslyn compiler and return the
  *  raw DLL/PDB buffers.  Does NOT create a preview iframe — callers use
  *  the isolated window bridge for preview hosting. */

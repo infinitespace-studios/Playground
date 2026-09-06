@@ -1,6 +1,7 @@
 import {
   compileLoadStartIssue23,
   preparePackagedProofRuntime,
+  runLivePreviewInPage,
   type Issue23RunningPreview,
 } from "./issue21";
 import { createIssue024RunStopController } from "./issue24-controller";
@@ -92,26 +93,20 @@ const start = (
   // edits (PRD 8.6) — as the user's Game1.cs. Proof mode keeps the fixed
   // cooperative-stop source so the issue 024 stop proof stays deterministic.
   if (!proofMode && sourceProvider) {
-    // Issue 051: when a folder project is open, compile ALL its .cs files
-    // together (issue 30 multi-file pattern), not just the visible one.
+    // Issue 052: the live Run renders the game in the on-page sandboxed iframe
+    // (not the isolated window). Issue 051: when a folder project is open,
+    // compile ALL its .cs files together (issue 30 multi-file pattern).
     const multi = multiSourceProvider?.();
-    if (multi && multi.sources.length > 0) {
-      return compileLoadStartIssue23({
-        assemblyName: "PlaygroundGame",
-        sourcePath: multi.primarySourcePath,
-        sourceText: multi.sources.find(s => s.path === multi.primarySourcePath)?.text ?? multi.sources[0].text,
-        sources: multi.sources,
-        primarySourcePath: multi.primarySourcePath,
-        proofMode: false,
-        onOutput,
-        onDiagnostics,
-      });
-    }
-    return compileLoadStartIssue23({
+    const sources = multi && multi.sources.length > 0
+      ? multi.sources
+      : [{ path: "Game1.cs", text: sourceProvider() }];
+    const primarySourcePath = multi && multi.sources.length > 0
+      ? multi.primarySourcePath
+      : "Game1.cs";
+    return runLivePreviewInPage({
       assemblyName: "PlaygroundGame",
-      sourcePath: "Game1.cs",
-      sourceText: sourceProvider(),
-      proofMode: false,
+      sources,
+      primarySourcePath,
       onOutput,
       onDiagnostics,
     });
