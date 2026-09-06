@@ -311,15 +311,69 @@ public static partial class PreviewExports
                     $"Asset order mismatch: expected '{expectedEntry.canonical}', got '{pathResult.CanonicalPath}'.");
             }
 
-            // Validate XNB content
-            var validation = ContentValidator.Validate(bytes, pathResult.CanonicalPath!);
-            if (!validation.Valid)
+            // Content-type-aware admission (issue 052). Route by the asset's
+            // extension so each supported kind is validated appropriately and the
+            // FINAL bytes to stage are produced:
+            //   .xnb                  -> ContentValidator.Validate (unchanged; the
+            //                            issue 39/40 path is byte-identical), stage raw
+            //   .wav                  -> WavToXnb.Convert -> ContentValidator.Validate
+            //                            the result, stage the transcoded XNB
+            //   .png/.jpg/.jpeg/.bmp  -> image magic-byte sniff, stage raw (the
+            //                            MonoGame Web runtime's Texture2D.FromStream
+            //                            fallback loads these directly)
+            // The integrity checks below (sha256/byteLength vs the manifest) run
+            // against the RAW transferred bytes; `stagedBytes` is what gets written.
+            var canonical = pathResult.CanonicalPath!;
+            byte[] stagedBytes;
+            var extension = GetAssetExtension(canonical);
+            switch (extension)
             {
-                return AbortPendingMount(
-                    "PREVIEW_LOAD_FAILED",
-                    validation.DiagnosticMessage ?? "Content validation failed.",
-                    validation.DiagnosticId,
-                    validation.DiagnosticMessage);
+                case "xnb":
+                {
+                    var validation = ContentValidator.Validate(bytes, canonical);
+                    if (!validation.Valid)
+                        return AbortPendingMount("PREVIEW_LOAD_FAILED",
+                            validation.DiagnosticMessage ?? "Content validation failed.",
+                            validation.DiagnosticId, validation.DiagnosticMessage);
+                    stagedBytes = bytes;
+                    break;
+                }
+                case "wav":
+                {
+                    var transcode = WavToXnb.Convert(bytes, canonical);
+                    if (!transcode.Success)
+                        return AbortPendingMount("PREVIEW_LOAD_FAILED",
+                            transcode.DiagnosticMessage ?? "Audio transcode failed.",
+                            transcode.DiagnosticId, transcode.DiagnosticMessage);
+                    // Defence in depth: the transcoded XNB must pass the same
+                    // validator a real MGCB .xnb would.
+                    var validation = ContentValidator.Validate(transcode.Xnb!, canonical);
+                    if (!validation.Valid)
+                        return AbortPendingMount("PREVIEW_LOAD_FAILED",
+                            validation.DiagnosticMessage ?? "Transcoded audio failed validation.",
+                            validation.DiagnosticId, validation.DiagnosticMessage);
+                    stagedBytes = transcode.Xnb!;
+                    break;
+                }
+                case "png":
+                case "jpg":
+                case "jpeg":
+                case "bmp":
+                {
+                    var image = ImageContent.Validate(bytes, canonical, extension);
+                    if (!image.Valid)
+                        return AbortPendingMount("PREVIEW_LOAD_FAILED",
+                            image.DiagnosticMessage ?? "Image validation failed.",
+                            image.DiagnosticId, image.DiagnosticMessage);
+                    stagedBytes = bytes;
+                    break;
+                }
+                default:
+                    return AbortPendingMount("PREVIEW_LOAD_FAILED",
+                        $"The content file '{canonical}' has an unsupported type. " +
+                        "Supported: .xnb, .png, .jpg, .jpeg, .bmp, .wav.",
+                        "PG0212_CONTENT_UNSUPPORTED_EXTENSION",
+                        $"Unsupported content extension for '{canonical}'.");
             }
 
             var sha256 = Convert.ToHexString(
@@ -345,8 +399,11 @@ public static partial class PreviewExports
 
             var virtualPath = ContentPathNormalizer.ResolveVirtualPath(rootDir, pathResult.CanonicalPath!);
 
-            // Stage the asset (don't write yet)
-            _stagedAssets.Add((virtualPath, bytes, sha256));
+            // Stage the asset (don't write yet). For .wav the staged bytes are the
+            // transcoded XNB; the virtual path already carries the manifest's
+            // (frontend-rewritten) .xnb extension, so CommitMount's proof
+            // re-derivation stays consistent with no CommitMount changes.
+            _stagedAssets.Add((virtualPath, stagedBytes, sha256));
 
             // Check if all pending assets are now staged
             if (_stagedAssets.Count == pendingPaths.Count)
@@ -594,6 +651,23 @@ public static partial class PreviewExports
             (JsonTypeInfo<Dictionary<string, ContentValidator.SelfTestCaseResult>>)
             PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, ContentValidator.SelfTestCaseResult>))!);
 
+    // Issue 052: round-trip self-test for the raw WAV -> XNB SoundEffect
+    // transcoder (each supported WAV transcodes AND validates as XNB; each
+    // unsupported WAV is rejected).
+    [JSExport]
+    public static string RunWavToXnbSelfTest() => JsonSerializer.Serialize(
+            WavToXnb.RunSelfTestCases(),
+            (JsonTypeInfo<Dictionary<string, WavToXnb.WavSelfTestCaseResult>>)
+            PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, WavToXnb.WavSelfTestCaseResult>))!);
+
+    // Issue 052: magic-byte image validation self-test (png/jpg/jpeg/bmp accepted;
+    // empty/garbage/mislabelled rejected).
+    [JSExport]
+    public static string RunImageContentSelfTest() => JsonSerializer.Serialize(
+            ImageContent.RunSelfTestCases(),
+            (JsonTypeInfo<Dictionary<string, ImageContent.ImageSelfTestCaseResult>>)
+            PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, ImageContent.ImageSelfTestCaseResult>))!);
+
     [JSExport]
     public static string RunAtomicMountSelfTest()
     {
@@ -829,6 +903,19 @@ public static partial class PreviewExports
         _pendingMountRoot = null;
         _pendingMountPaths = null;
         _stagedAssets.Clear();
+    }
+
+    /// <summary>
+    /// Lower-cased extension (without the dot) of a canonical asset path, or ""
+    /// when there is none. Used to route content-type-aware mount admission.
+    /// </summary>
+    private static string GetAssetExtension(string canonicalPath)
+    {
+        var lastDot = canonicalPath.LastIndexOf('.');
+        var lastSlash = canonicalPath.LastIndexOf('/');
+        if (lastDot < 0 || lastDot < lastSlash || lastDot == canonicalPath.Length - 1)
+            return string.Empty;
+        return canonicalPath[(lastDot + 1)..].ToLowerInvariant();
     }
 
     private static void ClearAllMountState()
@@ -1677,6 +1764,8 @@ public static partial class PreviewExports
 [JsonSerializable(typeof(PreviewExports.AssetMountPhaseResult))]
 [JsonSerializable(typeof(PreviewExports.AssetEntry[]))]
 [JsonSerializable(typeof(Dictionary<string, ContentValidator.SelfTestCaseResult>))]
+[JsonSerializable(typeof(Dictionary<string, WavToXnb.WavSelfTestCaseResult>))]
+[JsonSerializable(typeof(Dictionary<string, ImageContent.ImageSelfTestCaseResult>))]
 [JsonSerializable(typeof(RuntimeExceptionReport))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class PreviewJsonContext : JsonSerializerContext;
