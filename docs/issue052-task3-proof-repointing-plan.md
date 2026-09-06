@@ -18,6 +18,17 @@
 - **Verify each** by running `scripts/prove-issue038-macos.sh` (packaged,
   env-gated) — the packaged proof run IS the ground-truth verification.
 
+> UPDATE (2026-09-06): **issue 34 is now DONE + PACKAGED-VERIFIED**
+> (`scripts/prove-issue038-macos.sh` all-green; 034 report shows
+> `architecture: "in-page-sandboxed-iframe"`, `bridgeReachable: false`,
+> `directInvoke: "unreachable"`). Re-pointed to `runInPagePreviewForProof`; the
+> `issue034-acl-invoke-probe` was DROPPED (it lives in the Rust-injected
+> `ISSUE038_BRIDGE_SETUP_JS` — isolated-window only) and reframed to assert the
+> IPC bridge is entirely absent/unreachable in the opaque-origin iframe
+> (`directInvoke` "unreachable", `globals.internals`/`invoke` "undefined") —
+> stronger than counting ACL rejections. `ISSUE034_APPROVED_COMMANDS` kept as the
+> ACL inventory guard. **Issues 35, 36 remain OPEN.**
+
 The sections below are the original grounded plan (written before any code).
 
 ---

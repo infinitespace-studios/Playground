@@ -122,8 +122,19 @@ be called BEFORE `appendChild` to avoid an about:blank load-race that hung
    Boot in issue21.ts); assertions inverted (serializedOrigin "null",
    parentDomDenied true); report architecture "in-page-sandboxed-iframe".
    PACKAGED-VERIFIED: full scripts/prove-issue038-macos.sh run is all-green
-   (033, 033nwe, and every other proof PASS). Issues 34/35/36 still use the
-   isolated window (compileLoadStartIssue23) and remain OPEN.
+   (033, 033nwe, and every other proof PASS).
+   PROGRESS (2026-09-06, cont.): issue 34 DONE + PACKAGED-VERIFIED —
+   re-pointed to runInPagePreviewForProof; the isolated-window
+   `issue034-acl-invoke-probe` (Rust-injected in ISSUE038_BRIDGE_SETUP_JS, which
+   calls __TAURI_INTERNALS__.invoke and counts ACL rejections) was dropped and
+   reframed: in the opaque-origin iframe the IPC bridge is NEVER injected, so the
+   proof now asserts it is entirely absent/unreachable (directInvoke
+   "unreachable", globals.internals/invoke "undefined") — a strictly stronger
+   guarantee. ISSUE034_APPROVED_COMMANDS kept intact as the ACL inventory guard
+   (protocol.test.ts / issue040.test.ts). Machine-verified (tsc, 101/101 protocol
+   tests, issue040 ACL test, vite build); compileLoadStartIssue23 untouched.
+   Issues 35/36 still use the isolated window (compileLoadStartIssue23) and
+   remain OPEN.
 4. [OPEN] Retire the now-unused `issue038_*` window commands only as a SEPARATE,
    careful follow-up (they are ACL-locked across the four locks: APP_COMMANDS,
    permissions/main.toml, generate_handler!, ISSUE034_APPROVED_COMMANDS, plus

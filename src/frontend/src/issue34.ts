@@ -1,4 +1,4 @@
-import { compileLoadStartIssue23, preparePackagedProofRuntime } from "./issue21";
+import { runInPagePreviewForProof, preparePackagedProofRuntime } from "./issue21";
 
 const ISSUE034_CANARY_SHA256 =
   "ef5368ada37a4cddc5bda46069fd7b3ad51b30b5dab1697a58ae9816154f2372";
@@ -133,8 +133,6 @@ public sealed class Issue034Game : Game
     }
 }`;
 
-const wait = (ms: number) => new Promise(resolve => globalThis.setTimeout(resolve, ms));
-
 interface SecurityProbe {
   globals: Record<string, string>;
   directInvoke: string;
@@ -144,21 +142,13 @@ interface SecurityProbe {
   managedFileSystem: { anyRead: boolean; results: Array<{ read: boolean }> };
 }
 
-async function startAndWait(name: string) {
-  const preview = await compileLoadStartIssue23({
+async function start(name: string) {
+  return runInPagePreviewForProof({
     assemblyName: name,
     sourcePath: "src/Issue034Game.cs",
     sourceText: source,
-    proofMode: true,
     issue034Proof: true,
   });
-  const deadline = performance.now() + 10_000;
-  let state = await preview.query();
-  while (!(state as any).runReturned && performance.now() < deadline) {
-    await wait(100);
-    state = await preview.query();
-  }
-  return { preview, state };
 }
 
 export async function runIssue034AutoProof(): Promise<void> {
@@ -177,51 +167,58 @@ export async function runIssue034AutoProof(): Promise<void> {
   };
   const marker = await invoke<string>("issue034_trusted_marker");
 
-  // First preview — run security probes inside isolated context
-  const first = await startAndWait("Issue034First");
-  // The preview.js issue034-security action probes globals, IPC, fetch, filesystem
-  // We pass NO ipcProbes — no missing/wrong key envelopes that leak the key
-  const security = await first.preview.proof<SecurityProbe>("issue034-security", { ipcProbes: [] });
-  const pixels = await first.preview.proof<{
+  // First preview — run security probes inside the in-page sandboxed iframe
+  const first = await start("Issue034First");
+  // The preview.js issue034-security action probes globals, IPC, fetch, filesystem.
+  // We pass NO ipcProbes — no missing/wrong key envelopes that leak the key.
+  const security = await first.proof<SecurityProbe>("issue034-security", { ipcProbes: [] });
+  const pixels = await first.proof<{
     pixels: number[][]; glError: number; contextLost: boolean;
   }>("sample-webgl");
 
-  // ACL proof: use __TAURI_INTERNALS__.invoke from inside the preview.
-  // invoke() automatically includes the correct process invoke key.
-  // ACL rejects every command because the preview window label is not
-  // in any capability. We measure promise rejections per command.
-  const aclProbe = await first.preview.proof<{
-    totalCommands: number;
-    rejections: number;
-    resolutions: number;
-    errors: string[];
-  }>("issue034-acl-invoke-probe", { commands: [...ISSUE034_APPROVED_COMMANDS] });
-
+  // In-page sandboxed-iframe ACL evidence (issue 052 task 3): unlike the isolated
+  // window (where Tauri injects __TAURI_INTERNALS__ and the ACL rejects every
+  // command because the window label is in no capability — see the retired
+  // Rust-injected `issue034-acl-invoke-probe`), Tauri NEVER injects the IPC bridge
+  // into an opaque-origin (sandbox="allow-scripts", no allow-same-origin) nested
+  // iframe. The bridge is therefore entirely ABSENT — a strictly stronger
+  // guarantee than "present but rejects". The issue034-security probe already
+  // captures this: directInvoke "unreachable", globals.internals / globals.invoke
+  // both "undefined". (ISSUE034_APPROVED_COMMANDS is retained as the ACL
+  // supply-chain inventory guard asserted by protocol.test.ts / issue040.test.ts.)
+  const running = await first.query();
   const callsAfterFirst = await invoke<number>("issue034_trusted_marker_calls");
-  const firstStop = await first.preview.stop("user");
+  const firstStop = await first.stop("user");
 
   // Second preview — verify clean restart, no corruption
-  const second = await startAndWait("Issue034Second");
-  const secondSecurity = await second.preview.proof<SecurityProbe>("issue034-security", { ipcProbes: [] });
+  const second = await start("Issue034Second");
+  const secondSecurity = await second.proof<SecurityProbe>("issue034-security", { ipcProbes: [] });
   const callsAfterRestart = await invoke<number>("issue034_trusted_marker_calls");
-  const secondStop = await second.preview.stop("user");
+  const secondStop = await second.stop("user");
 
-  // Assertions
-  const directInvokeOk = security.directInvoke === "rejected" || security.directInvoke === "unreachable";
-  if (!directInvokeOk ||
+  // Assertions — the IPC bridge must be entirely absent/unreachable in the iframe
+  const bridgeUnreachable = security.directInvoke === "unreachable" &&
+    security.globals.internals === "undefined" &&
+    security.globals.invoke === "undefined";
+  const secondBridgeUnreachable = secondSecurity.directInvoke === "unreachable" &&
+    secondSecurity.globals.internals === "undefined" &&
+    secondSecurity.globals.invoke === "undefined";
+  if (!bridgeUnreachable || !secondBridgeUnreachable ||
       security.fetchResults.some((r: any) => r.bodySha256 === ISSUE034_CANARY_SHA256) ||
       security.xhrResults.some((r: any) => r.bodySha256 === ISSUE034_CANARY_SHA256) ||
       security.managedFileSystem.anyRead ||
-      (aclProbe?.rejections ?? 0) !== ISSUE034_APPROVED_COMMANDS.length ||
-      (aclProbe?.resolutions ?? -1) !== 0 ||
+      secondSecurity.managedFileSystem.anyRead ||
       callsAfterFirst !== 1 || callsAfterRestart !== 1 ||
       marker !== "issue034-main-frame-marker-v1" ||
       topLevel.currentWindowLabel !== "main" ||
-      pixels.glError !== 0 ||
+      pixels.glError !== 0 || pixels.contextLost ||
+      running.runReturned !== true ||
       (firstStop.runtime as any)?.stop?.disposeAttempts !== 1 ||
       (secondStop.runtime as any)?.stop?.disposeAttempts !== 1) {
     throw new Error(`Issue 034 proof failed: ${JSON.stringify({
-      directInvokeOk, aclProbe, callsAfterFirst, callsAfterRestart,
+      bridgeUnreachable, secondBridgeUnreachable, callsAfterFirst, callsAfterRestart,
+      directInvoke: security.directInvoke, internals: security.globals.internals,
+      invoke: security.globals.invoke,
       canaryFound: security.fetchResults.some((r: any) => r.bodySha256 === ISSUE034_CANARY_SHA256),
       managedRead: security.managedFileSystem.anyRead, pixels: pixels.glError,
     })}`);
@@ -231,15 +228,16 @@ export async function runIssue034AutoProof(): Promise<void> {
     report: JSON.stringify({
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
-      architecture: "isolated-webview-window",
+      architecture: "in-page-sandboxed-iframe",
       topLevel,
       marker,
       aclProof: {
-        method: "__TAURI_INTERNALS__.invoke with correct process key",
-        totalCommands: aclProbe?.totalCommands,
-        rejections: aclProbe?.rejections,
-        resolutions: aclProbe?.resolutions,
-        aclReached: true,
+        method: "opaque-origin sandboxed iframe — __TAURI_INTERNALS__ never injected",
+        bridgeInternals: security.globals.internals,
+        bridgeInvoke: security.globals.invoke,
+        directInvoke: security.directInvoke,
+        bridgeReachable: false,
+        strongerThanAclRejection: true,
       },
       security: {
         directInvoke: security.directInvoke,
