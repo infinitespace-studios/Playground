@@ -1032,6 +1032,12 @@ mod tests {
         ));
         assert!(navigation_allowed(&parse("about:blank")));
         assert!(navigation_allowed(&parse("about:srcdoc")));
+        // The Vite dev server origin is allowed so `tauri dev` can load the
+        // frontend; all other http/https hosts stay denied (issue 035).
+        assert!(navigation_allowed(&parse("http://127.0.0.1:5173/")));
+        assert!(navigation_allowed(&parse("http://127.0.0.1:5173/index.html")));
+        assert!(!navigation_allowed(&parse("http://127.0.0.1:9999/")));
+        assert!(!navigation_allowed(&parse("https://127.0.0.1:5173/")));
         assert!(!navigation_allowed(&parse("https://example.com")));
         assert!(!navigation_allowed(&parse("http://example.com")));
         assert!(!navigation_allowed(&parse("http://ipc.localhost")));
@@ -3536,10 +3542,16 @@ fn issue038_handle_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<V
 }
 
 fn navigation_allowed(url: &tauri::Url) -> bool {
-    matches!(
-        url.scheme(),
-        "tauri" | "playground-preview" | "about" | "http" | "https"
-    )
+    // Trusted app schemes are always allowed. http is permitted ONLY for the
+    // Vite dev server origin (http://127.0.0.1:5173) so `tauri dev` can load the
+    // frontend; arbitrary host navigation stays denied (issue 035 — deny host
+    // navigation/network). Packaged builds serve from tauri://localhost and
+    // never need external http/https navigation.
+    match url.scheme() {
+        "tauri" | "playground-preview" | "about" => true,
+        "http" => url.host_str() == Some("127.0.0.1") && url.port() == Some(5173),
+        _ => false,
+    }
 }
 
 /// Decode percent-encoded UTF-8 string (e.g. from encodeURIComponent).
