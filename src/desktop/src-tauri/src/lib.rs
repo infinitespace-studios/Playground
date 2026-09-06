@@ -819,6 +819,131 @@ const ISSUE051_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
 const ISSUE051_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
 const ISSUE051_MAX_DEPTH: usize = 32;
 
+// Issue 052: Content/ discovery limits (separate from the .cs source limits
+// above — binary assets are larger). Mirrors the preview mount bounds:
+// per-image <= 16 MiB, per-audio <= 8 MiB, aggregate content <= 24 MiB.
+const ISSUE052_MAX_CONTENT_FILES: usize = 256;
+const ISSUE052_MAX_CONTENT_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const ISSUE052_MAX_CONTENT_TOTAL_BYTES: u64 = 24 * 1024 * 1024;
+
+/// Supported raw/precompiled content extensions the preview can mount
+/// (issue 052). `.wav` is transcoded to an XNB SoundEffect at mount time; images
+/// load via the runtime's Texture2D.FromStream fallback; `.xnb` is precompiled.
+const ISSUE052_CONTENT_EXTENSIONS: &[&str] = &["xnb", "png", "jpg", "jpeg", "bmp", "wav"];
+
+/// Minimal, dependency-free standard base64 encoder (RFC 4648) for returning
+/// binary Content/ asset bytes inside the JSON project-read result. Hand-rolled
+/// to avoid adding a crate (the desktop shell pins `tauri = { features = [] }`
+/// for the issue-034 supply-chain guard).
+fn issue052_base64_encode(bytes: &[u8]) -> String {
+    const TABLE: &[u8; 64] =
+        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = chunk.get(1).copied().unwrap_or(0) as u32;
+        let b2 = chunk.get(2).copied().unwrap_or(0) as u32;
+        let triple = (b0 << 16) | (b1 << 8) | b2;
+        out.push(TABLE[((triple >> 18) & 0x3F) as usize] as char);
+        out.push(TABLE[((triple >> 12) & 0x3F) as usize] as char);
+        out.push(if chunk.len() > 1 {
+            TABLE[((triple >> 6) & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+        out.push(if chunk.len() > 2 {
+            TABLE[(triple & 0x3F) as usize] as char
+        } else {
+            '='
+        });
+    }
+    out
+}
+
+/// Recursively discover supported assets under a project's `Content/` directory
+/// (issue 052), returning each as `{ relativePath, extension, byteLength,
+/// base64 }`. Relative paths are Content-root-relative and forward-slashed (the
+/// logical asset path the preview mounts under `Content.RootDirectory`). Skips
+/// hidden entries; enforces per-file / total / count bounds. Pure sync file IO,
+/// extracted from `issue051_read_project` so it is directly unit-testable.
+fn issue052_discover_content(
+    content_root: &std::path::Path,
+) -> Result<Vec<serde_json::Value>, String> {
+    fn walk(
+        dir: &std::path::Path,
+        content_root: &std::path::Path,
+        depth: usize,
+        files: &mut Vec<serde_json::Value>,
+        total_bytes: &mut u64,
+    ) -> Result<(), String> {
+        if depth > ISSUE051_MAX_DEPTH {
+            return Ok(());
+        }
+        let entries =
+            std::fs::read_dir(dir).map_err(|e| format!("failed to read Content folder: {e}"))?;
+        let mut sorted: Vec<std::path::PathBuf> =
+            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        sorted.sort();
+        for entry in sorted {
+            let file_name = entry
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if file_name.starts_with('.') {
+                continue;
+            }
+            if entry.is_dir() {
+                walk(&entry, content_root, depth + 1, files, total_bytes)?;
+                continue;
+            }
+            let Some(extension) = entry
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_ascii_lowercase())
+            else {
+                continue;
+            };
+            if !ISSUE052_CONTENT_EXTENSIONS.contains(&extension.as_str()) {
+                continue;
+            }
+            let metadata = std::fs::metadata(&entry)
+                .map_err(|e| format!("failed to inspect content file: {e}"))?;
+            if metadata.len() > ISSUE052_MAX_CONTENT_FILE_BYTES {
+                return Err(format!(
+                    "{file_name} exceeds the {ISSUE052_MAX_CONTENT_FILE_BYTES}-byte per-content-file limit"
+                ));
+            }
+            *total_bytes += metadata.len();
+            if *total_bytes > ISSUE052_MAX_CONTENT_TOTAL_BYTES {
+                return Err("project Content exceeds the total byte limit".into());
+            }
+            if files.len() >= ISSUE052_MAX_CONTENT_FILES {
+                return Err(format!(
+                    "project Content exceeds the {ISSUE052_MAX_CONTENT_FILES}-file limit"
+                ));
+            }
+            let bytes =
+                std::fs::read(&entry).map_err(|e| format!("failed to read {file_name}: {e}"))?;
+            let relative = entry
+                .strip_prefix(content_root)
+                .map(|r| r.to_string_lossy().replace('\\', "/"))
+                .unwrap_or_else(|_| file_name.clone());
+            files.push(serde_json::json!({
+                "relativePath": relative,
+                "extension": extension,
+                "byteLength": bytes.len(),
+                "base64": issue052_base64_encode(&bytes),
+            }));
+        }
+        Ok(())
+    }
+
+    let mut files: Vec<serde_json::Value> = Vec::new();
+    let mut total_bytes: u64 = 0;
+    walk(content_root, content_root, 0, &mut files, &mut total_bytes)?;
+    Ok(files)
+}
+
 /// Issue 051: Show the native folder picker and return the chosen directory.
 /// Wraps the dialog plugin's Rust API so the trusted webview goes through an
 /// approved application command rather than invoking the plugin directly.
@@ -845,7 +970,9 @@ async fn issue051_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, S
 /// defensive limits on file count and byte sizes. Never writes anything.
 ///
 /// Returns a JSON object: `{ root, folderName, csFiles: [{ relativePath,
-/// absolutePath, content }], manifestText: string | null }`.
+/// absolutePath, content }], contentFiles: [{ relativePath, extension,
+/// byteLength, base64 }], manifestText: string | null }`. `contentFiles` holds
+/// the project's `Content/` assets (issue 052) for pre-Run mounting.
 #[tauri::command]
 async fn issue051_read_project(path: String) -> Result<serde_json::Value, String> {
     let root = std::path::PathBuf::from(&path);
@@ -927,6 +1054,16 @@ async fn issue051_read_project(path: String) -> Result<serde_json::Value, String
 
     walk(&root, &root, 0, &mut cs_files, &mut total_bytes)?;
 
+    // Issue 052: discover the project's Content/ directory (if present) and
+    // return each supported asset's bytes (base64) for pre-Run mounting. Scoped
+    // to Content/ per PRD §15; skips hidden entries; enforces its own bounds.
+    let content_root = root.join("Content");
+    let content_files = if content_root.is_dir() {
+        issue052_discover_content(&content_root)?
+    } else {
+        Vec::new()
+    };
+
     // Read the manifest text if present (never created here; that is Save All).
     let manifest_path = root.join("playground.json");
     let manifest_text = if manifest_path.is_file() {
@@ -942,6 +1079,7 @@ async fn issue051_read_project(path: String) -> Result<serde_json::Value, String
         "root": root.to_string_lossy().into_owned(),
         "folderName": folder_name,
         "csFiles": cs_files,
+        "contentFiles": content_files,
         "manifestText": manifest_text,
     }))
 }
@@ -958,6 +1096,7 @@ mod tests {
         issue037_validate_identity, issue037_read_store, issue037_write_store_atomic,
         chrono_free_iso8601, ISSUE037_SCHEMA_VERSION, ISSUE037_MAX_IDENTITY_BYTES,
         ISSUE037_MAX_ENTRIES,
+        issue052_base64_encode, issue052_discover_content,
         issue041_mode_value, issue041_preview_cycle_count_value, issue041_warm_compile_iterations,
     };
     use tauri::http::{Method, Response};
@@ -1043,6 +1182,65 @@ mod tests {
         assert!(!navigation_allowed(&parse("http://ipc.localhost")));
         assert!(!navigation_allowed(&parse("file:///etc/passwd")));
         assert!(!navigation_allowed(&parse("data:text/html,test")));
+    }
+
+    #[test]
+    fn issue052_base64_matches_rfc4648_vectors() {
+        // RFC 4648 §10 test vectors.
+        assert_eq!(issue052_base64_encode(b""), "");
+        assert_eq!(issue052_base64_encode(b"f"), "Zg==");
+        assert_eq!(issue052_base64_encode(b"fo"), "Zm8=");
+        assert_eq!(issue052_base64_encode(b"foo"), "Zm9v");
+        assert_eq!(issue052_base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(issue052_base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(issue052_base64_encode(b"foobar"), "Zm9vYmFy");
+        // Binary bytes incl. 0x00/0xFF map to '+' and '/' in the table.
+        assert_eq!(issue052_base64_encode(&[0x00, 0x00, 0x00]), "AAAA");
+        assert_eq!(issue052_base64_encode(&[0xFF, 0xFF, 0xFF]), "////");
+        assert_eq!(issue052_base64_encode(&[0xFB, 0xFF, 0xBF]), "+/+/");
+    }
+
+    #[test]
+    fn issue052_discovers_only_supported_content_recursively() {
+        let dir = std::env::temp_dir().join(format!("issue052-content-{}", std::process::id()));
+        let content = dir.join("Content");
+        let nested = content.join("textures");
+        std::fs::create_dir_all(&nested).unwrap();
+        // Supported assets (bytes are arbitrary here — discovery does not validate
+        // format; that is the preview mount gate's job).
+        std::fs::write(content.join("blip.wav"), b"RIFF....WAVE").unwrap();
+        std::fs::write(nested.join("player.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        std::fs::write(content.join("tile.xnb"), b"XNB").unwrap();
+        // Unsupported + hidden entries must be ignored.
+        std::fs::write(content.join("notes.txt"), b"ignore me").unwrap();
+        std::fs::write(content.join(".hidden.png"), b"skip").unwrap();
+
+        let files = issue052_discover_content(&content).unwrap();
+        let paths: Vec<String> = files
+            .iter()
+            .map(|f| f["relativePath"].as_str().unwrap().to_string())
+            .collect();
+        // Sorted, Content-root-relative, forward-slashed; .txt and hidden dropped.
+        assert_eq!(paths, vec!["blip.wav", "textures/player.png", "tile.xnb"]);
+
+        let wav = &files[0];
+        assert_eq!(wav["extension"].as_str().unwrap(), "wav");
+        assert_eq!(wav["byteLength"].as_u64().unwrap(), 12);
+        assert_eq!(wav["base64"].as_str().unwrap(), issue052_base64_encode(b"RIFF....WAVE"));
+
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn issue052_content_discovery_enforces_per_file_limit() {
+        let dir = std::env::temp_dir().join(format!("issue052-toobig-{}", std::process::id()));
+        let content = dir.join("Content");
+        std::fs::create_dir_all(&content).unwrap();
+        let big = vec![0u8; (super::ISSUE052_MAX_CONTENT_FILE_BYTES + 1) as usize];
+        std::fs::write(content.join("huge.png"), &big).unwrap();
+        let result = issue052_discover_content(&content);
+        assert!(result.is_err(), "oversized content file must be rejected");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
