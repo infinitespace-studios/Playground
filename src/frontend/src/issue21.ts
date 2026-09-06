@@ -35,6 +35,7 @@ import {
   assertPreviewSandbox,
   createPreviewBridge,
   createPreviewIframe,
+  loadIssue033NoWasmEvalPreviewIframe,
   loadPreviewIframe,
   previewBridgeFor,
   type PreviewBridge,
@@ -2256,6 +2257,337 @@ export async function runLivePreviewInPage(input: {
   } catch (error) {
     retire();
     throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+// ── Issue 052 task 3: proof-capable in-page preview runner ──────────────────
+//
+// Like runLivePreviewInPage but returns the RICH handle the security proofs
+// (issues 33/34/35/36) consume — proof()/query()/outputEvents/managedLoad/stop
+// — so those proofs can certify the in-page sandboxed-iframe boundary instead
+// of the isolated WebviewWindow. Mounts the same opaque-origin sandboxed iframe
+// (sandbox="allow-scripts", no allow-same-origin) with the same load-order and
+// bootstrap-field fixes; the ONLY difference from the live runner is that it
+// bootstraps with issue021Proof:true (authorises the bridge proof surface) plus
+// the requested per-issue proof flags, and exposes the proof/query surface.
+//
+// compileLoadStartIssue23 and the isolated path (createIsolatedPreview) are left
+// untouched; this is additive.
+
+export interface InPageProofPreview {
+  readonly previewId: UuidV4;
+  readonly outputEvents: PreviewOutput[];
+  readonly managedLoad: Record<string, unknown> | null;
+  /** Send a bridge action (e.g. "issue033-security", "sample-webgl"). */
+  proof<T = unknown>(action: string, payload?: unknown): Promise<T>;
+  /** Runtime query (runReturned/frameCount). */
+  query(): Promise<Record<string, unknown>>;
+  /** Cooperative stop; returns { runtime: <issue024 snapshot>, ... }. */
+  stop(reason?: "user" | "restart"): Promise<Record<string, unknown>>;
+}
+
+export async function runInPagePreviewForProof(input: {
+  assemblyName: string;
+  sourcePath: string;
+  sourceText: string;
+  sources?: readonly { path: string; text: string }[];
+  primarySourcePath?: string;
+  issue033Proof?: boolean;
+  issue034Proof?: boolean;
+  issue035Proof?: boolean;
+  issue036Proof?: boolean;
+}): Promise<InPageProofPreview> {
+  await ensureIssue21Contexts(false, true);
+
+  const compileSources = input.sources ?? [{ path: input.sourcePath, text: input.sourceText }];
+  const primarySourcePath = input.primarySourcePath ?? input.sourcePath;
+  const compileId = createUuid();
+  const compileCorrelationId = createUuid();
+  const compileRequest: CompileRequest = {
+    protocolVersion: PROTOCOL_VERSION,
+    correlationId: compileCorrelationId,
+    type: "compile.request",
+    payload: {
+      compileId,
+      assemblyName: input.assemblyName,
+      sources: [...compileSources],
+      primarySourcePath,
+      timeoutMs: 30_000,
+      settings: {
+        languageVersion: "13.0",
+        nullable: "disable",
+        optimization: "debug",
+        allowUnsafe: false,
+        warningsAsErrors: false,
+      },
+    },
+  };
+  const compiled = await compilerClient.request(
+    compileRequest,
+    "compile.response",
+    value => validateCompileResponse(value, compileCorrelationId, compileId, {
+      assemblyName: input.assemblyName,
+      sourcePaths: compileSources.map(source => source.path),
+      primarySourcePath,
+    }),
+    [],
+    30_000,
+  ) as ReturnType<typeof validateCompileResponse>;
+  if (!compiled.message.result.success) {
+    throw new Error(
+      `${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
+  }
+  const data = compiled.message.result.data;
+  const assembly = standaloneBuffer(new Uint8Array(data.assembly));
+  const pdb = standaloneBuffer(new Uint8Array(data.pdb));
+
+  await retireInitialPreviewContext();
+  if (livePreviewFrame && livePreviewFrame.isConnected) {
+    livePreviewFrame.remove();
+  }
+  const canvasFrame = document.getElementById("canvas-frame");
+  if (!canvasFrame) throw new Error("Preview panel host (#canvas-frame) is missing.");
+  const statusLabel = document.getElementById("preview-context-status");
+  if (statusLabel) statusLabel.hidden = true;
+
+  const frame = createPreviewIframe();
+  frame.className = "live-preview-frame";
+  frame.title = "Security proof (in-page preview)";
+  const bridge = createPreviewBridge(frame);
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, createUuid());
+  const previewId = createUuid();
+  const generation = createUuid();
+
+  const loaded = new Promise<void>((resolve, reject) => {
+    const timer = window.setTimeout(
+      () => reject(new Error("Preview iframe load timed out.")), 60_000);
+    frame.addEventListener("load", () => {
+      window.clearTimeout(timer);
+      const target = frame.contentWindow;
+      if (!target) return reject(new Error("Preview contentWindow is unavailable."));
+      // issue021Proof:true authorises the bridge proof surface (installPreviewBridge);
+      // the per-issue flag enables that issue's security probe in preview.js.
+      target.postMessage(
+        {
+          type: "protocol.bootstrap",
+          contextGeneration: generation,
+          previewId,
+          issue021Proof: true,
+          issue023Proof: true,
+          issue033Proof: input.issue033Proof === true,
+          issue034Proof: input.issue034Proof === true,
+          issue035Proof: input.issue035Proof === true,
+          issue036Proof: input.issue036Proof === true,
+          issue024Proof: true,
+          runGamePipeline: true,
+        },
+        "*",
+        [channel.port2, bridge.childPort],
+      );
+      resolve();
+    }, { once: true });
+  });
+
+  livePreviewFrame = frame;
+  loadPreviewIframe(frame);
+  canvasFrame.appendChild(frame);
+
+  const outputEvents: PreviewOutput[] = [];
+  let removeOutput = () => {};
+  const retire = () => {
+    removeOutput();
+    client.close(new Error("Proof preview retired."));
+    bridge.close();
+    if (frame.isConnected) frame.remove();
+    if (livePreviewFrame === frame) livePreviewFrame = null;
+    const label = document.getElementById("preview-context-status");
+    if (label) label.hidden = false;
+  };
+
+  try {
+    await loaded;
+    await bridge.ready;
+
+    const loadCorrelationId = createUuid();
+    const loadRequest: PreviewLoadRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: loadCorrelationId,
+      type: "preview.load.request",
+      payload: { previewId, compileId, assembly, pdb, binaryProof: data.binaryProof },
+    };
+    const loadResponse = await client.request(
+      loadRequest,
+      "preview.load.response",
+      value => validatePreviewLoadResponse(value, loadCorrelationId, previewId, compileId),
+      [assembly, pdb],
+    ) as ReturnType<typeof validatePreviewLoadResponse>;
+    if (!loadResponse.message.result.success) {
+      retire();
+      throw new Error(
+        `${loadResponse.message.result.error.code}: ${loadResponse.message.result.error.message}`);
+    }
+
+    const startCorrelationId = createUuid();
+    removeOutput = client.onOutputEvent(message => {
+      if (message.correlationId !== startCorrelationId) return;
+      const validated = validatePreviewOutputEvent(message, previewId, startCorrelationId);
+      outputEvents.push(validated.message);
+    });
+    const startedPromise = new Promise<unknown>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error("preview.started timed out.")), 10_000);
+      const removeStarted = client.onLifecycleEvent(message => {
+        if (message.correlationId !== startCorrelationId) return;
+        const validated = validatePreviewLifecycleEvent(message, previewId, startCorrelationId);
+        if (validated.message.type === "preview.started") {
+          window.clearTimeout(timer);
+          removeStarted();
+          resolve(validated.message);
+        }
+      });
+    });
+    const startRequest: PreviewStartRequest = {
+      protocolVersion: PROTOCOL_VERSION,
+      correlationId: startCorrelationId,
+      type: "preview.start.request",
+      payload: { previewId, timeoutMs: 10_000 },
+    };
+    const startResponse = await client.request(
+      startRequest,
+      "preview.start.response",
+      value => validatePreviewStartResponse(value, startCorrelationId, previewId),
+      [],
+    ) as ReturnType<typeof validatePreviewStartResponse>;
+    if (!startResponse.message.result.success) {
+      retire();
+      throw new Error(
+        `${startResponse.message.result.error.code}: ${startResponse.message.result.error.message}`);
+    }
+    await startedPromise;
+
+    const managedLoad =
+      (await bridge.request<{ load?: Record<string, unknown> }>("snapshot", { name: "issue21" }))
+        .load ?? null;
+
+    let stopOperation: Promise<Record<string, unknown>> | null = null;
+    const stop = (reason: "user" | "restart" = "user") => {
+      if (stopOperation) return stopOperation;
+      stopOperation = (async () => {
+        const correlationId = createUuid();
+        const request: PreviewStopRequest = {
+          protocolVersion: PROTOCOL_VERSION,
+          correlationId,
+          type: "preview.stop.request",
+          payload: { previewId, reason, timeoutMs: 2_000 },
+        };
+        const stoppedPromise = new Promise<unknown>(resolve => {
+          const removeStopped = client.onLifecycleEvent(message => {
+            if (message.correlationId !== correlationId || message.type !== "preview.stopped") return;
+            validatePreviewLifecycleEvent(message, previewId, correlationId);
+            removeStopped();
+            resolve(message);
+          });
+        });
+        const response = await client.request(
+          request,
+          "preview.stop.response",
+          value => validatePreviewStopResponse(value, correlationId, previewId),
+          [],
+          2_000,
+        ) as ReturnType<typeof validatePreviewStopResponse>;
+        if (response.message.result.success && response.message.result.data.accepted) {
+          await Promise.race([
+            stoppedPromise,
+            new Promise((_, reject) =>
+              window.setTimeout(() => reject(new Error("preview.stopped timed out.")), 2_000)),
+          ]);
+        }
+        const runtime = await bridge.request("snapshot", { name: "issue024" });
+        retire();
+        return { correlationId, response: response.message, runtime };
+      })();
+      return stopOperation;
+    };
+
+    return {
+      previewId,
+      outputEvents,
+      managedLoad,
+      proof<T = unknown>(action: string, payload?: unknown) {
+        return bridge.request<T>(action, payload);
+      },
+      async query() {
+        return bridge.request<Record<string, unknown>>("issue023-query");
+      },
+      stop,
+    };
+  } catch (error) {
+    retire();
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+}
+
+/**
+ * Issue 052 task 3 (issue 033 negative): mount an in-page sandboxed iframe whose
+ * CSP omits `'wasm-unsafe-eval'` and confirm the .NET WASM runtime never boots
+ * (the preview bridge never signals ready) within the given window. Returns
+ * whether the bridge became ready — the proof asserts it did NOT. Replaces the
+ * old isolated-window (`issue038_create_no_wasm_eval_window`) negative path.
+ */
+export async function probeInPageNoWasmEvalBoot(
+  waitMs = 6_000,
+): Promise<{ bridgeReady: boolean }> {
+  await ensureIssue21Contexts(false, true);
+  if (livePreviewFrame && livePreviewFrame.isConnected) {
+    livePreviewFrame.remove();
+  }
+  const canvasFrame = document.getElementById("canvas-frame");
+  if (!canvasFrame) throw new Error("Preview panel host (#canvas-frame) is missing.");
+
+  const frame = createPreviewIframe();
+  frame.className = "live-preview-frame";
+  frame.title = "Security proof negative (no wasm-unsafe-eval)";
+  const bridge = createPreviewBridge(frame);
+  const channel = new MessageChannel();
+  const client = new ProtocolPortClient(channel.port1, createUuid());
+  const previewId = createUuid();
+  const generation = createUuid();
+
+  let bridgeReady = false;
+  void bridge.ready.then(() => { bridgeReady = true; }, () => { /* closed */ });
+
+  frame.addEventListener("load", () => {
+    const target = frame.contentWindow;
+    if (!target) return;
+    target.postMessage(
+      {
+        type: "protocol.bootstrap",
+        contextGeneration: generation,
+        previewId,
+        issue021Proof: false,
+        runGamePipeline: false,
+      },
+      "*",
+      [channel.port2, bridge.childPort],
+    );
+  }, { once: true });
+
+  livePreviewFrame = frame;
+  // No-wasm-eval CSP variant; set srcdoc BEFORE append (about:blank load-race).
+  loadIssue033NoWasmEvalPreviewIframe(frame);
+  canvasFrame.appendChild(frame);
+
+  try {
+    // Give WASM instantiation its chance to fail under the stricter CSP.
+    await new Promise(resolve => window.setTimeout(resolve, waitMs));
+    return { bridgeReady };
+  } finally {
+    client.close(new Error("No-wasm-eval negative probe retired."));
+    bridge.close();
+    if (frame.isConnected) frame.remove();
+    if (livePreviewFrame === frame) livePreviewFrame = null;
+    const label = document.getElementById("preview-context-status");
+    if (label) label.hidden = false;
   }
 }
 

@@ -112,11 +112,18 @@ be called BEFORE `appendChild` to avoid an about:blank load-race that hung
 2. [DONE] Change force-stop semantics for the live path from
    `WebviewWindow::destroy()` to iframe removal/reload (the in-page path already
    supports this).
-3. [OPEN] Re-point the security proofs (issues 33/34, and any of 35/36 that assert the
+3. [PARTIAL] Re-point the security proofs (issues 33/34, and any of 35/36 that assert the
    window boundary) to certify the in-page sandboxed-iframe boundary - opaque
    origin, no `allow-same-origin`, `__TAURI_INTERNALS__` unreachable from the
    iframe - rather than the isolated-window label exclusion. Do NOT delete proof
    coverage; translate it to the new mechanism.
+   PROGRESS (2026-09-06): issue 33 (+ 033nwe negative) DONE — re-pointed to a new
+   proof-capable in-page runner (runInPagePreviewForProof / probeInPageNoWasmEval
+   Boot in issue21.ts); assertions inverted (serializedOrigin "null",
+   parentDomDenied true); report architecture "in-page-sandboxed-iframe".
+   PACKAGED-VERIFIED: full scripts/prove-issue038-macos.sh run is all-green
+   (033, 033nwe, and every other proof PASS). Issues 34/35/36 still use the
+   isolated window (compileLoadStartIssue23) and remain OPEN.
 4. [OPEN] Retire the now-unused `issue038_*` window commands only as a SEPARATE,
    careful follow-up (they are ACL-locked across the four locks: APP_COMMANDS,
    permissions/main.toml, generate_handler!, ISSUE034_APPROVED_COMMANDS, plus

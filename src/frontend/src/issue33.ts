@@ -1,4 +1,4 @@
-import { compileLoadStartIssue23, preparePackagedProofRuntime } from "./issue21";
+import { runInPagePreviewForProof, probeInPageNoWasmEvalBoot, preparePackagedProofRuntime } from "./issue21";
 import { PREVIEW_CSP } from "./preview-frame";
 
 const source = `
@@ -21,11 +21,10 @@ public sealed class Issue033Game : Game
 }`;
 
 async function start(name: string) {
-  return compileLoadStartIssue23({
+  return runInPagePreviewForProof({
     assemblyName: name,
     sourcePath: "src/Issue033Game.cs",
     sourceText: source,
-    proofMode: true,
     issue033Proof: true,
   });
 }
@@ -111,16 +110,18 @@ export async function runIssue033AutoProof(): Promise<void> {
   const missingFirstCspEvidence = missingCspEvidence(security);
   const missingSecondCspEvidence = missingCspEvidence(secondSecurity);
 
-  // Assertions for isolated WebviewWindow architecture:
-  // - Origin is playground-preview://localhost (distinct from editor tauri://localhost)
-  //   NOT "null" — this is a top-level window, not a sandboxed iframe
-  // - parentDomDenied is FALSE because parent === self in top-level window;
-  //   isolation is via separate process + ACL, not same-origin policy
+  // Assertions for the in-page sandboxed-iframe architecture (issue 052 task 3;
+  // this restores issue 033's originally-specified sandbox boundary):
+  // - Origin is "null" — an opaque origin from `sandbox="allow-scripts"` with no
+  //   `allow-same-origin` (NOT a real top-level window origin)
+  // - parentDomDenied is TRUE — the opaque-origin iframe cannot reach the
+  //   trusted parent's DOM (same-origin policy), the primary isolation boundary
   // - evalDenied: CSP script-src only allows playground-preview: scheme
   // - CSP violations still enforced for inline scripts/styles/fetches/frames/objects
   // - All rendering, audio, output still work
-  const expectedOrigin = "playground-preview://localhost";
+  const expectedOrigin = "null";
   if (security.serializedOrigin !== expectedOrigin ||
+      !security.parentDomDenied ||
       !security.evalDenied || !security.inlineScriptDenied ||
       !security.fetchDenied || !security.audioClosed ||
       !security.baseUriDenied || !security.popupSandboxDenied ||
@@ -132,6 +133,7 @@ export async function runIssue033AutoProof(): Promise<void> {
       first.managedLoad?.logicalPath !== "src/Issue033Game.cs" ||
       running.runReturned !== true ||
       secondSecurity.serializedOrigin !== expectedOrigin ||
+      !secondSecurity.parentDomDenied ||
       !secondSecurity.baseUriDenied || !secondSecurity.popupSandboxDenied ||
       missingSecondCspEvidence.length !== 0 ||
       (stopped.runtime as { stop?: { disposeAttempts?: number } })?.stop?.disposeAttempts !== 1 ||
@@ -146,13 +148,13 @@ export async function runIssue033AutoProof(): Promise<void> {
     report: JSON.stringify({
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
-      architecture: "isolated-webview-window",
+      architecture: "in-page-sandboxed-iframe",
       csp: PREVIEW_CSP,
       security,
       enforcementLayers: {
-        processIsolation: "separate WKWebView/WebContent process",
-        aclBoundary: "preview window label excluded from all capabilities",
-        tauriInternalsStripped: true,
+        opaqueOrigin: "sandbox=\"allow-scripts\" with no allow-same-origin (origin null)",
+        sameOriginPolicy: "opaque-origin iframe cannot reach the trusted parent DOM",
+        tauriInternalsNeverInjected: true,
         cspViolationDirectives: security.violations,
         evalDeniedWithoutRequiredViolationEvent: security.evalDenied &&
           !security.evalViolationObserved,
@@ -172,50 +174,11 @@ export async function runIssue033NoWasmEvalProof(): Promise<void> {
       !(await invoke<boolean>("issue033_is_no_wasm_eval_proof_enabled"))) return;
   await preparePackagedProofRuntime();
 
-  // Create an isolated window with CSP that omits 'wasm-unsafe-eval'.
-  // The .NET WASM runtime should fail to start.
-  const generation = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-  const label = await invoke("issue038_create_no_wasm_eval_window", {
-    generation,
-  }) as string;
-
-  // Wait for page load + attempt .NET runtime boot
-  await new Promise(resolve => globalThis.setTimeout(resolve, 3000));
-
-  // Bootstrap the window so the bridge-setup.js captures any errors
-  const bootstrapData = {
-    contextGeneration: crypto.randomUUID(),
-    bridgeGeneration: generation,
-    previewId: crypto.randomUUID(),
-    transferToken: crypto.randomUUID().replace(/-/g, ""),
-    issue021Proof: false,
-    issue033Proof: false,
-    runGamePipeline: false,
-  };
-  await invoke("issue038_bootstrap_preview", {
-    generation,
-    bootstrapJson: JSON.stringify(bootstrapData),
-  });
-
-  // Wait for WASM instantiation to fail under CSP
-  await new Promise(resolve => globalThis.setTimeout(resolve, 5000));
-
-  // Read the negative observer's evidence. The issue033-negative-observer.js
-  // script captures WASM boot errors and stores them in a global.
-  // We read this via the proof-only inject_script (since bridge may not work
-  // without WASM runtime, we read the global directly).
-  let negativeEvidence: Record<string, unknown> = {};
-  try {
-    // Check if bridge became ready (it shouldn't — WASM failed)
-    const messages = await invoke("issue038_collect_bridge_messages", {
-      generation,
-    }) as string[];
-    const bridgeReady = messages.some(m => m.includes("preview.bridge.ready"));
-    negativeEvidence = { bridgeReady, messageCount: messages.length };
-  } catch { /* expected */ }
-
-  // Clean up the negative window
-  await invoke("issue038_destroy_preview_window", { generation });
+  // Mount an in-page sandboxed iframe whose CSP omits 'wasm-unsafe-eval'. The
+  // .NET WASM runtime must fail to start, so the preview bridge never signals
+  // ready. (Issue 052 task 3: replaces the old isolated-window negative path.)
+  const negative = await probeInPageNoWasmEvalBoot(6_000);
+  const negativeEvidence = { bridgeReady: negative.bridgeReady };
 
   // Now verify the NORMAL variant still works by running a standard preview
   const normal = await start("Issue033AfterNegative");
@@ -226,9 +189,9 @@ export async function runIssue033NoWasmEvalProof(): Promise<void> {
   const normalRunning = await normal.query();
   await normal.stop("user");
 
-  // The negative window must NOT have had bridge ready (WASM failed)
-  // The normal window MUST render correctly
-  const negBridgeReady = (negativeEvidence as { bridgeReady?: boolean }).bridgeReady ?? false;
+  // The negative iframe must NOT have had bridge ready (WASM failed).
+  // The normal iframe MUST render correctly.
+  const negBridgeReady = negativeEvidence.bridgeReady;
 
   if (negBridgeReady ||
       normalPixels.glError !== 0 || normalPixels.contextLost ||
@@ -243,8 +206,8 @@ export async function runIssue033NoWasmEvalProof(): Promise<void> {
     report: JSON.stringify({
       schemaVersion: 2,
       generatedAt: new Date().toISOString(),
-      architecture: "isolated-webview-window",
-      negativeWindow: {
+      architecture: "in-page-sandboxed-iframe",
+      negativeIframe: {
         cspDelta: "removed 'wasm-unsafe-eval' only",
         bridgeReady: negBridgeReady,
         wasmBootFailed: !negBridgeReady,
