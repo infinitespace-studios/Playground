@@ -37,7 +37,19 @@ export function createIssue024RunStopController<T>({
     setStopDisabled(true);
     setStatus("busy", "Compiling and starting clear-color Game…");
     emitLifecycle("loading");
-    const operation = start().then(preview => {
+    // `start()` may throw SYNCHRONOUSLY (e.g. issue 052 contentProvider rejects a
+    // non-Web contentProfile before any async work). A synchronous throw would
+    // bypass the .then(onRejected) recovery below and leave the controller stuck
+    // in "starting" (both buttons disabled, status "Loading"). Convert it to a
+    // rejected promise so the same error path resets state and re-enables Run.
+    const invokeStart = (): Promise<T> => {
+      try {
+        return start();
+      } catch (error) {
+        return Promise.reject(error instanceof Error ? error : new Error(String(error)));
+      }
+    };
+    const operation = invokeStart().then(preview => {
       active = preview;
       state = "running";
       setStopDisabled(false);

@@ -521,6 +521,36 @@ test("rapid run stop run serializes startup cleanup and fresh start", async () =
   assert.deepEqual(order, ["start:1", "stop:1", "retired:1", "start:2"]);
 });
 
+test("synchronous start() throw resets to idle and re-enables Run (issue 052 content gate)", async () => {
+  // Issue 052: contentProvider can throw SYNCHRONOUSLY (non-Web contentProfile)
+  // before any async work. That must not leave the controller stuck in
+  // "starting" with both buttons disabled and status "loading".
+  const runDisabled: boolean[] = [];
+  const stopDisabled: boolean[] = [];
+  const statuses: Array<[string, string]> = [];
+  const lifecycle: string[] = [];
+  const controller = createIssue024RunStopController<{ id: number }>({
+    start: () => { throw new Error("PG0215_CONTENT_PROFILE_NOT_WEB: not Web"); },
+    stop: async () => ({}),
+    setRunDisabled: v => { runDisabled.push(v); },
+    setStopDisabled: v => { stopDisabled.push(v); },
+    setStatus: (state, text) => { statuses.push([state, text]); },
+    reportError() {},
+    onLifecycle: s => { lifecycle.push(s); },
+  });
+
+  await assert.rejects(controller.run(), /PG0215_CONTENT_PROFILE_NOT_WEB/);
+
+  // Recovered: back to idle, Run re-enabled, status ended on error.
+  assert.equal(controller.state, "idle");
+  assert.equal(runDisabled.at(-1), false);
+  assert.equal(statuses.at(-1)?.[0], "error");
+  assert.equal(lifecycle.at(-1), "error");
+  // And a subsequent run is accepted (not wedged).
+  await assert.rejects(controller.run(), /PG0215_CONTENT_PROFILE_NOT_WEB/);
+  assert.equal(controller.state, "idle");
+});
+
 test("proof outcome matching excludes the primary successful load", () => {
   const rejections = [
     { probePhase: "preMutationInvalid", expectedCode: "PREVIEW_LOAD_FAILED", observedCode: "PREVIEW_LOAD_FAILED" },
