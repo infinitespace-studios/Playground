@@ -250,6 +250,46 @@ Once the live path is the iframe, the focus/input plan below works as written
 (`iframe.contentWindow.focus()`), and the status-indicator / resize
 requirements (PRD 14.4) apply to a real embedded panel.
 
+## Progress: primary deliverables (2026-09-06)
+
+**Items 1-2 DONE (GUI-verified in `tauri dev` + `npm run dev`; independent
+verifier still required before the issue's own commit gate is satisfied):**
+
+- **Focus/input routing (item 1)** — `src/frontend/src/issue052.ts`
+  (`installIssue052PreviewPanel`). `#canvas-frame` gets `tabindex=0` + an
+  accessible label; `pointerdown`/`focus` route focus into the live preview
+  iframe via `iframe.contentWindow.focus()` (cross-origin-permitted even under
+  `sandbox="allow-scripts"` with no `allow-same-origin`). Keyboard ISOLATION is
+  automatic from the opaque iframe: keys reach the game only when the preview is
+  focused, and reach Monaco only when the editor is focused — no leakage either
+  way (GUI-verified with a Space-turns-red test game). A `:focus-visible` amber
+  ring shows when the preview holds focus.
+- **Status indicator (item 2)** — preview panel header element cycling
+  `○ Idle` / `◐ Loading…` / `▶ Running` / `■ Stopped` / `✕ Error`, each a
+  glyph+text NON-COLOR cue (PRD 14.4), `role=status` aria-live. Driven by an
+  additive optional `onLifecycle` hook added to `issue24-controller.ts` (the
+  existing `setStatus` collapsed running+stopped into "ready"; `onLifecycle`
+  distinguishes them and treats restart as `loading`, not terminal `stopped`).
+  Threaded through `issue24.ts` -> `app.ts`. All 5 existing proof callers omit
+  the optional hook (backward-compatible; 101/101 protocol tests green).
+
+**Bonus (from GUI testing): editor Tab-trap escape + indicator.** Reported
+during item-1 testing: Monaco captures Tab for indentation, trapping keyboard
+focus. Chose the VS Code convention (option B: keep Tab for indent, make the
+toggle discoverable). `issue047.ts` `installTabFocusIndicator` owns the
+`Ctrl+Shift+M` (mac `⌃⇧M`) chord via `editor.addAction` (weight 1000 > built-in
+100) and toggles the PER-EDITOR `tabFocusMode` option with `updateOptions`. This
+was necessary because Monaco's built-in action toggles a GLOBAL `TabFocus`
+singleton that the public `getOption(tabFocusMode)` never reflects (the editor
+honours `options.get(164) || TabFocus.getTabFocusMode()`), so a passive
+indicator could not track it. Owning the per-editor option makes behaviour +
+label a single source of truth. Header shows `⇥ Tab indents · ⌃⇧M to move focus`
+vs `⇥ Tab moves focus · ⌃⇧M to restore indent`.
+
+**Items 3-6 OPEN:** content discovery/validation -> Output panel (needs issue 51
+folder logic + issue 39/40 mount pipeline), `examples/ContentExample/` with real
+Web-profile `.xnb` fixtures (needs MGCB toolchain), and `docs/content-workflow.md`.
+
 ## What to build
 
 Implement real focus/input routing (keyboard events reach the preview canvas only when it has focus, and never leak into/steal focus from Monaco while the editor is focused, and vice versa), a visible preview status indicator (loading/running/stopped/error, each with a non-color cue), and production content-discovery: when a project folder (issue 51) contains a `Content/` directory, automatically discover its `.xnb` files, validate and mount them (issues 39-40) before Run, and surface any content-validation error as a clear, user-facing entry in the Output panel (issue 49) rather than silently failing.

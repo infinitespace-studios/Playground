@@ -129,6 +129,7 @@ function createRunStopController(
   onRuntimeFailure?: (payload: Record<string, unknown>) => void,
   onRunStart?: () => void,
   multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
+  onLifecycle?: (state: import("./issue24-controller").Issue052PreviewLifecycle) => void,
 ) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
@@ -169,6 +170,7 @@ function createRunStopController(
       status.dataset.state = state;
       status.textContent = text;
     },
+    onLifecycle,
     reportError: error => { console.error("Clear-color Game lifecycle failed", error); },
   });
   return { controller, runButton, stopButton, status };
@@ -180,6 +182,8 @@ export interface Issue024OutputHooks {
   onRunStart?: () => void;
   /** Issue 051: when set and it returns sources, Run compiles them together. */
   multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null;
+  /** Issue 052: preview-panel status indicator lifecycle updates. */
+  onLifecycle?: (state: import("./issue24-controller").Issue052PreviewLifecycle) => void;
 }
 
 export function installIssue024RunStopControl(
@@ -196,6 +200,7 @@ export function installIssue024RunStopControl(
     outputHooks?.onRuntimeFailure,
     outputHooks?.onRunStart,
     outputHooks?.multiSourceProvider,
+    outputHooks?.onLifecycle,
   );
   runButton.addEventListener("click", () => {
     if (gate) {

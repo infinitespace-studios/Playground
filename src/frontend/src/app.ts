@@ -5,6 +5,7 @@ import { installIssue048ProblemsPanel } from "./issue048";
 import { installIssue049OutputPanel } from "./issue049";
 import installIssue050Tracker from "./issue050";
 import { installIssue051ProjectManager } from "./issue051";
+import { installIssue052PreviewPanel } from "./issue052";
 
 // Workbench application controller wiring
 // Run/Stop buttons are wired into the workbench toolbar (see index.html)
@@ -161,6 +162,10 @@ const problems = installIssue048ProblemsPanel({
 // and Problems tab stay interactive after a failure (PRD 8.5).
 const output = installIssue049OutputPanel();
 
+// Issue 052: preview-panel focus/input routing + status indicator. Returns the
+// lifecycle callback that drives the indicator from the Run/Stop controller.
+const previewPanel = installIssue052PreviewPanel();
+
 installIssue024RunStopControl(() => {
   // Gate Run behind first-run warning acknowledgement.
   // In non-Tauri environments (dev mode), allow Run without gating.
@@ -170,6 +175,9 @@ installIssue024RunStopControl(() => {
   onRunStart: () => output.clear(),
   onOutputLine: event => output.appendOutput(event),
   onRuntimeFailure: payload => output.appendFailure(payload),
+  // Issue 052: drive the preview-panel status indicator (loading/running/
+  // stopped/error) from the Run/Stop lifecycle.
+  onLifecycle: previewPanel.onLifecycle,
   // Issue 051: when a folder project is open, Run compiles every open .cs file
   // together (primary = Game1.cs if present). Returns null for the scratch
   // single-file flow so issue 47/50 behaviour is unchanged.

@@ -256,6 +256,25 @@ body[data-running="true"] .lamp {
   color: var(--amber);
 }
 
+/* Issue 052 (option B): Tab-focus-mode indicator in the editor panel header.
+   Non-color cue: the text label states the current mode + the shortcut. The
+   "focus" state is highlighted because it is the temporary/notable mode. */
+.tabfocus-indicator {
+  margin-left: 10px;
+  padding: 1px 7px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  font: 700 9px ui-monospace, monospace;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tabfocus-indicator[data-state="focus"] {
+  color: var(--amber);
+  border-color: var(--amber);
+}
+
 .code {
   display: block;
   width: 100%;
@@ -524,6 +543,40 @@ body[data-running="true"] .screen-label {
   place-items: center;
   overflow: hidden;
 }
+
+/* Issue 052: focus affordance — when the user Tabs/clicks into the preview to
+   send keyboard input to the running game, show a clear focus ring. Uses
+   :focus-visible so a plain click doesn't leave a persistent ring. */
+#canvas-frame:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -2px;
+}
+
+/* Issue 052: preview status indicator in the preview panel header. Non-color
+   cues: a glyph + a text label (color is decorative only, per PRD 14.4). */
+.preview-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: 10px;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  font: 700 9px ui-monospace, monospace;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.preview-status-glyph {
+  font-size: 10px;
+  line-height: 1;
+}
+
+.preview-status[data-state="loading"] { color: var(--amber); border-color: var(--amber); }
+.preview-status[data-state="running"] { color: var(--green); border-color: var(--green); }
+.preview-status[data-state="stopped"] { color: var(--muted); }
+.preview-status[data-state="error"] { color: var(--red); border-color: var(--red); }
 
 /* Preview iframe (proof element) + issue 052 live preview iframe */
 #preview-frame,

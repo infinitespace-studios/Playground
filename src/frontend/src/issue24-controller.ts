@@ -1,3 +1,5 @@
+export type Issue052PreviewLifecycle = "loading" | "running" | "stopped" | "error";
+
 export function createIssue024RunStopController<T>({
   start,
   stop,
@@ -6,6 +8,7 @@ export function createIssue024RunStopController<T>({
   setStatus,
   reportError,
   observeFailure,
+  onLifecycle,
 }: {
   start: () => Promise<T>;
   stop: (preview: T, reason?: "user" | "restart") => Promise<unknown>;
@@ -14,7 +17,14 @@ export function createIssue024RunStopController<T>({
   setStatus: (state: "busy" | "ready" | "error", text: string) => void;
   reportError: (error: unknown) => void;
   observeFailure?: (preview: T) => Promise<unknown>;
+  // Issue 052: additive, optional. Emits the PRD 14.4 preview lifecycle state
+  // (loading/running/stopped/error) at each transition so the preview-panel
+  // status indicator can reflect it. Existing proof callers omit it (no-op).
+  onLifecycle?: (state: Issue052PreviewLifecycle) => void;
 }) {
+  const emitLifecycle = (state: Issue052PreviewLifecycle) => {
+    try { onLifecycle?.(state); } catch { /* indicator must never break Run/Stop */ }
+  };
   let state: "idle" | "starting" | "running" | "stopping" = "idle";
   let active: T | null = null;
   let stopOperation: Promise<unknown> | null = null;
@@ -26,11 +36,13 @@ export function createIssue024RunStopController<T>({
     setRunDisabled(true);
     setStopDisabled(true);
     setStatus("busy", "Compiling and starting clear-color Game…");
+    emitLifecycle("loading");
     const operation = start().then(preview => {
       active = preview;
       state = "running";
       setStopDisabled(false);
       setStatus("ready", "Running clear-color Game in a fresh preview.");
+      emitLifecycle("running");
       if (observeFailure) {
         void observeFailure(preview).then(() => {
           if (active !== preview || state !== "running") return;
@@ -39,6 +51,7 @@ export function createIssue024RunStopController<T>({
           setRunDisabled(false);
           setStopDisabled(true);
           setStatus("error", "Preview failed; editor controls recovered.");
+          emitLifecycle("error");
         }, error => {
           if (active !== preview || state !== "running") return;
           active = null;
@@ -46,6 +59,7 @@ export function createIssue024RunStopController<T>({
           setRunDisabled(false);
           setStopDisabled(true);
           setStatus("error", error instanceof Error ? error.message : String(error));
+          emitLifecycle("error");
           reportError(error);
         });
       }
@@ -55,6 +69,7 @@ export function createIssue024RunStopController<T>({
       state = "idle";
       setRunDisabled(false);
       setStatus("error", error instanceof Error ? error.message : String(error));
+      emitLifecycle("error");
       reportError(error);
       throw error;
     }).finally(() => {
@@ -70,17 +85,22 @@ export function createIssue024RunStopController<T>({
     setStatus("busy", reason === "restart"
       ? "Stopping the previous preview before restart…"
       : "Stopping Game and releasing preview resources…");
+    emitLifecycle("loading");
     return stop(preview, reason).then(result => {
       active = null;
       state = "idle";
       setRunDisabled(false);
       setStatus("ready", "Preview stopped; editor controls recovered.");
+      // A restart immediately starts a fresh preview (beginStart emits
+      // "loading" next), so only a user-initiated stop is terminal "stopped".
+      if (reason !== "restart") emitLifecycle("stopped");
       return result;
     }, error => {
       active = null;
       state = "idle";
       setRunDisabled(false);
       setStatus("error", error instanceof Error ? error.message : String(error));
+      emitLifecycle("error");
       reportError(error);
       throw error;
     });

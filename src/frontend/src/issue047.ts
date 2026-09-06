@@ -60,6 +60,75 @@ function defineThemes(): void {
   });
 }
 
+/** True on macOS, where the toggle shortcut is Ctrl+Shift+M (Ctrl+M elsewhere). */
+function isMacPlatform(): boolean {
+  const nav = navigator as Navigator & { userAgentData?: { platform?: string } };
+  const platform = nav.userAgentData?.platform ?? navigator.platform ?? "";
+  return /mac/i.test(platform);
+}
+
+/**
+ * Issue 052 (option B): show whether Tab moves focus or indents, in the editor
+ * panel header, and let the user toggle it.
+ *
+ * Monaco ships a built-in "Toggle Tab Key Moves Focus" action, but it mutates a
+ * GLOBAL `TabFocus` singleton that the public `getOption(tabFocusMode)` does not
+ * reflect (the editor honours `options.get(164) || TabFocus.getTabFocusMode()`,
+ * so behaviour toggles while the readable option stays false). To keep a single,
+ * observable source of truth we own the toggle here: a keybinding flips the
+ * PER-EDITOR `tabFocusMode` option via `updateOptions`, which both drives Tab
+ * behaviour and is read back for the indicator label — all public API.
+ */
+function installTabFocusIndicator(editor: monaco.editor.IStandaloneCodeEditor): void {
+  const head = document.querySelector<HTMLElement>(".editor .panel-head");
+  if (!head) return;
+
+  const mac = isMacPlatform();
+  const shortcut = mac ? "⌃⇧M" : "Ctrl+M";
+  const indicator = document.createElement("span");
+  indicator.id = "editor-tabfocus-indicator";
+  indicator.className = "tabfocus-indicator";
+  indicator.setAttribute("role", "status");
+  indicator.setAttribute("aria-live", "polite");
+  head.appendChild(indicator);
+
+  const render = (tabMovesFocus: boolean) => {
+    indicator.dataset.state = tabMovesFocus ? "focus" : "indent";
+    if (tabMovesFocus) {
+      indicator.textContent = `⇥ Tab moves focus · ${shortcut} to restore indent`;
+      indicator.setAttribute("aria-label",
+        `Tab key moves focus. Press ${shortcut} to make Tab insert indentation.`);
+    } else {
+      indicator.textContent = `⇥ Tab indents · ${shortcut} to move focus`;
+      indicator.setAttribute("aria-label",
+        `Tab key inserts indentation. Press ${shortcut} to make Tab move focus out of the editor.`);
+    }
+  };
+
+  const setTabMovesFocus = (next: boolean) => {
+    editor.updateOptions({ tabFocusMode: next });
+    render(next);
+  };
+
+  // Own the same shortcut Monaco uses (Ctrl+Shift+M on mac / Ctrl+M elsewhere)
+  // so there is one source of truth. addCommand's handler toggles the
+  // per-editor option and repaints the indicator synchronously.
+  const chord = mac
+    ? monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.KeyM
+    : monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyM;
+  editor.addAction({
+    id: "issue052.toggleTabMovesFocus",
+    label: "Toggle Tab Key Moves Focus",
+    keybindings: [chord],
+    run: ed => {
+      const current = ed.getOption(monaco.editor.EditorOption.tabFocusMode);
+      setTabMovesFocus(!current);
+    },
+  });
+
+  render(editor.getOption(monaco.editor.EditorOption.tabFocusMode));
+}
+
 /**
  * Mount the Monaco editor into the editor region and load the default
  * `Game1.cs` example. Returns a live source provider that reads the current
@@ -100,6 +169,16 @@ export function installIssue047Editor(): {
     attributes: true,
     attributeFilter: ["data-theme"],
   });
+
+  // Issue 052 (option B): Monaco captures Tab for indentation, which traps
+  // keyboard focus in the editor. Monaco ships the VS Code convention for
+  // escaping it — "Toggle Tab Key Moves Focus" (editor.action.toggleTabFocusMode,
+  // Ctrl+Shift+M on mac / Ctrl+M elsewhere). That toggle is discoverable only if
+  // its state is visible, so surface it in the editor panel header: when Tab
+  // moves focus, show an explicit badge; otherwise show the shortcut hint. The
+  // state is the public `tabFocusMode` editor option, observed via
+  // onDidChangeConfiguration (no reliance on Monaco internals).
+  installTabFocusIndicator(editorInstance);
 
   return {
     // PRD 8.6: Run must compile the current in-memory source, so always read
