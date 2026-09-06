@@ -96,4 +96,6 @@ commands.allow = [
   "issue050_write_file",
   "issue050_save_dialog",
   "issue050_open_dialog",
+  "issue051_pick_folder",
+  "issue051_read_project",
 ]

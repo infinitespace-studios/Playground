@@ -195,6 +195,12 @@ body[data-running="true"] .lamp {
   box-shadow: inset 2px 0 var(--amber);
 }
 
+/* Issue 051: the trailing ● on a file button marks unsaved changes; it is a
+   literal glyph in the label (non-color cue, issue 46) reinforced by weight. */
+.file[data-file] {
+  justify-content: flex-start;
+}
+
 /* Mini meters */
 .mini-meter {
   margin-top: 30px;

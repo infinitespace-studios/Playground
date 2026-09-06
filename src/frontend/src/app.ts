@@ -4,6 +4,7 @@ import { installIssue047Editor, defaultExampleSource } from "./issue047";
 import { installIssue048ProblemsPanel } from "./issue048";
 import { installIssue049OutputPanel } from "./issue049";
 import installIssue050Tracker from "./issue050";
+import { installIssue051ProjectManager } from "./issue051";
 
 // Workbench application controller wiring
 // Run/Stop buttons are wired into the workbench toolbar (see index.html)
@@ -18,11 +19,96 @@ const editor = installIssue047Editor();
 // Initialize with the default example content
 const tracker = installIssue050Tracker(editor.getValue);
 
-// Wire live buffer edits into the dirty tracker so the indicator updates on
-// every keystroke and New/Open gating can detect unsaved changes.
-editor.onDidChangeContent(() => {
-  tracker.setBuffer(editor.getValue());
+// Issue 051: folder-based multi-file project manager. Coexists with the
+// single-scratch-file tracker (issue 50): when a folder project is open, issue
+// 51 owns the file list, per-file dirty state, Save All, and multi-file Run;
+// otherwise the scratch flow (New/Open/Save of one Game1.cs) stays active.
+const fileExplorer = document.getElementById("file-explorer");
+const projectLabel = document.getElementById("project-label");
+const saveAllButton = document.getElementById("save-all-button");
+
+function showModalError(title: string, message: string): void {
+  const dialog = document.createElement("dialog");
+  dialog.className = "confirmation-dialog";
+  const content = document.createElement("div");
+  content.className = "dialog-content";
+  const h3 = document.createElement("h3");
+  h3.textContent = title;
+  const p = document.createElement("p");
+  p.textContent = message;
+  const buttons = document.createElement("div");
+  buttons.className = "dialog-buttons";
+  const ok = document.createElement("button");
+  ok.className = "btn-confirm";
+  ok.textContent = "OK";
+  ok.addEventListener("click", () => dialog.remove());
+  buttons.append(ok);
+  content.append(h3, p, buttons);
+  dialog.append(content);
+  document.body.appendChild(dialog);
+  dialog.showModal();
+}
+
+const project = installIssue051ProjectManager({
+  setEditorContent: content => editor.setValue(content),
+  getEditorContent: () => editor.getValue(),
+  renderExplorer: entries => {
+    if (!fileExplorer) return;
+    fileExplorer.replaceChildren();
+    for (const entry of entries) {
+      const button = document.createElement("button");
+      button.className = entry.active ? "file active" : "file";
+      button.dataset.file = entry.relativePath;
+      button.textContent = entry.dirty ? `${entry.relativePath} \u25CF` : entry.relativePath;
+      button.addEventListener("click", () => project.switchTo(entry.relativePath));
+      fileExplorer.appendChild(button);
+    }
+  },
+  setDirtyIndicator: anyDirty => {
+    const dot = document.getElementById("dirty-indicator");
+    const text = document.getElementById("dirty-indicator-text");
+    if (dot) { dot.textContent = anyDirty ? " \u25CF" : ""; dot.hidden = !anyDirty; }
+    if (text) text.textContent = anyDirty ? "Unsaved changes" : "";
+  },
+  showError: showModalError,
 });
+
+// Wire live buffer edits into the dirty tracker so the indicator updates on
+// every keystroke and New/Open gating can detect unsaved changes. When a
+// folder project is open, issue 51's per-file tracker owns dirty state.
+editor.onDidChangeContent(() => {
+  if (project.hasProject()) {
+    project.syncActiveBuffer();
+  } else {
+    tracker.setBuffer(editor.getValue());
+  }
+});
+
+// Wire Open Folder: prompt if dirty, then pick a folder, list its .cs files,
+// and switch into folder-project mode (Save becomes Save All).
+const openFolderButton = document.getElementById("open-folder-button");
+if (openFolderButton) {
+  openFolderButton.addEventListener("click", async () => {
+    const dirty = project.hasProject() ? project.isDirty() : tracker.isDirty();
+    if (dirty) {
+      const proceed = await tracker.promptBeforeNew();
+      if (!proceed) return;
+    }
+    const opened = await project.openFolder();
+    if (opened) {
+      if (saveAllButton) saveAllButton.hidden = false;
+      if (projectLabel) projectLabel.textContent = "Project (folder)";
+    }
+  });
+}
+
+// Wire Save All (folder-project mode): atomically writes every dirty file plus
+// playground.json.
+if (saveAllButton) {
+  saveAllButton.addEventListener("click", async () => {
+    await project.saveAll();
+  });
+}
 
 // Wire New button: prompt if dirty, then reset the editor to the default
 // example and adopt it as the clean baseline.
@@ -84,4 +170,14 @@ installIssue024RunStopControl(() => {
   onRunStart: () => output.clear(),
   onOutputLine: event => output.appendOutput(event),
   onRuntimeFailure: payload => output.appendFailure(payload),
+  // Issue 051: when a folder project is open, Run compiles every open .cs file
+  // together (primary = Game1.cs if present). Returns null for the scratch
+  // single-file flow so issue 47/50 behaviour is unchanged.
+  multiSourceProvider: () => {
+    if (!project.hasProject()) return null;
+    const sources = project.getSources();
+    const primary = project.primarySourcePath();
+    if (sources.length === 0 || primary === null) return null;
+    return { sources, primarySourcePath: primary };
+  },
 });

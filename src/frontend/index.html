@@ -13,7 +13,9 @@
         <div class="brand">MONO<i>GAME</i> / WORKBENCH</div>
         <button class="tool" type="button" id="new-button">New</button>
         <button class="tool" type="button" id="open-button">Open</button>
+        <button class="tool" type="button" id="open-folder-button">Open Folder</button>
         <button class="tool" type="button" id="save-button">Save</button>
+        <button class="tool" type="button" id="save-all-button" hidden>Save All</button>
         <span class="dirty-indicator" id="dirty-indicator" aria-label="Unsaved changes" hidden></span>
         <button class="tool theme-switch" data-theme-toggle aria-label="Switch color theme" title="Switch between light and dark theme"><span></span></button>
         <span class="lamp" aria-hidden="true"></span>
@@ -32,12 +34,9 @@
       <section class="workspace">
         <!-- File rail -->
         <aside class="rail">
-          <div class="label">Project / hello-world</div>
-          <div class="project">
+          <div class="label" id="project-label">Project / hello-world</div>
+          <div class="project" id="file-explorer">
             <button class="file active" data-file="Game1.cs">Game1.cs</button>
-            <button class="file" data-file="Player.cs">Player.cs</button>
-            <button class="file" data-file="playground.json">playground.json</button>
-            <button class="file" data-file="Content/player.xnb">Content/player.xnb</button>
           </div>
           <div class="mini-meter"><b>WASM HEAP / 128 MB</b><div class="meter"><span style="width:62%"></span></div></div>
           <div class="mini-meter"><b>PINNED RUNTIME</b><span style="font:10px ui-monospace;color:var(--green)">eb687a0ec</span></div>

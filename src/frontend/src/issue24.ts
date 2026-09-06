@@ -85,12 +85,28 @@ const start = (
   onOutput?: Parameters<typeof compileLoadStartIssue23>[0]["onOutput"],
   sourceProvider?: () => string,
   onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
+  multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
 ) => {
   // Issue 047: when a live editor source provider is supplied (real UI, non
   // proof), compile the current in-memory editor buffer — including unsaved
   // edits (PRD 8.6) — as the user's Game1.cs. Proof mode keeps the fixed
   // cooperative-stop source so the issue 024 stop proof stays deterministic.
   if (!proofMode && sourceProvider) {
+    // Issue 051: when a folder project is open, compile ALL its .cs files
+    // together (issue 30 multi-file pattern), not just the visible one.
+    const multi = multiSourceProvider?.();
+    if (multi && multi.sources.length > 0) {
+      return compileLoadStartIssue23({
+        assemblyName: "PlaygroundGame",
+        sourcePath: multi.primarySourcePath,
+        sourceText: multi.sources.find(s => s.path === multi.primarySourcePath)?.text ?? multi.sources[0].text,
+        sources: multi.sources,
+        primarySourcePath: multi.primarySourcePath,
+        proofMode: false,
+        onOutput,
+        onDiagnostics,
+      });
+    }
     return compileLoadStartIssue23({
       assemblyName: "PlaygroundGame",
       sourcePath: "Game1.cs",
@@ -117,6 +133,7 @@ function createRunStopController(
   onOutputLine?: (event: Parameters<NonNullable<Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]>>[0]) => void,
   onRuntimeFailure?: (payload: Record<string, unknown>) => void,
   onRunStart?: () => void,
+  multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
 ) {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
@@ -130,7 +147,7 @@ function createRunStopController(
       onRunStart?.();
       return start(proofMode, event => {
         onOutputLine?.(event);
-      }, sourceProvider, onDiagnostics);
+      }, sourceProvider, onDiagnostics, multiSourceProvider);
     },
     stop: (preview, reason) => preview.stop(reason),
     observeFailure: preview => {
@@ -166,6 +183,8 @@ export interface Issue024OutputHooks {
   onOutputLine?: (event: Parameters<NonNullable<Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]>>[0]) => void;
   onRuntimeFailure?: (payload: Record<string, unknown>) => void;
   onRunStart?: () => void;
+  /** Issue 051: when set and it returns sources, Run compiles them together. */
+  multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null;
 }
 
 export function installIssue024RunStopControl(
@@ -181,6 +200,7 @@ export function installIssue024RunStopControl(
     outputHooks?.onOutputLine,
     outputHooks?.onRuntimeFailure,
     outputHooks?.onRunStart,
+    outputHooks?.multiSourceProvider,
   );
   runButton.addEventListener("click", () => {
     if (gate) {

@@ -813,6 +813,139 @@ async fn issue050_write_file(
     Ok(path)
 }
 
+// Issue 051 project-read limits (defensive, mirroring issue 050's posture).
+const ISSUE051_MAX_FILES: usize = 500;
+const ISSUE051_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const ISSUE051_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
+const ISSUE051_MAX_DEPTH: usize = 32;
+
+/// Issue 051: Show the native folder picker and return the chosen directory.
+/// Wraps the dialog plugin's Rust API so the trusted webview goes through an
+/// approved application command rather than invoking the plugin directly.
+///
+/// Returns Ok(Some(path)) when a folder is chosen, Ok(None) when cancelled.
+#[tauri::command]
+async fn issue051_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let chosen = app.dialog().file().blocking_pick_folder();
+    match chosen {
+        Some(path) => {
+            let path_buf = path
+                .into_path()
+                .map_err(|error| format!("failed to resolve folder path: {error}"))?;
+            Ok(Some(path_buf.to_string_lossy().into_owned()))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Issue 051: Read an opened project folder — enumerate every `.cs` file
+/// recursively and return the raw `playground.json` text if present. Enforces
+/// defensive limits on file count and byte sizes. Never writes anything.
+///
+/// Returns a JSON object: `{ root, folderName, csFiles: [{ relativePath,
+/// absolutePath, content }], manifestText: string | null }`.
+#[tauri::command]
+async fn issue051_read_project(path: String) -> Result<serde_json::Value, String> {
+    let root = std::path::PathBuf::from(&path);
+    if !root.is_dir() {
+        return Err("selected path is not a directory".into());
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|e| format!("failed to resolve folder: {e}"))?;
+    let folder_name = root
+        .file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "project".to_string());
+
+    let mut cs_files: Vec<serde_json::Value> = Vec::new();
+    let mut total_bytes: u64 = 0;
+
+    fn walk(
+        dir: &std::path::Path,
+        root: &std::path::Path,
+        depth: usize,
+        cs_files: &mut Vec<serde_json::Value>,
+        total_bytes: &mut u64,
+    ) -> Result<(), String> {
+        if depth > ISSUE051_MAX_DEPTH {
+            return Ok(());
+        }
+        let entries = std::fs::read_dir(dir).map_err(|e| format!("failed to read folder: {e}"))?;
+        let mut sorted: Vec<std::path::PathBuf> =
+            entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        sorted.sort();
+        for entry in sorted {
+            let file_name = entry
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            // Skip hidden entries and common heavy/irrelevant directories.
+            if file_name.starts_with('.')
+                || file_name == "bin"
+                || file_name == "obj"
+                || file_name == "node_modules"
+            {
+                continue;
+            }
+            if entry.is_dir() {
+                walk(&entry, root, depth + 1, cs_files, total_bytes)?;
+            } else if entry.extension().and_then(|e| e.to_str()) == Some("cs") {
+                let metadata = std::fs::metadata(&entry)
+                    .map_err(|e| format!("failed to inspect file: {e}"))?;
+                if metadata.len() > ISSUE051_MAX_FILE_BYTES {
+                    return Err(format!(
+                        "{file_name} exceeds the {ISSUE051_MAX_FILE_BYTES}-byte per-file limit"
+                    ));
+                }
+                *total_bytes += metadata.len();
+                if *total_bytes > ISSUE051_MAX_TOTAL_BYTES {
+                    return Err("project exceeds the total byte limit".into());
+                }
+                if cs_files.len() >= ISSUE051_MAX_FILES {
+                    return Err(format!(
+                        "project exceeds the {ISSUE051_MAX_FILES}-file limit"
+                    ));
+                }
+                let content = std::fs::read_to_string(&entry)
+                    .map_err(|e| format!("failed to read {file_name}: {e}"))?;
+                let relative = entry
+                    .strip_prefix(root)
+                    .map(|r| r.to_string_lossy().replace('\\', "/"))
+                    .unwrap_or_else(|_| file_name.clone());
+                cs_files.push(serde_json::json!({
+                    "relativePath": relative,
+                    "absolutePath": entry.to_string_lossy().into_owned(),
+                    "content": content,
+                }));
+            }
+        }
+        Ok(())
+    }
+
+    walk(&root, &root, 0, &mut cs_files, &mut total_bytes)?;
+
+    // Read the manifest text if present (never created here; that is Save All).
+    let manifest_path = root.join("playground.json");
+    let manifest_text = if manifest_path.is_file() {
+        Some(
+            std::fs::read_to_string(&manifest_path)
+                .map_err(|e| format!("failed to read playground.json: {e}"))?,
+        )
+    } else {
+        None
+    };
+
+    Ok(serde_json::json!({
+        "root": root.to_string_lossy().into_owned(),
+        "folderName": folder_name,
+        "csFiles": cs_files,
+        "manifestText": manifest_text,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(target_os = "macos")]
@@ -3613,7 +3746,9 @@ pub fn run() {
             issue041_rss_bytes,
             issue050_write_file,
             issue050_save_dialog,
-            issue050_open_dialog
+            issue050_open_dialog,
+            issue051_pick_folder,
+            issue051_read_project
         ])
         .run(tauri::generate_context!())
         .expect("error while running MonoGame Playground");
