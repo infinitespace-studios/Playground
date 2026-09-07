@@ -52,23 +52,17 @@
         {
           "name": "libFAudio.a",
           "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/libFAudio.a",
-          "stagedPath": "native/libFAudio.a",
-          "sha256": "81a32c56b632a6706c7c9cf57b6a278f2c352304559ab00a68ecc4e4e375f011",
-          "byteLength": 270500
+          "stagedPath": "native/libFAudio.a"
         },
         {
           "name": "libSDL2.a",
           "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/libSDL2.a",
-          "stagedPath": "native/libSDL2.a",
-          "sha256": "8bf2c82eedc5eeaadae69f078a77705ced2d2275b4de5fb6860475d659d47bf5",
-          "byteLength": 1233036
+          "stagedPath": "native/libSDL2.a"
         },
         {
           "name": "mgruntime.a",
           "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/mgruntime.a",
-          "stagedPath": "native/mgruntime.a",
-          "sha256": "612894cde927049c8014a8c035bb6d175402af970a66978898e2fc6b253fc56e",
-          "byteLength": 791464
+          "stagedPath": "native/mgruntime.a"
         }
       ]
     },

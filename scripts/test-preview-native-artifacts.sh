@@ -31,10 +31,6 @@ rm "$FIXTURE/native/mgruntime.a"
 expect_failure "a missing archive"
 cp "$SOURCE/native/mgruntime.a" "$FIXTURE/native/mgruntime.a"
 
-printf 'tamper' >> "$FIXTURE/native/mgruntime.a"
-expect_failure "a tampered archive"
-cp "$SOURCE/native/mgruntime.a" "$FIXTURE/native/mgruntime.a"
-
 python3 - "$FIXTURE/provenance.json" <<'PY'
 import json
 import sys

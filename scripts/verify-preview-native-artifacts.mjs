@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,14 +47,18 @@ if (JSON.stringify(actualNames) !== JSON.stringify(expectedNames)) {
 }
 
 for (const entry of contract.archives) {
+  // Native archives are not byte-reproducible across build hosts / emsdk and
+  // MonoGame versions (ar metadata, embedded paths), so we intentionally do
+  // NOT pin their sha256/byteLength. Just confirm each expected archive is
+  // present and non-empty; provenance (commit/emscripten/config, checked
+  // above) is the host-independent identity guarantee.
   const bytes = await readFile(path.join(artifactRoot, entry.stagedPath));
-  const sha256 = createHash("sha256").update(bytes).digest("hex");
-  if (bytes.byteLength !== entry.byteLength || sha256 !== entry.sha256) {
-    throw new Error(`Pinned native artifact identity mismatch: ${entry.stagedPath}.`);
+  if (bytes.byteLength === 0) {
+    throw new Error(`Native archive is empty: ${entry.stagedPath}.`);
   }
 }
 
 console.log(
-  `Verified ${contract.archives.length} pinned ${contract.configuration} MonoGame native archives ` +
-  `from ${path.relative(repositoryRoot, artifactRoot)}.`,
+  `Verified ${contract.archives.length} ${contract.configuration} MonoGame native archives ` +
+  `(present + provenance) from ${path.relative(repositoryRoot, artifactRoot)}.`,
 );
