@@ -1,7 +1,7 @@
 # Route focus/input/resize and production content workflow
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Done (delivered scope verified 2026-09-06; RESIZE affordance deferred to a follow-up — see Verification record)
 **Blocked by:** [039-validate-and-mount-web-profile-texture2d.md](039-validate-and-mount-web-profile-texture2d.md), [040-activate-play-stop-soundeffect-in-preview.md](040-activate-play-stop-soundeffect-in-preview.md), [047-edit-game1-and-run-stop.md](047-edit-game1-and-run-stop.md), [051-open-folder-edit-multiple-files-persist-manifest.md](051-open-folder-edit-multiple-files-persist-manifest.md)
 **PRD references:** 14.4, 13.4, 24 (Phase 4)
 **User stories:** US3, US6
@@ -409,6 +409,38 @@ Open `examples/ContentExample/`, press Run, and confirm the texture renders and 
 ## Verification record
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
+
+### FINAL — packaged-app GUI verification (2026-09-06): PASS
+
+- **Verdict:** PASS. All issue-052 acceptance criteria verified in the PACKAGED
+  release app (`target/release/bundle/macos/MonoGame Playground.app`, which
+  embeds `dist/preview` with the content fixes), by the requesting developer.
+- **Date:** 2026-09-06
+- **Evidence — packaged GUI (macOS):**
+  - Test 1 — opened `examples/ContentExample/`, Run: both textures render
+    (precompiled `player.xnb` + RAW `sprite.png`), zero manual content wiring. PASS.
+  - Test 2 — clicked preview, held Space: the RAW `tone.wav` (transcoded to XNB at
+    mount) plays and the background tints green; Escape stops it. PASS.
+  - Test 3 — focus/input isolation: keys reach the game only when the preview is
+    focused, and Monaco only when the editor is focused; no leakage either way.
+    PASS.
+  - Test 4 — status indicator cycles Loading/Running/Stopped with glyph+text
+    (non-color) cues across a Run/Stop cycle. PASS.
+  - Test 5 — non-Web `contentProfile` shows a labelled
+    `PG0215_CONTENT_PROFILE_NOT_WEB` "Content error" in the Output panel, the game
+    does not start, status settles on Error, and Run/Stop remain clickable (the
+    controller-wedge fix `9ecd548` confirmed). PASS.
+- **Packaged proof suite:** `scripts/prove-issue038-macos.sh` all-green
+  (038/024/025/023/033/033nwe/034/035/036/037p1/037p2), 0 orphan processes,
+  key-leak scan clean — confirms the task-3 security re-points and all
+  lifecycle/isolation proofs in the packaged binary.
+- **Independent code review:** SOUND (see below) — no critical/blocking issues.
+- **Machine checks:** tsc clean; protocol 102/102; issue039 31/31; issue040
+  10/10; cargo 56/56; preview WASM + vite builds clean.
+- **Commit gate:** SATISFIED for the implemented scope. Independent code review +
+  packaged proof suite + packaged-app GUI acceptance all recorded PASS. The only
+  outstanding item is the deferred RESIZE affordance (PRD 14.4, see below), which
+  was explicitly out of this session's delivered scope.
 
 ### Implementer pass (2026-09-06) — GUI-verified by the requester, NOT yet independently verified
 
