@@ -2,8 +2,8 @@
   "schemaVersion": 1,
   "monogameCommitSha": "eb687a0ec226b56f0b2b2a1a01ad811a841fc116",
   "retainedFor": {
-    "commitSha": "ecf06ee240dcc5524e82b656b4682e22b4c91175",
-    "reason": "The retained Debug Example.Web fingerprints and native archives predate ecf06ee; that commit changes only managed Native GamePlatform code consumed by the separately rebuilt preview assembly."
+    "commitSha": "8372206266d2c09626d83b4ad9702fa072ec0aaa",
+    "reason": "The retained Debug Example.Web fingerprints predate 8372206; that commit changes only the native premake wasm memory model (wasm32, no -m64) and managed Native GamePlatform code consumed by the separately rebuilt preview assembly. Native-archive hash pins are refreshed from CI (issue 053)."
   },
   "buildConfiguration": "Debug",
   "provenanceFile": "provenance.json",

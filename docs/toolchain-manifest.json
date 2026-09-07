@@ -3,7 +3,7 @@
   "monogame": {
     "repository": "https://github.com/infinitespace-studios/MonoGame.git",
     "branch": "feature/openglnative",
-    "commitSha": "ecf06ee240dcc5524e82b656b4682e22b4c91175",
+    "commitSha": "8372206266d2c09626d83b4ad9702fa072ec0aaa",
     "protectedRef": "feature/openglnative"
   },
   "dotnet": {
@@ -79,7 +79,7 @@
       "source": "src/compiler/References/MonoGame.Framework.dll",
       "sourceProject": "MonoGame.Framework/MonoGame.Framework.Native.csproj",
       "sourceProfile": "Native",
-      "sourceCommitSha": "ecf06ee240dcc5524e82b656b4682e22b4c91175"
+      "sourceCommitSha": "8372206266d2c09626d83b4ad9702fa072ec0aaa"
     }
   },
   "emscripten": {
