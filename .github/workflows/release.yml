@@ -164,9 +164,9 @@ jobs:
           source "${{ github.workspace }}/../emsdk/emsdk_env.sh"
           bash scripts/build-monogame.sh
 
-      # Surface the freshly built (Linux) native-archive hashes so the pinned
-      # values in docs/toolchain-manifest.json can be refreshed from the
-      # canonical CI build. See issue 053 (native-archive hash provenance).
+      # Surface the built (Linux) native-archive hashes for auditing / future
+      # pin refreshes. The pinned values in docs/toolchain-manifest.json are
+      # sourced from this canonical CI build (issue 053).
       - name: Print native archive hashes
         run: |
           for a in artifacts/monogame/native/*.a; do
@@ -176,16 +176,10 @@ jobs:
               "$(basename "$a")"
           done
 
-      # TEMPORARY (issue 053): the pinned native-archive hashes still reflect an
-      # older build, so this check is expected to mismatch until they are
-      # refreshed from the values printed above. Keep it non-fatal for now so
-      # the build proves out and uploads its artifacts; restore to fatal once
-      # the manifest hashes are updated from the canonical CI build.
-      - name: Verify MonoGame artifacts (non-fatal pending hash refresh)
+      - name: Verify MonoGame artifacts
         run: |
           source "${{ github.workspace }}/../emsdk/emsdk_env.sh"
-          bash scripts/verify-monogame-artifacts.sh \
-            || echo "::warning::MonoGame artifact hash verification failed (expected until manifest hashes are refreshed from CI — issue 053)."
+          bash scripts/verify-monogame-artifacts.sh
 
       - name: Upload MonoGame artifacts
         uses: actions/upload-artifact@v4

@@ -60,15 +60,15 @@
           "name": "libSDL2.a",
           "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/libSDL2.a",
           "stagedPath": "native/libSDL2.a",
-          "sha256": "cb5dacf35d0427844b3d1b0e910a6a30cb526b2b8078419a8114f3fad73a44b7",
-          "byteLength": 1233048
+          "sha256": "8bf2c82eedc5eeaadae69f078a77705ced2d2275b4de5fb6860475d659d47bf5",
+          "byteLength": 1233036
         },
         {
           "name": "mgruntime.a",
           "sourcePath": "external/MonoGame/Artifacts/native/mgruntime/wasm/emscripten/Release/mgruntime.a",
           "stagedPath": "native/mgruntime.a",
-          "sha256": "44725c2d0839c5c2571454d633caa20f52735054e535d603a2a355e627dc67a3",
-          "byteLength": 791532
+          "sha256": "612894cde927049c8014a8c035bb6d175402af970a66978898e2fc6b253fc56e",
+          "byteLength": 791464
         }
       ]
     },
