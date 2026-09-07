@@ -450,6 +450,41 @@ Complete this section during independent verification. Do not delete failed atte
   the packaged binary). Resize (PRD 14.4) was NOT implemented this session — see
   the note below.
 
+### Independent code review (2026-09-06) — diff inspection, VERDICT: SOUND
+
+- **Verifier:** Independent read-only reviewer subagent (isolated context; did not
+  write the code; `bash` restricted to read-only `git diff`/`show`/`cat`).
+- **Scope:** the full `4824cfc..HEAD` code/example diff (mount gate, WavToXnb,
+  ImageContent, Rust discovery + base64, live-runner mount, content prep +
+  contentProfile gate, controller wedge fix, security re-points 34/35/36).
+- **Verdict:** SOUND to keep as-is. **Critical: none. Blocking warnings: none.**
+  Confirmed independently: the `.xnb` branch is byte-identical to the pre-change
+  path (issues 39/40 unaffected); mount routing is by magic bytes with per-kind
+  validation and a rejecting default; integrity checks (sha256/byteLength) run on
+  the RAW bytes while transcoded bytes are what stage; the WavToXnb output layout
+  matches `ContentValidator.ParseSoundEffectPayload` field-for-field (18-byte
+  WAVEFORMATEX, recomputed blockAlign/avgBytes, duration within ±50 ms incl. the
+  `durationMs<=0 -> 1` clamp); the `.wav`->`.xnb` rename keeps manifest path ==
+  staged virtual path so CommitMount re-derivation stays consistent; base64 is
+  RFC 4648-correct; discovery bounds (16 MiB/24 MiB/256/depth-32) hold; the
+  controller fix converts a synchronous `start()` throw into a rejection routed
+  through the existing recovery (state->idle, Run re-enabled, no double-handle);
+  mount-failure aborts call `retire()` before throwing; new input fields are
+  optional and don't touch proof callers; `ISSUE034_APPROVED_COMMANDS` stays
+  intact with strictly stronger (bridge-absent) assertions.
+- **Non-blocking suggestions (recorded, not fixed):** (1) the image
+  extension-mismatch guard is a no-op for a non-image extension routed to Image
+  (harmless — unreachable via the normal frontend flow since only `.wav` is
+  renamed; integrity checks still bind bytes↔manifest); (2) Rust discovery adds
+  `total_bytes` one file before the count check (both caps still hold); (3)
+  WavToXnb's 8 MiB audio cap is stricter than the 16 MiB Rust per-file cap (a
+  large WAV fails cleanly at transcode with PG0211). None affect correctness.
+- **Still required for the gate:** a HUMAN or separate agent to personally run the
+  GUI Verification steps (render/audio/focus/status/content-error) and the
+  packaged `scripts/prove-issue038-macos.sh` on the content-workflow path. The
+  requester GUI-confirmed tests 1-3 + items 1-2 this session (recorded above);
+  the security re-points were already packaged-verified this session.
+
 ### Deferred within this issue's scope
 
 - **Preview panel RESIZE (PRD 14.4).** The issue's "What to build" lists resizing
