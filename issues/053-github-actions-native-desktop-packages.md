@@ -15,14 +15,14 @@ This issue is the first packaging-for-release issue. Rather than a single hand-b
 
 ## What to build
 
-A GitHub Actions workflow (under `.github/workflows/`) that, on demand (`workflow_dispatch`) and on release tags (`push` of `v*` tags), runs the complete Release build pipeline — MonoGame native/WASM artifacts, the compiler and preview WASM projects, the Workbench frontend, and the Tauri shell — on a build matrix covering macOS, Windows, and Linux, **each for both x64 (`x86_64`) and arm64 (`aarch64`) CPU architectures** (six platform/arch bundles total), and uploads each one's native installer/bundle as a workflow artifact (and, on tag builds, attaches them to a GitHub Release). Also document the supported OS versions, CPU architectures, and minimum WebView2 version in `docs/release-support-matrix.md`.
+A GitHub Actions workflow (under `.github/workflows/`) that, on demand (`workflow_dispatch`), on every push to `main`, and on release tags (`push` of `v*` tags), runs the complete Release build pipeline — MonoGame native/WASM artifacts, the compiler and preview WASM projects, the Workbench frontend, and the Tauri shell — on a build matrix covering macOS, Windows, and Linux, **each for both x64 (`x86_64`) and arm64 (`aarch64`) CPU architectures** (six platform/arch bundles total), and uploads each one's native installer/bundle as a workflow artifact (and, on tag builds, attaches them to a GitHub Release). Also document the supported OS versions, CPU architectures, and minimum WebView2 version in `docs/release-support-matrix.md`.
 
 ## Scope
 
 ### In scope
 
 - One or more workflow files under `.github/workflows/` (e.g. `release.yml`) that:
-  - Trigger on `workflow_dispatch` and on `push` of tags matching `v*`.
+  - Trigger on `workflow_dispatch`, on `push` to `main`, and on `push` of tags matching `v*` (only tag builds attach a GitHub Release; `main`/dispatch builds just upload artifacts).
   - Check out the repository **recursively** (the `external/MonoGame` submodule is required — see issue 2).
   - Provision the pinned toolchain per `docs/toolchain-manifest.json`: .NET SDK (`9.0.315` with the `wasm-tools` workload — used for all builds including MonoGame), Node.js (`v26.x`), the Rust toolchain (`1.98.0` stable) with the per-OS Tauri target, emsdk (`3.1.56`) laid out as the sibling `../emsdk` the build scripts expect (issue 3), and the Linux system libraries Tauri needs (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `patchelf`, `libayatana-appindicator3-dev`, etc.).
   - Build and hash-verify the MonoGame WASM artifacts once (`scripts/build-monogame.sh` → `scripts/verify-monogame-artifacts.sh`, issues 4–5) and make them available to each platform leg (a shared upstream job that uploads the verified `artifacts/monogame` output, consumed by the three platform legs, is preferred over rebuilding the platform-independent WASM three times). The full MonoGame build runs MGFXC (the effect/shader compiler), which requires **Wine** on non-Windows hosts — provision it with MonoGame's own `monogame/monogame-actions/install-wine@v1.0.3` + `install-fonts@v1.0.3` composite actions (install-wine installs Wine, provisions .NET inside a Wine prefix, and exports `MGFXC_WINE_PATH`/`WINE*`), alongside the SDL2 build dependencies MonoGame's CI installs.
@@ -55,7 +55,7 @@ A GitHub Actions workflow (under `.github/workflows/`) that, on demand (`workflo
 
 ## Acceptance criteria
 
-- [ ] A GitHub Actions workflow under `.github/workflows/` triggers on `workflow_dispatch` and on `push` of `v*` tags, checks out the MonoGame submodule recursively, and provisions the pinned .NET/Node/Rust/emsdk toolchain.
+- [ ] A GitHub Actions workflow under `.github/workflows/` triggers on `workflow_dispatch`, on `push` to `main`, and on `push` of `v*` tags, checks out the MonoGame submodule recursively, and provisions the pinned .NET/Node/Rust/emsdk toolchain.
 - [ ] The workflow builds and hash-verifies the MonoGame WASM artifacts (issues 4–5) and builds the full Workbench frontend + compiler + preview WASM in Release.
 - [ ] The workflow builds the Tauri shell on a matrix of macOS, Windows, and Linux, **each for x64 and arm64 (six bundles)**, and uploads each platform/arch native bundle as a workflow artifact; on `v*` tags the artifacts are attached to a GitHub Release.
 - [ ] `src/desktop/src-tauri/tauri.conf.json` `bundle.targets`/metadata are configured so each OS's native package format is emitted.

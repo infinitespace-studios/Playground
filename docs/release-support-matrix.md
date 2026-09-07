@@ -98,6 +98,8 @@ The workflow (`.github/workflows/release.yml`) runs on:
 
 - **`workflow_dispatch`** — trigger manually from the Actions tab to build all
   six bundles and upload them as workflow artifacts.
+- **Push to `main`** — builds all six bundles and uploads them as workflow
+  artifacts (no GitHub Release is created).
 - **Push of a `v*` tag** (e.g. `v0.1.0`) — builds all six bundles, uploads them
   as artifacts, and attaches them to a **draft** GitHub Release named for the
   tag.
