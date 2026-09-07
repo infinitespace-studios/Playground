@@ -265,6 +265,17 @@ jobs:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
 
+      # stage:preview publishes the preview with WasmBuildNative=true (it links
+      # the MonoGame native .a archives) and then inspect-preview-wasm.mjs runs
+      # wasm-opt, so this leg needs the Emscripten toolchain even though it does
+      # not rebuild MonoGame. Cross-platform (Linux/macOS/Windows); sets EMSDK,
+      # which inspect-preview-wasm.mjs reads to locate wasm-opt. Same 3.1.56 pin
+      # as build-monogame-wasm.
+      - name: Setup Emscripten SDK (${{ env.EMSDK_VERSION }})
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSDK_VERSION }}
+
       - name: Cache Cargo + Rust target
         uses: Swatinem/rust-cache@v2
         with:
