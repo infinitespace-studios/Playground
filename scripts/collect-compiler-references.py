@@ -48,8 +48,14 @@ def validate_contract(manifest, toolchain, assets):
     commit_sha = manifest.get("monogameCommitSha")
     if not isinstance(commit_sha, str) or not re.fullmatch(r"[0-9a-f]{40}", commit_sha):
         fail("reference allowlist monogameCommitSha must be a lowercase 40-character SHA.")
-    if toolchain.get("monogame", {}).get("commitSha") != commit_sha:
-        fail("Reference allowlist MonoGame SHA has drifted from docs/toolchain-manifest.json.")
+    # NOTE: the reference allowlist's monogameCommitSha records the commit the
+    # committed managed reference assembly (src/compiler/References/
+    # MonoGame.Framework.dll) was built from. It is intentionally NOT required to
+    # equal the live toolchain monogame.commitSha: the managed reference API only
+    # needs rebuilding when it actually changes, whereas the toolchain pin moves
+    # for native-only fixes too. The DLL bytes (sha256) and embedded
+    # informationalVersion are still pinned to this commit below, and the
+    # submodule HEAD is verified against the live toolchain pin separately.
 
     target = manifest.get("target")
     compiler = toolchain.get("compiler", {})
@@ -399,7 +405,13 @@ def main():
     }:
         fail("src/compiler/global.json has drifted from the compiler SDK pin.")
     verify_dotnet_sdk(toolchain, compiler_dir)
-    verify_submodule(repo_root, commit_sha)
+    # Verify the checked-out submodule matches the LIVE toolchain pin (which may
+    # be ahead of the reference-assembly's build commit for native-only fixes),
+    # not the reference allowlist's provenance SHA.
+    toolchain_commit = toolchain.get("monogame", {}).get("commitSha")
+    if not isinstance(toolchain_commit, str) or not re.fullmatch(r"[0-9a-f]{40}", toolchain_commit):
+        fail("toolchain manifest monogame.commitSha must be a lowercase 40-character SHA.")
+    verify_submodule(repo_root, toolchain_commit)
 
     if args.verify:
         verify_destination(references_dir, assemblies)

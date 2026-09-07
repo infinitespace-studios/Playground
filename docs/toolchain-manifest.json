@@ -73,7 +73,7 @@
       "source": "src/compiler/References/MonoGame.Framework.dll",
       "sourceProject": "MonoGame.Framework/MonoGame.Framework.Native.csproj",
       "sourceProfile": "Native",
-      "sourceCommitSha": "8372206266d2c09626d83b4ad9702fa072ec0aaa"
+      "sourceCommitSha": "ecf06ee240dcc5524e82b656b4682e22b4c91175"
     }
   },
   "emscripten": {
