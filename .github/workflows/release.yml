@@ -88,6 +88,25 @@ jobs:
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
 
+      # GitHub runners ship a newer .NET SDK (e.g. 10.0.100) alongside the one
+      # setup-dotnet installs. Without a global.json, `dotnet` resolves to the
+      # newest band, so `dotnet workload install` pulls mismatched Emscripten
+      # workload manifests and fails ("...emscripten.net9 ... conflicts with
+      # ...emscripten.current"). Pin the active SDK so every dotnet invocation
+      # (workload install, the MonoGame build, and the staging scripts) uses
+      # 9.0.315. Mirrors MonoGame CI's generated global.json.
+      - name: Pin active .NET SDK
+        run: |
+          cat > global.json <<'JSON'
+          {
+            "sdk": {
+              "version": "${{ env.DOTNET_VERSION }}",
+              "rollForward": "disable"
+            }
+          }
+          JSON
+          dotnet --version
+
       # The default Build.csproj target is "Build All", which builds every
       # framework (native via Premake+CMake, Emscripten, DesktopGL, Android,
       # iOS), all shaders (incl. Vulkan), tools, templates and tests. The steps
@@ -98,7 +117,7 @@ jobs:
         uses: monogame/monogame-actions/install-android-dependencies@v1.0.3
 
       - name: Install .NET workloads (wasm-tools + android)
-        run: dotnet workload install wasm-tools android --version ${{ env.DOTNET_VERSION }}
+        run: dotnet workload install wasm-tools android
 
       - name: Setup Premake5 (native runtime project generation)
         uses: abel0b/setup-premake@v2.4
@@ -199,6 +218,21 @@ jobs:
         uses: actions/setup-dotnet@v5
         with:
           dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      # Pin the active SDK (runners ship a newer band) so the staging scripts'
+      # `dotnet --version === 9.0.315` check and the workload install resolve
+      # to the intended SDK. See the build-monogame-wasm job for details.
+      - name: Pin active .NET SDK
+        run: |
+          cat > global.json <<'JSON'
+          {
+            "sdk": {
+              "version": "${{ env.DOTNET_VERSION }}",
+              "rollForward": "disable"
+            }
+          }
+          JSON
+          dotnet --version
 
       - name: Install wasm-tools workload
         run: dotnet workload install wasm-tools
