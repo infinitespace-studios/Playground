@@ -81,7 +81,12 @@ jobs:
       # exports MGFXC_WINE_PATH / WINE* env vars (via GITHUB_ENV) for the build
       # step below. Mirrors external/MonoGame/.github/workflows/main.yml.
       - name: Setup Wine (for MGFXC)
-        uses: monogame/monogame-actions/install-wine@v1
+        uses: monogame/monogame-actions/install-wine@v1.0.3
+
+      # SpriteFont / content compilation needs system fonts present. Mirrors
+      # MonoGame CI's install-fonts step.
+      - name: Install Fonts
+        uses: monogame/monogame-actions/install-fonts@v1.0.3
 
       # build-monogame.sh + check-emsdk-env.sh require the Emscripten SDK to be
       # present at ../emsdk (a sibling of the repository checkout) and sourced.
