@@ -20,7 +20,10 @@
     <MonoGameReferencePath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), '..', 'compiler', 'References', 'MonoGame.Framework.dll'))</MonoGameReferencePath>
     <MonoGameNativeArtifactPath>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), '..', '..', 'artifacts', 'monogame', 'native'))</MonoGameNativeArtifactPath>
     <SchedulerShimsPath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), 'native', 'scheduler-shims.js'))</SchedulerShimsPath>
-    <EmccExtraLDFlags>-sFULL_ES3 -sUSE_WEBGL2=1 -sTOTAL_STACK=5242880 --js-library=$(SchedulerShimsPath)</EmccExtraLDFlags>
+    <!-- emcc's response-file parser strips backslashes, so pass the shim path to
+         the js-library flag with forward slashes (accepted by emcc on Windows too). -->
+    <SchedulerShimsPathEmcc>$(SchedulerShimsPath.Replace('\', '/'))</SchedulerShimsPathEmcc>
+    <EmccExtraLDFlags>-sFULL_ES3 -sUSE_WEBGL2=1 -sTOTAL_STACK=5242880 --js-library=$(SchedulerShimsPathEmcc)</EmccExtraLDFlags>
   </PropertyGroup>
 
   <ItemGroup>

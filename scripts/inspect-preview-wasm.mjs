@@ -103,10 +103,46 @@ const schedulerShimDefinitions = {
   min: /_sched_get_priority_min=policy=>policy===1\|\|policy===2\?1:0/.test(nativeJs),
 };
 
+// Locate wasm-opt. Prefer an explicit WASM_OPT / a sourced EMSDK, but fall
+// back to the wasm-opt bundled by the .NET wasm-tools workload's Emscripten
+// pack (present on every platform after `dotnet workload install wasm-tools`),
+// so no separate emsdk install is required just to inspect the module.
+const findWorkloadWasmOpt = () => {
+  const dotnetRoot = process.env.DOTNET_ROOT ||
+    (process.platform === "win32"
+      ? "C:\\Program Files\\dotnet"
+      : existsSync("/usr/local/share/dotnet") ? "/usr/local/share/dotnet"
+      : existsSync("/usr/share/dotnet") ? "/usr/share/dotnet"
+      : join(process.env.HOME ?? "", ".dotnet"));
+  const packsRoot = join(dotnetRoot, "packs");
+  if (!existsSync(packsRoot)) return "";
+  const exe = process.platform === "win32" ? "wasm-opt.exe" : "wasm-opt";
+  // Prefer the pinned Emscripten 3.1.56 pack if present; otherwise take the
+  // highest available (reverse sort) so a newer pack wins over an older one.
+  const packs = readdirSync(packsRoot)
+    .filter(pack => /^Microsoft\.NET\.Runtime\.Emscripten\..*\.Sdk\./.test(pack))
+    .sort((a, b) => {
+      const pinned = "Emscripten.3.1.56.";
+      const ap = a.includes(pinned) ? 0 : 1;
+      const bp = b.includes(pinned) ? 0 : 1;
+      return ap - bp || b.localeCompare(a);
+    });
+  for (const pack of packs) {
+    const packDir = join(packsRoot, pack);
+    for (const version of readdirSync(packDir).sort().reverse()) {
+      const candidate = join(packDir, version, "tools", "bin", exe);
+      if (existsSync(candidate)) return candidate;
+    }
+  }
+  return "";
+};
+
 const wasmOpt = process.env.WASM_OPT ||
-  (process.env.EMSDK ? join(process.env.EMSDK, "upstream/bin/wasm-opt") : "");
+  (process.env.EMSDK && existsSync(join(process.env.EMSDK, "upstream/bin/wasm-opt"))
+    ? join(process.env.EMSDK, "upstream/bin/wasm-opt")
+    : findWorkloadWasmOpt());
 if (!wasmOpt || !existsSync(wasmOpt)) {
-  throw new Error("Set EMSDK or WASM_OPT to the sourced Emscripten 3.1.56 toolchain.");
+  throw new Error("Could not locate wasm-opt. Set WASM_OPT, source EMSDK, or install the .NET wasm-tools workload.");
 }
 const featureOutput = execFileSync(wasmOpt, [
   "--enable-bulk-memory",
