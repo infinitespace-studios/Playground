@@ -75,6 +75,14 @@ jobs:
       - name: Install wasm-tools workload
         run: dotnet workload install wasm-tools
 
+      # The full MonoGame build runs MGFXC (the effect/shader compiler), which
+      # requires Wine on non-Windows hosts. This is MonoGame's own composite
+      # action: it installs Wine, provisions .NET inside a Wine prefix, and
+      # exports MGFXC_WINE_PATH / WINE* env vars (via GITHUB_ENV) for the build
+      # step below. Mirrors external/MonoGame/.github/workflows/main.yml.
+      - name: Setup Wine (for MGFXC)
+        uses: monogame/monogame-actions/install-wine@v1
+
       # build-monogame.sh + check-emsdk-env.sh require the Emscripten SDK to be
       # present at ../emsdk (a sibling of the repository checkout) and sourced.
       - name: Setup Emscripten SDK (3.1.56) at ../emsdk
