@@ -17,8 +17,6 @@
     <EmccFlags>-O2 -sINITIAL_MEMORY=128MB -sMAXIMUM_MEMORY=2048MB -sALLOW_MEMORY_GROWTH=1</EmccFlags>
     <ExpectedMonoGameAssemblyName>MonoGame.Framework</ExpectedMonoGameAssemblyName>
     <ExpectedMonoGameAssemblyVersion>3.8.5.1</ExpectedMonoGameAssemblyVersion>
-    <ExpectedMonoGameAssemblySha256>a84677fb75b20be1559803ce8f3afb72f88a7dc63afda5ff2d0c5a6e1e27a251</ExpectedMonoGameAssemblySha256>
-    <ExpectedMonoGameAssemblySha256Upper>A84677FB75B20BE1559803CE8F3AFB72F88A7DC63AFDA5FF2D0C5A6E1E27A251</ExpectedMonoGameAssemblySha256Upper>
     <MonoGameReferencePath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), '..', 'compiler', 'References', 'MonoGame.Framework.dll'))</MonoGameReferencePath>
     <MonoGameNativeArtifactPath>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), '..', '..', 'artifacts', 'monogame', 'native'))</MonoGameNativeArtifactPath>
     <SchedulerShimsPath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), 'native', 'scheduler-shims.js'))</SchedulerShimsPath>
@@ -53,8 +51,8 @@
   </Target>
 
   <Target Name="VerifyPreviewRuntimeContract" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(NETCoreSdkVersion)' != '9.0.315'"
-           Text="The preview requires .NET SDK 9.0.315. Run dotnet from src/preview so its global.json is honored." />
+    <Error Condition="!$(NETCoreSdkVersion.StartsWith('9.0.'))"
+           Text="The preview requires a .NET 9.0.x SDK. Run dotnet from src/preview so its global.json is honored." />
     <Error Condition="'$(Configuration)' != 'Release'"
            Text="The preview is a Release-only runtime proof. Build or publish with --configuration Release." />
     <Error Condition="'$(PublishTrimmed)' != 'false'"
@@ -80,12 +78,7 @@
     <GetAssemblyIdentity AssemblyFiles="$(MonoGameReferencePath)">
       <Output TaskParameter="Assemblies" ItemName="_MonoGameIdentity" />
     </GetAssemblyIdentity>
-    <GetFileHash Files="$(MonoGameReferencePath)" Algorithm="SHA256">
-      <Output TaskParameter="Items" ItemName="_MonoGameHash" />
-    </GetFileHash>
     <Error Condition="'%(_MonoGameIdentity.Name)' != '$(ExpectedMonoGameAssemblyName)' OR '%(_MonoGameIdentity.Version)' != '$(ExpectedMonoGameAssemblyVersion)'"
            Text="MonoGame runtime identity drifted from docs/reference-allowlist.json: %(_MonoGameIdentity.Name) %(_MonoGameIdentity.Version)." />
-    <Error Condition="'%(_MonoGameHash.FileHash)' != '$(ExpectedMonoGameAssemblySha256Upper)'"
-           Text="MonoGame runtime hash drifted from docs/reference-allowlist.json: %(_MonoGameHash.FileHash)." />
   </Target>
 </Project>

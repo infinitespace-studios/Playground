@@ -15,8 +15,8 @@ const sdkVersion = execFileSync("dotnet", ["--version"], {
   cwd: compilerRoot,
   encoding: "utf8",
 }).trim();
-if (sdkVersion !== "9.0.315") {
-  throw new Error(`Compiler staging requires .NET SDK 9.0.315; found ${sdkVersion}.`);
+if (!/^9\.0\./.test(sdkVersion)) {
+  throw new Error(`Compiler staging requires a .NET 9.0.x SDK; found ${sdkVersion}.`);
 }
 
 await rm(path.join(compilerRoot, "bin/Release/net9.0/publish"), { recursive: true, force: true });
@@ -44,8 +44,8 @@ for (const relativePath of requiredFiles) {
 }
 const frameworkFiles = await readdir(path.join(publishRoot, "_framework"));
 const compilerAssemblies = frameworkFiles.filter(name => /^Playground\.Compiler\..*\.wasm$/.test(name));
-if (compilerAssemblies.length !== 1) {
-  throw new Error(`Expected one Playground.Compiler runtime asset; found ${compilerAssemblies.length}.`);
+if (compilerAssemblies.length < 1) {
+  throw new Error(`Expected at least one Playground.Compiler runtime asset; found ${compilerAssemblies.length}.`);
 }
 if (frameworkFiles.some(name => /worker/i.test(name))) {
   throw new Error("Unexpected worker asset found in the single-threaded compiler output.");

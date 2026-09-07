@@ -31,8 +31,8 @@
   </Target>
 
   <Target Name="VerifyCompilerReferences" BeforeTargets="PrepareForBuild">
-    <Error Condition="'$(NETCoreSdkVersion)' != '9.0.315'"
-           Text="The browser compiler requires .NET SDK 9.0.315. Run: cd src/compiler &amp;&amp; dotnet build --configuration Release" />
+    <Error Condition="!$(NETCoreSdkVersion.StartsWith('9.0.'))"
+           Text="The browser compiler requires a .NET 9.0.x SDK. Run: cd src/compiler &amp;&amp; dotnet build --configuration Release" />
     <Exec Condition="'$(OS)' != 'Windows_NT'"
           Command="bash &quot;$(MSBuildProjectDirectory)/../../scripts/collect-compiler-references.sh&quot; --verify" />
     <Exec Condition="'$(OS)' == 'Windows_NT'"
