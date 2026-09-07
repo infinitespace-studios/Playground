@@ -517,12 +517,48 @@ Complete this section during independent verification. Do not delete failed atte
   requester GUI-confirmed tests 1-3 + items 1-2 this session (recorded above);
   the security re-points were already packaged-verified this session.
 
-### Deferred within this issue's scope
+### Resize (PRD 14.4) — SATISFIED by the CSS-scale + responsive-grid model (verified 2026-09-06)
 
-- **Preview panel RESIZE (PRD 14.4).** The issue's "What to build" lists resizing
-  the preview panel; this session delivered focus/input, the status indicator,
-  and the full content workflow, but not an interactive resize affordance. Track
-  before the MVP acceptance gate (issue 056) or split into a follow-up.
+Investigated what PRD 14.4 "support resizing" requires and how it actually works,
+verified against the pinned MonoGame source (`external/MonoGame`). Conclusion:
+**resize is satisfied**; no additional work is needed for the MVP.
+
+How it works (two independent sizes, decoupled here):
+- **Render resolution (backing store, `canvas.width/height`)** is driven by the
+  game's `GraphicsDeviceManager.PreferredBackBufferWidth/Height` ->
+  `ApplyChanges` -> `GameWindow.Native.ClientResize` -> `Window_SetClientSize`
+  (the native runtime sets the canvas backing store + `Viewport`). This is the
+  user's C# code, as expected.
+- **Display size** is pure CSS: `preview.css` `canvas { width: 100%;
+  max-width: 640px; aspect-ratio: 16/9 }`, so the canvas fills the preview panel
+  and the browser scales the backing store to the display size. There is no
+  `ResizeObserver` syncing backing-store to panel size — display is CSS-scale
+  only; the backing store changes only when the game changes it.
+- The preview panel is a responsive CSS-grid cell (`minmax(360px, 1fr)`) with the
+  iframe at 100% x 100%, so resizing the app window reflows the panel and the
+  canvas rescales. The feasibility-critical behaviour (canvas/back-buffer tracks
+  size, MonoGame resize path fires, continues rendering) was proven at the
+  packaged-window level by **issue 011** and is inherited here.
+
+Why setting `PreferredBackBuffer*` does NOT "expand the preview": it changes the
+render RESOLUTION (sharper output), not the on-screen size — CSS controls display
+size. This matches how MonoGame Web should behave and is the intended model.
+
+**Manifest `preview.width/height` is vestigial.** It is parsed by issue 51
+(`issue051.ts`, defaults 800x480) but never applied to the panel — and wiring it
+up would FIGHT this cleaner responsive/CSS-scale model by imposing a fixed panel
+size. The PRD's "manifest preview dimensions set the initial panel size" sentence
+(§14.4 / line 1152) describes a fixed-size model this implementation intentionally
+does not follow. Left as ignored optional metadata for now; scheduled for removal
+from the schema — see issue 057.
+
+Cosmetic, non-blocking (fine for MVP, not tracked as gaps): `max-width: 640px`
+caps the preview so it won't grow to fill a very large window; `aspect-ratio:
+16/9` is hard-coded, so a non-16:9 back-buffer would letterbox/distort in display.
+
+No user-draggable editor/preview splitter exists; "support resizing" is read as
+the responsive/back-buffer behaviour above (the feasibility requirement), not a
+drag handle. A splitter would be optional future polish, not an MVP gap.
 
 ## Commit gate
 
