@@ -61,6 +61,18 @@ jobs:
         with:
           submodules: recursive
 
+      # actions/checkout fetches submodules shallow and narrowed to the pinned
+      # commit, so the origin/<protectedRef> remote-tracking ref that
+      # scripts/validate-submodule.sh checks is never created. Restore the
+      # standard wildcard refspec and un-shallow the MonoGame submodule so the
+      # protected-ref reachability/ancestry check has the tracking ref and full
+      # history it needs.
+      - name: Restore MonoGame remote-tracking refs
+        run: |
+          git -C external/MonoGame config remote.origin.fetch '+refs/heads/*:refs/remotes/origin/*'
+          git -C external/MonoGame fetch --no-tags --prune --unshallow origin \
+            || git -C external/MonoGame fetch --no-tags --prune origin
+
       - name: Install SDL2 build dependencies (mirrors MonoGame CI)
         run: |
           sudo apt-get update
