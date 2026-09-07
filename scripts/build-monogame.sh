@@ -97,7 +97,7 @@ cp -R "$WEB_OUTPUT"/. "$STAGING_DIR"/
 mkdir -p "$NATIVE_STAGING"
 cp "$NATIVE_OUTPUT"/mgruntime.a "$NATIVE_OUTPUT"/libSDL2.a "$NATIVE_OUTPUT"/libFAudio.a "$NATIVE_STAGING"/
 
-EMSCRIPTEN_VERSION="$(emcc --version | sed -En '1s/.*emcc \\([^)]*\\) ([0-9]+\\.[0-9]+\\.[0-9]+).*/\\1/p')"
+EMSCRIPTEN_VERSION="$(emcc --version | sed -En '1s/.*emcc \([^)]*\) ([0-9]+\.[0-9]+\.[0-9]+).*/\1/p')"
 if [ "$EMSCRIPTEN_VERSION" != "3.1.56" ]; then
     echo "Unexpected Emscripten compiler version: $EMSCRIPTEN_VERSION" >&2
     exit 1
