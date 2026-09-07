@@ -81,23 +81,46 @@ def validate_contract(manifest, toolchain, assets):
         "version": pack_version,
     }:
         fail("Reference pack identity has drifted from docs/toolchain-manifest.json.")
-    if (
-        f"Microsoft.NET.Sdk.WebAssembly.Pack/{compiler.get('wasmSdkPackVersion')}"
-        not in assets.get("libraries", {})
-    ):
-        fail("WebAssembly SDK pack has drifted from docs/toolchain-manifest.json.")
+
+    # The exact patch of the .NET reference pack / WebAssembly SDK pack tracks
+    # whatever the pinned SDK resolves, which moves with .NET servicing
+    # releases. Match on major.minor (e.g. 9.0) rather than the exact patch so
+    # a servicing bump does not spuriously fail the build; the SDK itself is
+    # still pinned exactly via global.json.
+    def major_minor(version):
+        return ".".join(str(version).split(".")[:2])
+
+    pack_family = major_minor(pack_version)
+
+    wasm_pack_prefix = f"Microsoft.NET.Sdk.WebAssembly.Pack/{major_minor(compiler.get('wasmSdkPackVersion'))}."
+    resolved_wasm_pack = next(
+        (name for name in assets.get("libraries", {})
+         if name.startswith(wasm_pack_prefix)),
+        None,
+    )
+    if resolved_wasm_pack is None:
+        fail(
+            "WebAssembly SDK pack has drifted from docs/toolchain-manifest.json "
+            f"(expected Microsoft.NET.Sdk.WebAssembly.Pack {pack_family}.x, found none)."
+        )
 
     framework_data = assets.get("project", {}).get("frameworks", {}).get(framework, {})
     downloads = framework_data.get("downloadDependencies", [])
-    expected_range = f"[{pack_version}, {pack_version}]"
-    if not any(
-        item.get("name") == pack["name"] and item.get("version") == expected_range
+    resolved_ref_versions = [
+        item.get("version")
         for item in downloads
-        if isinstance(item, dict)
-    ):
+        if isinstance(item, dict) and item.get("name") == pack["name"]
+    ]
+
+    def range_family(version_range):
+        # e.g. "[9.0.20, 9.0.20]" -> "9.0"
+        digits = "".join(ch for ch in str(version_range) if ch.isdigit() or ch == ".").strip(".")
+        return major_minor(digits)
+
+    if not any(range_family(v) == pack_family for v in resolved_ref_versions):
         fail(
-            f"Compiler restore assets do not resolve exact reference pack "
-            f"{pack['name']} {pack_version}."
+            f"Compiler restore assets do not resolve reference pack "
+            f"{pack['name']} {pack_family}.x (found {resolved_ref_versions or 'none'})."
         )
 
     assemblies = manifest.get("assemblies")
