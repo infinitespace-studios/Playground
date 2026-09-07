@@ -83,45 +83,22 @@ def validate_contract(manifest, toolchain, assets):
         fail("Reference pack identity has drifted from docs/toolchain-manifest.json.")
 
     # The exact patch of the .NET reference pack / WebAssembly SDK pack tracks
-    # whatever the pinned SDK resolves, which moves with .NET servicing
-    # releases. Match on major.minor (e.g. 9.0) rather than the exact patch so
-    # a servicing bump does not spuriously fail the build; the SDK itself is
-    # still pinned exactly via global.json.
-    def major_minor(version):
-        return ".".join(str(version).split(".")[:2])
-
-    pack_family = major_minor(pack_version)
-
-    wasm_pack_prefix = f"Microsoft.NET.Sdk.WebAssembly.Pack/{major_minor(compiler.get('wasmSdkPackVersion'))}."
-    resolved_wasm_pack = next(
-        (name for name in assets.get("libraries", {})
-         if name.startswith(wasm_pack_prefix)),
-        None,
+    # whatever the pinned SDK resolves and how the restore host provides it, so
+    # we do NOT pin their versions here. The SDK itself is pinned exactly via
+    # global.json, and the actual reference assemblies are byte-pinned by
+    # sha256 in verify_destination — that is the real supply-chain guarantee.
+    #
+    # We only confirm the WebAssembly SDK pack participated in the restore at
+    # all (by name, any version). We intentionally do NOT check the reference
+    # pack via downloadDependencies: that list contains only packs NuGet had to
+    # download, so when the targeting pack is already provided by the installed
+    # SDK (as on CI runners) it is absent even though the restore is correct.
+    wasm_pack_present = any(
+        name.startswith("Microsoft.NET.Sdk.WebAssembly.Pack/")
+        for name in assets.get("libraries", {})
     )
-    if resolved_wasm_pack is None:
-        fail(
-            "WebAssembly SDK pack has drifted from docs/toolchain-manifest.json "
-            f"(expected Microsoft.NET.Sdk.WebAssembly.Pack {pack_family}.x, found none)."
-        )
-
-    framework_data = assets.get("project", {}).get("frameworks", {}).get(framework, {})
-    downloads = framework_data.get("downloadDependencies", [])
-    resolved_ref_versions = [
-        item.get("version")
-        for item in downloads
-        if isinstance(item, dict) and item.get("name") == pack["name"]
-    ]
-
-    def range_family(version_range):
-        # e.g. "[9.0.20, 9.0.20]" -> "9.0"
-        digits = "".join(ch for ch in str(version_range) if ch.isdigit() or ch == ".").strip(".")
-        return major_minor(digits)
-
-    if not any(range_family(v) == pack_family for v in resolved_ref_versions):
-        fail(
-            f"Compiler restore assets do not resolve reference pack "
-            f"{pack['name']} {pack_family}.x (found {resolved_ref_versions or 'none'})."
-        )
+    if not wasm_pack_present:
+        fail("Compiler restore did not include the Microsoft.NET.Sdk.WebAssembly.Pack.")
 
     assemblies = manifest.get("assemblies")
     if not isinstance(assemblies, list) or not assemblies:
