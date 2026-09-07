@@ -781,8 +781,11 @@ async fn issue050_open_dialog(
 }
 
 /// Issue 050: Write file content atomically (after save dialog returned path).
-/// 1. Back up existing file to .bak (keep one backup)
-/// 2. Write to .tmp, then rename to target (atomic)
+/// 1. If a previous version exists, preserve it as a single `.bak` backup
+///    (copied, so the original stays in place until the atomic rename).
+/// 2. Write to `.tmp`, then rename over the target (atomic on same-fs renames).
+/// 3. Only once the new write is confirmed committed, clean up the backup.
+/// On any failure the backup (if any) is left intact for recovery.
 /// Returns Ok(path) on success, Err on failure.
 #[tauri::command]
 async fn issue050_write_file(
@@ -792,23 +795,39 @@ async fn issue050_write_file(
 ) -> Result<String, String> {
     let path_buf = std::path::PathBuf::from(&path);
 
-    // Backup existing file if it exists
-    if path_buf.exists() {
-        let bak_path = path_buf.with_extension("bak");
-        // If .bak already exists, remove it (keep only one backup)
+    // Preserve any previous version as a single backup copy. Copy (not move)
+    // so the original file stays in place until the atomic rename below
+    // commits the new content; the backup is retained only until the new
+    // write is confirmed, then cleaned up.
+    let bak_path = path_buf.with_extension("bak");
+    let had_backup = if path_buf.exists() {
+        // Keep only one backup: overwrite any stale .bak.
         let _ = std::fs::remove_file(&bak_path);
-        // Rename existing to .bak
-        std::fs::rename(&path_buf, &bak_path)
+        std::fs::copy(&path_buf, &bak_path)
             .map_err(|e| format!("failed to create backup: {e}"))?;
+        true
+    } else {
+        false
+    };
+
+    // Write atomically: content to a temp file in the same directory, then
+    // rename over the target.
+    let tmp_path = path_buf.with_extension("tmp");
+    if let Err(e) = std::fs::write(&tmp_path, &content) {
+        // Write failed — the backup (if any) is still intact for recovery.
+        return Err(format!("failed to write temporary file: {e}"));
     }
 
-    // Write atomically: first to temp file, then rename
-    let tmp_path = path_buf.with_extension("tmp");
-    std::fs::write(&tmp_path, &content)
-        .map_err(|e| format!("failed to write temporary file: {e}"))?;
+    if let Err(e) = std::fs::rename(&tmp_path, &path_buf) {
+        // Commit failed — drop the temp file; keep the backup for recovery.
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("failed to commit file: {e}"));
+    }
 
-    std::fs::rename(&tmp_path, &path_buf)
-        .map_err(|e| format!("failed to commit file: {e}"))?;
+    // New write confirmed committed — clean up the backup.
+    if had_backup {
+        let _ = std::fs::remove_file(&bak_path);
+    }
 
     Ok(path)
 }
