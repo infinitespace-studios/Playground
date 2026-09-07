@@ -80,6 +80,15 @@ function escapeHtml(text: string): string {
 // ----- Dirty indicator -----
 
 function updateDirtyIndicator(): void {
+  // Mirror the current dirty state into the shell so the native window-close
+  // handler can prompt before discarding unsaved changes (issue 050). Only the
+  // trusted top-level frontend can reach this command (ACL-gated per issue 34);
+  // it is absent in the sandboxed preview, where __TAURI_INTERNALS__ is never
+  // injected, so the optional-chaining call simply no-ops there.
+  (window as any).__TAURI_INTERNALS__?.invoke?.("issue050_set_dirty", {
+    dirty: isDirty,
+  });
+
   const indicator = document.getElementById("dirty-indicator-text");
   const indicatorDot = document.getElementById("dirty-indicator");
   if (!indicator && !indicatorDot) return;
@@ -256,13 +265,15 @@ export function installIssue050Tracker(
 }
 
 // ----- Application exit handling -----
-
-// Add beforeunload listener to catch browser tab/window close
+//
+// The desktop (Tauri) application's close is gated natively: the frontend
+// mirrors its dirty state into the shell via `issue050_set_dirty` (see
+// updateDirtyIndicator), and the shell's `CloseRequested` handler shows a
+// native discard-confirmation dialog when dirty. In a plain browser context
+// (no shell), fall back to the browser's own beforeunload confirmation.
 window.addEventListener("beforeunload", (event) => {
-  // We can't reliably detect if this is the desktop app closing vs
-  // browser tab closing, so we only show confirmation in browser context
   if (typeof (window as any).__TAURI_INTERNALS__ !== "undefined") {
-    // In Tauri desktop app, we rely on the app-exit event handler
+    // Desktop app: the native CloseRequested handler owns the prompt.
     return;
   }
 

@@ -98,6 +98,7 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue050_write_file",
   "issue050_save_dialog",
   "issue050_open_dialog",
+  "issue050_set_dirty",
   "issue051_pick_folder",
   "issue051_read_project",
 ] as const;

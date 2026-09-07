@@ -98,6 +98,7 @@ const APP_COMMANDS: &[&str] = &[
     "issue050_write_file",
     "issue050_save_dialog",
     "issue050_open_dialog",
+    "issue050_set_dirty",
     "issue051_pick_folder",
     "issue051_read_project",
 ];
@@ -513,8 +514,8 @@ fn validate_generated_acl(root: &Path) {
     }
     assert_eq!(
         1 + 1 + generated_files.len(),
-        98,
-        "effective ACL must contain one capability, one composite permission, and 96 generated permissions"
+        99,
+        "effective ACL must contain one capability, one composite permission, and 97 generated permissions"
     );
 }
 

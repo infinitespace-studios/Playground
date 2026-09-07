@@ -780,6 +780,24 @@ async fn issue050_open_dialog(
     }
 }
 
+/// Issue 050: Mirror of the trusted frontend's Monaco dirty state into the
+/// shell, so the native window-close handler can decide whether to prompt
+/// before discarding unsaved changes. The frontend is the source of truth for
+/// dirty state (it owns the editor buffer and its last-saved baseline); it
+/// calls `issue050_set_dirty` on every dirty-state transition to keep this in
+/// sync. Only the trusted main webview can invoke that command (ACL-gated,
+/// like every other `issue050_*` command), so the sandboxed preview can never
+/// forge the dirty state.
+static ISSUE050_DIRTY: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// Issue 050: Record whether the trusted frontend currently has unsaved
+/// changes. Called by the frontend whenever its dirty indicator flips.
+#[tauri::command]
+fn issue050_set_dirty(dirty: bool) {
+    ISSUE050_DIRTY.store(dirty, std::sync::atomic::Ordering::SeqCst);
+}
+
 /// Issue 050: Write file content atomically (after save dialog returned path).
 /// 1. If a previous version exists, preserve it as a single `.bak` backup
 ///    (copied, so the original stays in place until the atomic rename).
@@ -3796,6 +3814,124 @@ fn percent_decode(input: &str) -> Option<String> {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Issue 050 (macOS): rebuild the default application menu, but replace the
+/// predefined Quit item with a custom menu item carrying the Cmd+Q
+/// accelerator. This is the supported workaround for the upstream bug where
+/// macOS's native Quit / Cmd+Q calls AppKit `terminate:` directly and bypasses
+/// Tauri's event loop (tauri-apps/tauri#13778, dup of #12978), so neither
+/// `RunEvent::ExitRequested` nor `api.prevent_exit()` ever runs. Routing Quit
+/// through a custom `MenuItem` makes it fire `on_menu_event` instead, where we
+/// can gate on the frontend's dirty state. The rest of the menu (App/File/Edit/
+/// View/Window/Help) is reproduced verbatim from `Menu::default` so standard
+/// behaviour — including Edit's cut/copy/paste/undo that Monaco relies on — is
+/// preserved. The custom Quit item's id is `ISSUE050_QUIT_MENU_ID`.
+#[cfg(target_os = "macos")]
+const ISSUE050_QUIT_MENU_ID: &str = "issue050-quit";
+
+#[cfg(target_os = "macos")]
+fn issue050_build_macos_menu<R: tauri::Runtime>(
+    app_handle: &tauri::AppHandle<R>,
+) -> tauri::Result<tauri::menu::Menu<R>> {
+    use tauri::menu::{
+        AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
+        WINDOW_SUBMENU_ID,
+    };
+
+    let pkg_info = app_handle.package_info();
+    let config = app_handle.config();
+    let about_metadata = AboutMetadata {
+        name: Some(pkg_info.name.clone()),
+        version: Some(pkg_info.version.to_string()),
+        copyright: config.bundle.copyright.clone(),
+        authors: config.bundle.publisher.clone().map(|publisher| vec![publisher]),
+        ..Default::default()
+    };
+
+    // The one intentional deviation from Menu::default: a custom Quit item that
+    // fires on_menu_event (rather than the predefined item that calls native
+    // terminate: and bypasses the event loop).
+    let quit = MenuItem::with_id(
+        app_handle,
+        ISSUE050_QUIT_MENU_ID,
+        format!("Quit {}", pkg_info.name),
+        true,
+        Some("CmdOrCtrl+Q"),
+    )?;
+
+    let app_menu = Submenu::with_items(
+        app_handle,
+        pkg_info.name.clone(),
+        true,
+        &[
+            &PredefinedMenuItem::about(app_handle, None, Some(about_metadata))?,
+            &PredefinedMenuItem::separator(app_handle)?,
+            &PredefinedMenuItem::services(app_handle, None)?,
+            &PredefinedMenuItem::separator(app_handle)?,
+            &PredefinedMenuItem::hide(app_handle, None)?,
+            &PredefinedMenuItem::hide_others(app_handle, None)?,
+            &PredefinedMenuItem::separator(app_handle)?,
+            &quit,
+        ],
+    )?;
+
+    let file_menu = Submenu::with_items(
+        app_handle,
+        "File",
+        true,
+        &[&PredefinedMenuItem::close_window(app_handle, None)?],
+    )?;
+
+    let edit_menu = Submenu::with_items(
+        app_handle,
+        "Edit",
+        true,
+        &[
+            &PredefinedMenuItem::undo(app_handle, None)?,
+            &PredefinedMenuItem::redo(app_handle, None)?,
+            &PredefinedMenuItem::separator(app_handle)?,
+            &PredefinedMenuItem::cut(app_handle, None)?,
+            &PredefinedMenuItem::copy(app_handle, None)?,
+            &PredefinedMenuItem::paste(app_handle, None)?,
+            &PredefinedMenuItem::select_all(app_handle, None)?,
+        ],
+    )?;
+
+    let view_menu = Submenu::with_items(
+        app_handle,
+        "View",
+        true,
+        &[&PredefinedMenuItem::fullscreen(app_handle, None)?],
+    )?;
+
+    let window_menu = Submenu::with_id_and_items(
+        app_handle,
+        WINDOW_SUBMENU_ID,
+        "Window",
+        true,
+        &[
+            &PredefinedMenuItem::minimize(app_handle, None)?,
+            &PredefinedMenuItem::maximize(app_handle, None)?,
+            &PredefinedMenuItem::separator(app_handle)?,
+            &PredefinedMenuItem::close_window(app_handle, None)?,
+        ],
+    )?;
+
+    let help_menu =
+        Submenu::with_id_and_items(app_handle, HELP_SUBMENU_ID, "Help", true, &[])?;
+
+    Menu::with_items(
+        app_handle,
+        &[
+            &app_menu,
+            &file_menu,
+            &edit_menu,
+            &view_menu,
+            &window_menu,
+            &help_menu,
+        ],
+    )
+}
+
 pub fn run() {
     // Issue 041: capture the process-start instant before any other work so
     // shell-startup samples cannot be shifted by later initialisation.
@@ -3813,6 +3949,93 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
+        .menu(|app_handle| {
+            // macOS: install our menu with a custom (event-firing) Quit item;
+            // every other platform keeps the stock default menu (whose native
+            // ExitRequested path already reaches our handler below).
+            #[cfg(target_os = "macos")]
+            {
+                issue050_build_macos_menu(app_handle)
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                tauri::menu::Menu::default(app_handle)
+            }
+        })
+        .on_menu_event(|app_handle, event| {
+            // Issue 050 (macOS): the custom Quit item routes here instead of
+            // native terminate:, so we can prompt before discarding unsaved
+            // changes on Cmd+Q / app-menu Quit (the paths that bypass
+            // ExitRequested — tauri-apps/tauri#13778).
+            #[cfg(target_os = "macos")]
+            if event.id() == ISSUE050_QUIT_MENU_ID {
+                if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
+                    app_handle.exit(0);
+                    return;
+                }
+                use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                let app_handle = app_handle.clone();
+                app_handle
+                    .dialog()
+                    .message("You have unsaved changes. Do you want to discard them and quit?")
+                    .title("Unsaved changes")
+                    .kind(MessageDialogKind::Warning)
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Discard and quit".to_string(),
+                        "Cancel".to_string(),
+                    ))
+                    .show(move |discard| {
+                        if discard {
+                            ISSUE050_DIRTY
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            app_handle.exit(0);
+                        }
+                    });
+            }
+            #[cfg(not(target_os = "macos"))]
+            let _ = (app_handle, event);
+        })
+        .on_window_event(|window, event| {
+            // Issue 050: gate the main window's close on the frontend's dirty
+            // state. Fires for every window, so scope strictly to "main" (the
+            // trusted editor window) and never the isolated issue-038 preview
+            // windows. When the buffer is dirty we prevent the automatic close
+            // and ask for confirmation via a native dialog; on confirm we
+            // force-destroy the window (which emits no further events).
+            if window.label() != "main" {
+                return;
+            }
+            if let tauri::WindowEvent::CloseRequested { api, .. } = event {
+                if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
+                    return; // clean buffer — allow the close to proceed
+                }
+                api.prevent_close();
+                use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                let window = window.clone();
+                window
+                    .dialog()
+                    .message("You have unsaved changes. Do you want to discard them and quit?")
+                    .title("Unsaved changes")
+                    .kind(MessageDialogKind::Warning)
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Discard and quit".to_string(),
+                        "Cancel".to_string(),
+                    ))
+                    .show(move |discard| {
+                        if discard {
+                            // Clear the mirrored dirty state first so that if
+                            // destroying the last window cascades into an
+                            // app-level ExitRequested, it short-circuits
+                            // instead of prompting a second time.
+                            ISSUE050_DIRTY
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            // Force the window to close without re-emitting
+                            // CloseRequested (destroy emits no events).
+                            let _ = window.destroy();
+                        }
+                    });
+            }
+        })
         .register_uri_scheme_protocol("playground-preview", |_context, request| {
             let uri_string = request.uri().to_string();
             // Issue 038: route bridge messages and transfer requests before the static handler
@@ -3980,11 +4203,49 @@ pub fn run() {
             issue050_write_file,
             issue050_save_dialog,
             issue050_open_dialog,
+            issue050_set_dirty,
             issue051_pick_folder,
             issue051_read_project
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running MonoGame Playground");
+        .build(tauri::generate_context!())
+        .expect("error while building MonoGame Playground")
+        .run(|app_handle, event| {
+            // Issue 050: gate a whole-application quit (macOS Cmd+Q / the
+            // "Quit MonoGame Playground" app menu / OS logout) on the
+            // frontend's dirty state. Unlike a per-window close, these fire
+            // `ExitRequested` rather than `WindowEvent::CloseRequested`, so the
+            // window-level handler above never sees them. `code` is `None` for
+            // user/OS-initiated exits and `Some` only for our own programmatic
+            // `AppHandle::exit` below — gating on `None` means the confirmed
+            // re-exit is never re-intercepted (no prompt loop).
+            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+                if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
+                    return; // clean — allow the quit to proceed
+                }
+                api.prevent_exit();
+                use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+                let app_handle = app_handle.clone();
+                app_handle
+                    .dialog()
+                    .message("You have unsaved changes. Do you want to discard them and quit?")
+                    .title("Unsaved changes")
+                    .kind(MessageDialogKind::Warning)
+                    .buttons(MessageDialogButtons::OkCancelCustom(
+                        "Discard and quit".to_string(),
+                        "Cancel".to_string(),
+                    ))
+                    .show(move |discard| {
+                        if discard {
+                            // Clear the mirror so the programmatic exit's own
+                            // ExitRequested (code = Some) short-circuits, then
+                            // quit for real.
+                            ISSUE050_DIRTY
+                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            app_handle.exit(0);
+                        }
+                    });
+            }
+        });
 }
 include!(concat!(env!("OUT_DIR"), "/preview_assets.rs"));
 
