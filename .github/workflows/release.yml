@@ -1,0 +1,201 @@
+# Build native desktop packages for macOS, Windows, and Linux (x64 + arm64).
+#
+# Implements issue 053. Produces the Tauri shell's native bundle for all six
+# platform/arch combinations and, on `v*` tags, attaches them to a GitHub
+# Release. The platform-independent MonoGame WASM runtime is built and
+# hash-verified once (build-monogame-wasm) and shared by every package leg.
+#
+# Pinned toolchain (docs/toolchain-manifest.json):
+#   - .NET SDK 9.0.315 (all builds: MonoGame, compiler, and preview staging;
+#     compiler/preview are additionally pinned by src/compiler/global.json and
+#     src/preview/global.json)
+#   - Node.js v26.x
+#   - Rust 1.98.0
+#   - emsdk / Emscripten 3.1.56  (required as the sibling ../emsdk by the
+#     build scripts — see scripts/check-emsdk-env.sh)
+#
+# NOTE: this is the first CI draft. The exact runner labels, arm64 runner
+# availability, and any cross-compilation legs must be confirmed by a
+# `workflow_dispatch` run before this is relied on for a real release (see the
+# issue 053 Verification section).
+
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write # required to create/attach a GitHub Release on tag builds
+
+env:
+  DOTNET_VERSION: "9.0.315"
+  NODE_VERSION: "26"
+  RUST_TOOLCHAIN: "1.98.0"
+  EMSDK_VERSION: "3.1.56"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Build + hash-verify the MonoGame native/WASM runtime once (CPU-arch
+  #    independent). Uploads artifacts/monogame for the package legs to consume.
+  # ---------------------------------------------------------------------------
+  build-monogame-wasm:
+    name: build-monogame-wasm
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Free disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          android: false
+          dotnet: false
+          docker-images: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Checkout (recursive submodules)
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install SDL2 build dependencies (mirrors MonoGame CI)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwayland-dev libxkbcommon-dev libdrm-dev libgbm-dev \
+            libgl1-mesa-dev libgles2-mesa-dev libegl1-mesa-dev \
+            libdbus-1-dev libibus-1.0-dev libudev-dev fcitx-libs-dev
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      # build-monogame.sh + check-emsdk-env.sh require the Emscripten SDK to be
+      # present at ../emsdk (a sibling of the repository checkout) and sourced.
+      - name: Setup Emscripten SDK (3.1.56) at ../emsdk
+        run: |
+          git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/../emsdk"
+          cd "${{ github.workspace }}/../emsdk"
+          ./emsdk install "${EMSDK_VERSION}"
+          ./emsdk activate "${EMSDK_VERSION}"
+
+      - name: Build MonoGame WASM runtime + verify hashes
+        run: |
+          source "${{ github.workspace }}/../emsdk/emsdk_env.sh"
+          bash scripts/build-monogame.sh
+          bash scripts/verify-monogame-artifacts.sh
+
+      - name: Upload MonoGame artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: monogame-wasm
+          path: artifacts/monogame
+          if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 2. Build the Tauri shell for every platform/arch (six bundles).
+  # ---------------------------------------------------------------------------
+  package:
+    name: package (${{ matrix.label }})
+    needs: build-monogame-wasm
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: macos-arm64
+            runner: macos-14
+            target: aarch64-apple-darwin
+          - label: macos-x64
+            runner: macos-15-intel
+            target: x86_64-apple-darwin
+          - label: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - label: windows-arm64
+            runner: windows-11-arm
+            target: aarch64-pc-windows-msvc
+          - label: linux-x64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-gnu
+          - label: linux-arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-gnu
+    steps:
+      - name: Checkout (recursive submodules)
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Download MonoGame artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: monogame-wasm
+          path: artifacts/monogame
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Rust (${{ env.RUST_TOOLCHAIN }}, ${{ matrix.target }})
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo + Rust target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/desktop/src-tauri -> target
+          key: ${{ matrix.target }}
+
+      - name: Install Linux WebKitGTK / Tauri dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libgtk-3-dev librsvg2-dev patchelf \
+            libayatana-appindicator3-dev
+
+      - name: Stage assets + build frontend
+        # Runs stage:monogame (consumes artifacts/monogame) + stage:compiler +
+        # stage:preview (each does its own `dotnet publish -c Release`) then
+        # `vite build`.
+        run: npm --prefix src/frontend ci && npm --prefix src/frontend run build
+
+      - name: Build Tauri bundle (${{ matrix.target }})
+        uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: src/desktop/src-tauri
+          args: --target ${{ matrix.target }}
+          # On a `v*` tag push, tauri-action creates/updates a draft GitHub
+          # Release named for the tag and uploads this leg's bundle to it.
+          tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
+          releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('MonoGame Playground {0}', github.ref_name) || '' }}
+          releaseDraft: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload bundle artifact (${{ matrix.label }})
+        uses: actions/upload-artifact@v4
+        with:
+          name: monogame-playground-${{ matrix.label }}
+          path: |
+            src/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
+          if-no-files-found: error
+          retention-days: 7
