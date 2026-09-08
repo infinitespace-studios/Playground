@@ -768,8 +768,10 @@ export async function runMemoryBaselineBenchmark(): Promise<void> {
         await runPreviewCycle(cycle, cycle === 0 ? "cold" : "warm");
         // Sample RSS after Stop completes
         const rssAfterStop = await readRss();
-        rssAfterStop.label = `after-cycle-${cycle + 1}-stop`;
-        previewRssSamples.push(rssAfterStop);
+        previewRssSamples.push({
+          ...rssAfterStop,
+          label: `after-cycle-${cycle + 1}-stop`,
+        });
       } catch (error: unknown) {
         recordFailure(`memory-baseline-cycle-${cycle}`, error);
       }
