@@ -1,7 +1,7 @@
 # Session handoff: production/proof architecture cleanup
 
 **Last updated:** 2026-09-08
-**Next stage:** Stage 3 — rename/extract product UI modules
+**Next stage:** Stage 4 — consolidate historical issue proofs
 **Working-tree expectation:** clean
 
 ## Read first
@@ -57,6 +57,39 @@ Accepted evidence:
 - Zero orphan processes and clean invoke-key scan.
 - A full native PRODUCT package built successfully after the proof package.
 
+### Stage 3 — rename/extract product UI modules
+
+Commit: `0a45457 refactor: name product UI modules by responsibility`
+
+New responsibility-named modules:
+
+- `src/frontend/src/theme-controller.ts`
+- `src/frontend/src/monaco-editor.ts`
+- `src/frontend/src/problems-panel.ts`
+- `src/frontend/src/output-panel.ts`
+- `src/frontend/src/dirty-state.ts`
+- `src/frontend/src/project-manager.ts`
+- `src/frontend/src/preview-panel.ts`
+- `src/frontend/src/project-content.ts`
+
+`issue049.ts` and `issue051.ts` are thin proof/test compatibility façades. All
+other Stage-3 issue-numbered implementation modules were removed. The artifact
+checker generically rejects any issue-numbered source module in the PRODUCT
+Rollup graph and requires all eight new domain modules.
+
+Accepted evidence:
+
+- PRODUCT graph: 21 modules, all eight Stage-3 domain modules present, zero
+  issue-numbered modules, and zero proof markers.
+- PROOF graph: 53 modules with all 18 expected markers.
+- TypeScript, 102 protocol tests, 45 focused content/project tests, 56 Rust
+  tests, the full frontend build, and profile verification passed.
+- Full packaged proof suite passed issues
+  038/024/025/023/033/033-no-wasm-eval/034/035/036/037 phases 1–2.
+- Zero orphan processes and clean invoke-key scan.
+- A full native PRODUCT package built successfully after the proof package.
+- Independent review reported no blocking findings.
+
 ### Orchestration record
 
 Each completed stage used:
@@ -83,64 +116,47 @@ The user-level worker/reviewer definitions are expected to select
 - Protocol validation, CSP, sandboxing, IPC denial, and lifecycle cleanup must
   not be weakened.
 
-## Next task: Stage 3
+## Next task: Stage 4
 
-Rename/extract the remaining issue-numbered modules in the PRODUCT graph by
-responsibility:
+Replace the permanent per-issue proof drivers with a smaller durable scenario
+suite covering:
 
-| Current module | Target responsibility |
-| --- | --- |
-| `issue46.ts` | theme controller |
-| `issue047.ts` | Monaco editor adapter |
-| `issue048.ts` | Problems/diagnostics panel |
-| `issue049.ts` | Output panel |
-| `issue050.ts` | workspace dirty-state protection |
-| `issue051.ts` | folder project manager and project identity |
-| `issue052.ts` | embedded preview panel/focus/status |
-| `issue052-content.ts` | project content preparation |
+1. Compile → Run → Stop → rerun.
+2. Compiler diagnostics and policy rejection.
+3. Runtime exception and portable-PDB mapping.
+4. Managed/native output.
+5. Texture/audio content workflow.
+6. Embedded preview security boundary.
+7. Project open/save/dirty-state/identity behavior.
+8. Performance and memory.
 
 Requirements:
 
-1. `entry.product.ts` and `app.ts` import only responsibility-named modules.
-2. No issue-numbered module remains in PRODUCT's Rollup module graph.
-3. Avoid implementation copies. Move implementations and use thin compatibility
-   façades only where PROOF/tests still require historical imports.
-4. Preserve DOM IDs/classes and Tauri command names in this stage unless a
-   coordinated change is required; renaming Tauri commands belongs to Stage 6.
-5. Update `check-profile-artifacts.mjs` so any issue-numbered PRODUCT module is a
-   hard failure and all expected domain modules are required.
-6. Preserve all product behavior and the explicit PRODUCT/PROOF split.
-7. Do not remove issue038 or change Rust/ACL inventories in Stage 3.
+- Preserve historical evidence in `issues/` and ignored artifacts.
+- Keep PRODUCT free of proof entries, proof-only modules, issue-numbered
+  modules, and `MONOGAME_ISSUE*_PROOF` frontend markers.
+- Preserve the explicit PRODUCT/PROOF split while scenarios are consolidated.
+- Do not retire the issue038 isolated-window harness yet; that is Stage 5.
+- Do not rename Tauri commands or alter Rust proof compilation boundaries; that
+  is Stage 6.
+- Preserve all architecture, lifecycle, protocol, CSP, sandbox, IPC, content,
+  and cleanup invariants.
 
-Required verification:
-
-```bash
-npm --prefix src/frontend run typecheck
-npm --prefix src/frontend run test:protocol
-node --experimental-strip-types --test \
-  src/frontend/src/project-identity.test.ts \
-  src/frontend/src/issue051.test.ts \
-  src/frontend/src/issue039.test.ts \
-  src/frontend/src/issue040.test.ts
-npm --prefix src/frontend run verify:profiles -- --skip-stage
-npm --prefix src/frontend run build
-cargo test --manifest-path src/desktop/src-tauri/Cargo.toml
-git diff --check
-```
-
-Also inspect both profile manifests explicitly and run the relevant packaged
-product/proof checks when shared behavior or proof compatibility changes.
+Before implementation, inventory every existing proof driver and map its unique
+claims to the durable scenarios. Define the exact Stage-4 verification matrix
+from that inventory, including fresh product/proof profile checks and the
+relevant packaged scenario suite.
 
 ## Resume procedure
 
 1. Run `git status --short --branch`. If the tree is not clean, stop and classify
    the changes before delegating.
 2. Confirm commits `6675761` and `f2f4013` are reachable.
-3. Invoke a fresh `worker` agent with the Stage-3 scope above and instruct it not
+3. Invoke a fresh `worker` agent with the Stage-4 scope above and instruct it not
    to commit.
 4. Invoke a separate `reviewer` agent after implementation.
 5. Resolve every critical finding and rerun review if necessary.
 6. Perform independent source, module-graph, test, and package checks.
 7. Update both this handoff and `production-proof-cleanup-plan.md` with the
    accepted stage commit/evidence.
-8. Commit only the accepted Stage-3 scope, then leave a clean tree for Stage 4.
+8. Commit only the accepted Stage-4 scope, then leave a clean tree for Stage 5.

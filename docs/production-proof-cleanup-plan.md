@@ -88,28 +88,45 @@ Accepted evidence:
   zero proof markers.
 - Proof graph: 53 modules; all 18 expected markers.
 - Full macOS packaged proof suite passed issues
-  038/024/025/023/033/033nwe/034/035/036/037 phases 1–2, with zero orphans and
-  a clean invoke-key scan.
+  038/024/025/023/033/033-no-wasm-eval/034/035/036/037 phases 1–2, with zero
+  orphans and a clean invoke-key scan.
 - Full native PRODUCT package built after the proof package and passed the
   product artifact check.
 
-### Stage 3 — Rename/extract product UI modules — PENDING
+### Stage 3 — Rename/extract product UI modules — COMPLETE
 
-Replace issue-numbered product modules with responsibility-based modules:
+**Commit:** `0a45457 refactor: name product UI modules by responsibility`
 
-| Current | Target responsibility |
+Delivered responsibility-named modules:
+
+| Domain module | Responsibility |
 | --- | --- |
-| `issue46.ts` | theme controller |
-| `issue047.ts` | Monaco editor adapter |
-| `issue048.ts` | Problems/diagnostics panel |
-| `issue049.ts` | Output panel |
-| `issue050.ts` | workspace dirty-state protection |
-| `issue051.ts` | folder project manager and project identity |
-| `issue052.ts` | embedded preview panel/focus/status |
-| `issue052-content.ts` | project content preparation |
+| `theme-controller.ts` | persistent theme controller |
+| `monaco-editor.ts` | Monaco editor adapter |
+| `problems-panel.ts` | Problems/diagnostics panel |
+| `output-panel.ts` | Output panel |
+| `dirty-state.ts` | workspace dirty-state protection |
+| `project-manager.ts` | folder project manager and project identity |
+| `preview-panel.ts` | embedded preview panel/focus/status |
+| `project-content.ts` | project content preparation |
 
-Compatibility façades may remain for proof/test imports, but the PRODUCT module
-graph must contain no issue-numbered modules after this stage.
+`issue049.ts` and `issue051.ts` remain as thin proof/test compatibility façades.
+All other Stage-3 issue-numbered implementation modules were removed. The
+artifact checker now rejects every issue-numbered module in the PRODUCT Rollup
+graph and requires all eight responsibility-named modules.
+
+Accepted evidence:
+
+- Product graph: 21 modules; all eight Stage-3 domain modules present; zero
+  issue-numbered modules and zero proof markers.
+- Proof graph: 53 modules with all 18 expected proof markers.
+- TypeScript, 102 protocol tests, 45 focused content/project tests, 56 Rust
+  tests, the full frontend build, and profile verification passed.
+- The complete packaged proof suite passed issues
+  038/024/025/023/033/033-no-wasm-eval/034/035/036/037 phases 1–2, with zero
+  orphans and a clean invoke-key scan.
+- A full native PRODUCT package built successfully after the proof package.
+- Independent review reported no blocking findings.
 
 ### Stage 4 — Consolidate historical issue proofs — PENDING
 
