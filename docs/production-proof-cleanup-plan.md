@@ -1,8 +1,10 @@
 # Production/proof architecture cleanup plan
 
-**Status:** In progress  
-**Started:** 2026-09-08  
+**Status:** In progress
+**Started:** 2026-09-08
 **Decision basis:** ADR 0003 (embedded production preview)
+**Session handoff:** [`session-handoff-production-proof-cleanup.md`](session-handoff-production-proof-cleanup.md)
+**Resume command:** `/continue-production-proof-cleanup`
 
 ## Objective
 
