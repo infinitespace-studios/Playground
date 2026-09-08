@@ -3,7 +3,7 @@ import { gateFirstRun } from "./issue37";
 import { installIssue047Editor, defaultExampleSource } from "./issue047";
 import { installIssue048ProblemsPanel } from "./issue048";
 import { installIssue049OutputPanel } from "./issue049";
-import installIssue050Tracker from "./issue050";
+import installIssue050Tracker, { setApplicationDirtyState } from "./issue050";
 import { installIssue051ProjectManager } from "./issue051";
 import { installIssue052PreviewPanel } from "./issue052";
 import { prepareProjectContent } from "./issue052-content";
@@ -27,6 +27,7 @@ const tracker = installIssue050Tracker(editor.getValue);
 // otherwise the scratch flow (New/Open/Save of one Game1.cs) stays active.
 const fileExplorer = document.getElementById("file-explorer");
 const projectLabel = document.getElementById("project-label");
+const saveButton = document.getElementById("save-button");
 const saveAllButton = document.getElementById("save-all-button");
 
 function showModalError(title: string, message: string): void {
@@ -66,14 +67,53 @@ const project = installIssue051ProjectManager({
       fileExplorer.appendChild(button);
     }
   },
-  setDirtyIndicator: anyDirty => {
-    const dot = document.getElementById("dirty-indicator");
-    const text = document.getElementById("dirty-indicator-text");
-    if (dot) { dot.textContent = anyDirty ? " \u25CF" : ""; dot.hidden = !anyDirty; }
-    if (text) text.textContent = anyDirty ? "Unsaved changes" : "";
-  },
+  // Publish folder dirty state through the same application-level path as the
+  // scratch tracker. This keeps both the visible indicator and the native
+  // close/quit guard synchronized.
+  setDirtyIndicator: setApplicationDirtyState,
   showError: showModalError,
 });
+
+function renderScratchExplorer(fileName: string): void {
+  if (!fileExplorer) return;
+  const entry = document.createElement("button");
+  entry.className = "file active";
+  entry.dataset.file = fileName;
+  entry.textContent = fileName;
+  fileExplorer.replaceChildren(entry);
+}
+
+function showScratchWorkspace(fileName: string): void {
+  if (saveButton) saveButton.hidden = false;
+  if (saveAllButton) saveAllButton.hidden = true;
+  if (projectLabel) projectLabel.textContent = "Project / scratch";
+  renderScratchExplorer(fileName);
+}
+
+function showFolderWorkspace(): void {
+  if (saveButton) saveButton.hidden = true;
+  if (saveAllButton) saveAllButton.hidden = false;
+  if (projectLabel) projectLabel.textContent = "Project (folder)";
+}
+
+function workspaceIsDirty(): boolean {
+  if (!project.hasProject()) return tracker.isDirty();
+  project.syncActiveBuffer();
+  return project.isDirty();
+}
+
+async function confirmWorkspaceDiscard(): Promise<boolean> {
+  return tracker.promptBeforeDiscard(workspaceIsDirty());
+}
+
+function enterScratchWorkspace(content: string, fileName: string): void {
+  if (project.hasProject()) project.closeProject();
+  // Adopt the baseline before setValue fires Monaco's change event, ensuring
+  // the new scratch buffer is never momentarily published as dirty.
+  tracker.loadBaseline(content, fileName);
+  editor.setValue(content);
+  showScratchWorkspace(fileName);
+}
 
 // Wire live buffer edits into the dirty tracker so the indicator updates on
 // every keystroke and New/Open gating can detect unsaved changes. When a
@@ -91,16 +131,11 @@ editor.onDidChangeContent(() => {
 const openFolderButton = document.getElementById("open-folder-button");
 if (openFolderButton) {
   openFolderButton.addEventListener("click", async () => {
-    const dirty = project.hasProject() ? project.isDirty() : tracker.isDirty();
-    if (dirty) {
-      const proceed = await tracker.promptBeforeNew();
-      if (!proceed) return;
-    }
-    const opened = await project.openFolder();
-    if (opened) {
-      if (saveAllButton) saveAllButton.hidden = false;
-      if (projectLabel) projectLabel.textContent = "Project (folder)";
-    }
+    if (!(await confirmWorkspaceDiscard())) return;
+    // openFolder commits new project state only after the picker, read, and
+    // manifest validation all succeed. Cancellation therefore leaves the
+    // current scratch/folder workspace untouched.
+    if (await project.openFolder()) showFolderWorkspace();
   });
 }
 
@@ -117,11 +152,8 @@ if (saveAllButton) {
 const newButton = document.getElementById("new-button");
 if (newButton) {
   newButton.addEventListener("click", async () => {
-    const proceed = await tracker.promptBeforeNew();
-    if (proceed) {
-      editor.setValue(defaultExampleSource);
-      tracker.loadBaseline(defaultExampleSource, "Game1.cs");
-    }
+    if (!(await confirmWorkspaceDiscard())) return;
+    enterScratchWorkspace(defaultExampleSource, "Game1.cs");
   });
 }
 
@@ -130,21 +162,18 @@ if (newButton) {
 const openButton = document.getElementById("open-button");
 if (openButton) {
   openButton.addEventListener("click", async () => {
-    const proceed = await tracker.promptBeforeNew();
-    if (!proceed) return;
+    if (!(await confirmWorkspaceDiscard())) return;
     const opened = await tracker.openFile();
-    if (opened) {
-      editor.setValue(opened.content);
-      tracker.loadBaseline(opened.content, opened.fileName);
-    }
+    if (opened) enterScratchWorkspace(opened.content, opened.fileName);
   });
 }
 
-// Wire Save button to saveAs flow
-const saveButton = document.getElementById("save-button");
+// Save owns the scratch workspace; Save All owns a folder project. The hidden
+// state is a UI cue, while this branch is the behavioral safety net.
 if (saveButton) {
   saveButton.addEventListener("click", async () => {
-    await tracker.saveAs();
+    if (project.hasProject()) await project.saveAll();
+    else await tracker.saveAs();
   });
 }
 

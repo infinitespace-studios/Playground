@@ -13,6 +13,7 @@
 // ----- Dirty state tracker -----
 
 let isDirty = false;
+let applicationDirty = false;
 let lastSavedContent: string = "";
 let currentFileName = "Game1.cs";
 
@@ -79,32 +80,34 @@ function escapeHtml(text: string): string {
 
 // ----- Dirty indicator -----
 
-function updateDirtyIndicator(): void {
+/**
+ * Publish the dirty state for whichever workspace currently owns the editor.
+ * Scratch files use the tracker below; folder projects call this through their
+ * `setDirtyIndicator` hook. Keeping one application-level value ensures both
+ * native close/quit handling and the browser fallback protect folder edits.
+ */
+export function setApplicationDirtyState(dirty: boolean): void {
+  applicationDirty = dirty;
+
   // Mirror the current dirty state into the shell so the native window-close
   // handler can prompt before discarding unsaved changes (issue 050). Only the
   // trusted top-level frontend can reach this command (ACL-gated per issue 34);
   // it is absent in the sandboxed preview, where __TAURI_INTERNALS__ is never
   // injected, so the optional-chaining call simply no-ops there.
-  (window as any).__TAURI_INTERNALS__?.invoke?.("issue050_set_dirty", {
-    dirty: isDirty,
-  });
+  (window as any).__TAURI_INTERNALS__?.invoke?.("issue050_set_dirty", { dirty });
 
   const indicator = document.getElementById("dirty-indicator-text");
   const indicatorDot = document.getElementById("dirty-indicator");
   if (!indicator && !indicatorDot) return;
 
-  if (isDirty) {
-    if (indicator) {
-      indicator.textContent = "Unsaved changes";
-    }
+  if (dirty) {
+    if (indicator) indicator.textContent = "Unsaved changes";
     if (indicatorDot) {
       indicatorDot.textContent = " ●";
       indicatorDot.hidden = false;
     }
   } else {
-    if (indicator) {
-      indicator.textContent = "";
-    }
+    if (indicator) indicator.textContent = "";
     if (indicatorDot) {
       indicatorDot.textContent = "";
       indicatorDot.hidden = true;
@@ -131,8 +134,14 @@ export function installIssue050Tracker(
   saveAs: () => Promise<boolean>;
   /** Save to the last-saved path (no-op until first Save As). */
   save: () => Promise<boolean>;
-  /** Gating wrapper: shows confirmation prompt if dirty, returns true if OK to proceed. */
+  /** Gating wrapper for the scratch buffer's own dirty state. */
   promptBeforeNew: () => Promise<boolean>;
+  /**
+   * Show the discard prompt for an explicitly supplied workspace dirty state.
+   * Folder projects use this so they do not accidentally consult the separate
+   * scratch-buffer tracker.
+   */
+  promptBeforeDiscard: (dirty: boolean) => Promise<boolean>;
   /** Get current buffer content. */
   getBuffer: () => string;
   /** Update dirty state from new buffer content. */
@@ -151,13 +160,27 @@ export function installIssue050Tracker(
   isDirty = false;
   lastSavedContent = getEditorValue();
   currentFileName = "Game1.cs";
+  setApplicationDirtyState(false);
+
+  const confirmDiscard = async (dirty: boolean): Promise<boolean> => {
+    if (!dirty) return true;
+    return new Promise<boolean>((resolve) => {
+      const dialog = createConfirmationDialog(
+        "Unsaved changes",
+        "You have unsaved changes. Do you want to discard them?",
+        () => resolve(true),
+        () => resolve(false),
+      );
+      dialog.showModal();
+    });
+  };
 
   // Export the public API
   const api = {
     isDirty: () => isDirty,
     setFileName: (name: string) => {
       currentFileName = name;
-      updateDirtyIndicator();
+      setApplicationDirtyState(isDirty);
     },
     saveAs: async () => {
       const content = api.getBuffer();
@@ -195,7 +218,7 @@ export function installIssue050Tracker(
 
         lastSavedContent = content;
         isDirty = false;
-        updateDirtyIndicator();
+        setApplicationDirtyState(false);
         return true;
       } catch (error) {
         // Dialog cancelled or failed — dirty state unchanged
@@ -209,26 +232,14 @@ export function installIssue050Tracker(
       }
       return true; // Already clean, nothing to save
     },
-    promptBeforeNew: async () => {
-      if (!isDirty) return true;
-      // Show confirmation dialog
-      const confirmed = await new Promise<boolean>((resolve) => {
-        const dialog = createConfirmationDialog(
-          "Unsaved changes",
-          "You have unsaved changes. Do you want to discard them?",
-          () => resolve(true),
-          () => resolve(false),
-        );
-        dialog.showModal();
-      });
-      return confirmed;
-    },
+    promptBeforeNew: () => confirmDiscard(isDirty),
+    promptBeforeDiscard: (dirty: boolean) => confirmDiscard(dirty),
     getBuffer: () => getEditorValue(),
     setBuffer: (content: string) => {
       const wasDirty = isDirty;
       isDirty = content !== lastSavedContent;
       if (isDirty !== wasDirty) {
-        updateDirtyIndicator();
+        setApplicationDirtyState(isDirty);
         onEditorChange?.();
       }
     },
@@ -238,7 +249,7 @@ export function installIssue050Tracker(
       if (fileName !== undefined) {
         currentFileName = fileName;
       }
-      updateDirtyIndicator();
+      setApplicationDirtyState(false);
     },
     openFile: async () => {
       try {
@@ -267,8 +278,8 @@ export function installIssue050Tracker(
 // ----- Application exit handling -----
 //
 // The desktop (Tauri) application's close is gated natively: the frontend
-// mirrors its dirty state into the shell via `issue050_set_dirty` (see
-// updateDirtyIndicator), and the shell's `CloseRequested` handler shows a
+// publishes its dirty state to the shell via `issue050_set_dirty` (see
+// setApplicationDirtyState), and the shell's `CloseRequested` handler shows a
 // native discard-confirmation dialog when dirty. In a plain browser context
 // (no shell), fall back to the browser's own beforeunload confirmation.
 window.addEventListener("beforeunload", (event) => {
@@ -278,7 +289,7 @@ window.addEventListener("beforeunload", (event) => {
   }
 
   // Browser context — show native confirmation
-  if (isDirty) {
+  if (applicationDirty) {
     event.preventDefault();
     // Required for some browsers to show the confirmation dialog
     (event as any).returnValue = true;

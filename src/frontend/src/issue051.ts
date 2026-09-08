@@ -157,6 +157,11 @@ export interface Issue051Api {
   getSources: () => Array<{ path: string; text: string }>;
   /** Whether a folder project is currently open. */
   hasProject: () => boolean;
+  /**
+   * Leave folder-project mode and discard its in-memory state. The caller must
+   * obtain discard confirmation first when `isDirty()` is true.
+   */
+  closeProject: () => void;
   /** Whether any open file has unsaved changes. */
   isDirty: () => boolean;
   /** The primary source path for compilation (Game1.cs if present, else first). */
@@ -215,8 +220,21 @@ export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api
     renderExplorer();
   }
 
+  function closeProject(): void {
+    projectRoot = null;
+    projectFolderName = "";
+    files = [];
+    activePath = null;
+    manifest = null;
+    contentFiles = [];
+    manifestOnDisk = false;
+    hooks.setDirtyIndicator(false);
+    renderExplorer();
+  }
+
   const api: Issue051Api = {
     hasProject: () => projectRoot !== null,
+    closeProject,
     isDirty: () => anyDirty(),
     getSources: () => {
       // Ensure the visible file's live edits are captured first.
@@ -351,5 +369,6 @@ export function __resetIssue051State(): void {
   files = [];
   activePath = null;
   manifest = null;
+  contentFiles = [];
   manifestOnDisk = false;
 }
