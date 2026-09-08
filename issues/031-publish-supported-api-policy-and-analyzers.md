@@ -1,7 +1,7 @@
 # Publish supported-API policy and analyzers
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [019-build-runtime-reference-assembly-allowlist.md](019-build-runtime-reference-assembly-allowlist.md)
 **PRD references:** 12.3, 16
 **User stories:** US2, US9
@@ -81,11 +81,11 @@ public static class PolicyAnalyzer
 
 ## Acceptance criteria
 
-- [ ] `docs/supported-api-policy.md` documents allowed assembly identities, allowed namespaces, a table of prohibited constructs with their diagnostic IDs, and the reflection policy statement
-- [ ] `PolicyAnalyzer.Analyze` detects `DllImportAttribute` usage and returns diagnostic `PG0101` with the correct file/line
-- [ ] `PolicyAnalyzer.Analyze` detects `UnmanagedCallersOnlyAttribute` usage and returns diagnostic `PG0102`
-- [ ] `PolicyAnalyzer.Analyze` detects `unsafe` blocks and returns diagnostic `PG0103`
-- [ ] `CompilationService.Compile` merges `PolicyAnalyzer` diagnostics into its result and treats any of them as a compile failure
+- [x] `docs/supported-api-policy.md` documents allowed assembly identities, allowed namespaces, a table of prohibited constructs with their diagnostic IDs, and the reflection policy statement
+- [x] `PolicyAnalyzer.Analyze` detects `DllImportAttribute` usage and returns diagnostic `PG0101` with the correct file/line
+- [x] `PolicyAnalyzer.Analyze` detects `UnmanagedCallersOnlyAttribute` usage and returns diagnostic `PG0102`
+- [x] `PolicyAnalyzer.Analyze` detects `unsafe` blocks and returns diagnostic `PG0103`
+- [x] `CompilationService.Compile` merges `PolicyAnalyzer` diagnostics into its result and treats any of them as a compile failure
 
 ## Verification
 
@@ -95,10 +95,13 @@ Compile a test source containing a `DllImport`-attributed method through `Compil
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent issue-031 verifier
+- **Date:** 2026-08-28
+- **Evidence:** Semantic PG0101-PG0104 forms, lookalike false-positive
+  controls, deterministic diagnostics, no-binary policy failures, all 13
+  allowlist identities, and issue-030 regression passed. Unmanaged function
+  pointers remain reserved for issue 032. Committed as `c09062a`.
 
 ## Commit gate
 
