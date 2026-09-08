@@ -1,12 +1,12 @@
 import { installRunStopControl } from "./run-stop";
 import { gateFirstRun, SCRATCH_PROJECT_IDENTITY } from "./first-run-warning";
-import { installIssue047Editor, defaultExampleSource } from "./issue047";
-import { installIssue048ProblemsPanel } from "./issue048";
-import { installIssue049OutputPanel } from "./issue049";
-import installIssue050Tracker, { setApplicationDirtyState } from "./issue050";
-import { installIssue051ProjectManager } from "./issue051";
-import { installIssue052PreviewPanel } from "./issue052";
-import { prepareProjectContent } from "./issue052-content";
+import { installEditor, defaultExampleSource } from "./monaco-editor";
+import { installProblemsPanel } from "./problems-panel";
+import { installOutputPanel } from "./output-panel";
+import installDirtyStateTracker, { setApplicationDirtyState } from "./dirty-state";
+import { installProjectManager } from "./project-manager";
+import { installPreviewPanel } from "./preview-panel";
+import { prepareProjectContent } from "./project-content";
 
 // Workbench application controller wiring
 // Run/Stop buttons are wired into the workbench toolbar (see index.html)
@@ -15,11 +15,11 @@ import { prepareProjectContent } from "./issue052-content";
 
 // Issue 047: mount the real Monaco editor with the default HelloWorld example
 // before wiring Run, so Run can read the live editor buffer.
-const editor = installIssue047Editor();
+const editor = installEditor();
 
 // Issue 050: dirty-state tracking for the Monaco editor
 // Initialize with the default example content
-const tracker = installIssue050Tracker(editor.getValue);
+const tracker = installDirtyStateTracker(editor.getValue);
 
 // Issue 051: folder-based multi-file project manager. Coexists with the
 // single-scratch-file tracker (issue 50): when a folder project is open, issue
@@ -52,7 +52,7 @@ function showModalError(title: string, message: string): void {
   dialog.showModal();
 }
 
-const project = installIssue051ProjectManager({
+const project = installProjectManager({
   setEditorContent: content => editor.setValue(content),
   getEditorContent: () => editor.getValue(),
   renderExplorer: entries => {
@@ -181,7 +181,7 @@ if (saveButton) {
 // switching, adds Monaco markers, and supports click-to-navigate. Its
 // onDiagnostics hook is handed to the Run control below so a failed compile
 // populates and reveals the Problems tab.
-const problems = installIssue048ProblemsPanel({
+const problems = installProblemsPanel({
   setMarkers: editor.setMarkers,
   revealAndFocus: editor.revealAndFocus,
 });
@@ -190,11 +190,11 @@ const problems = installIssue048ProblemsPanel({
 // runtime failures (distinct blocks). Its hooks are handed to the Run control
 // so live output streams in and a runtime exception is displayed. The editor
 // and Problems tab stay interactive after a failure (PRD 8.5).
-const output = installIssue049OutputPanel();
+const output = installOutputPanel();
 
 // Issue 052: preview-panel focus/input routing + status indicator. Returns the
 // lifecycle callback that drives the indicator from the Run/Stop controller.
-const previewPanel = installIssue052PreviewPanel();
+const previewPanel = installPreviewPanel();
 
 installRunStopControl(() => {
   // Gate Run behind first-run warning acknowledgement.

@@ -1,4 +1,5 @@
-// Issue 046 — Persistent dark/light Workbench themes + accessibility
+// Theme controller — persistent dark/light Workbench themes + accessibility.
+// (Formerly issue46.ts.)
 //
 // Applies a CSS variable theme set (dark or light) to <body data-theme>.
 // - On first launch with no persisted choice, reads `prefers-color-scheme`.

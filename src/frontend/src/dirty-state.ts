@@ -1,4 +1,5 @@
-// Issue 050 — Save scratch project with atomic writes and dirty-state protection
+// Workspace dirty-state protection — save scratch project with atomic writes
+// and dirty-state protection. (Formerly issue050.ts.)
 //
 // Tracks whether the Monaco editor's buffer differs from its last-saved
 // (or initially-loaded default example) content, reflects this dirty state
@@ -122,7 +123,7 @@ export function setApplicationDirtyState(dirty: boolean): void {
  * Returns an object with the public API for observing and changing dirty
  * state, plus the Save As and New-gating functions.
  */
-export function installIssue050Tracker(
+export function installDirtyStateTracker(
   getEditorValue: () => string,
   onEditorChange?: () => void,
 ): {
@@ -300,4 +301,4 @@ window.addEventListener("beforeunload", (event) => {
 
 // Default export is a factory function that must be called with the
 // Monaco editor instance and default content.
-export default installIssue050Tracker;
+export default installDirtyStateTracker;

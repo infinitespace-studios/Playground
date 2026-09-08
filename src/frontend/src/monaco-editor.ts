@@ -1,4 +1,5 @@
-// Issue 047 — Wire a real Monaco editor to the default HelloWorld example.
+// Monaco editor adapter — wire a real Monaco editor to the default HelloWorld
+// example. (Formerly issue047.ts.)
 //
 // Replaces issue 045's placeholder <textarea> with a live Monaco Editor
 // instance mounted into the Workbench editor region, loads the default
@@ -135,7 +136,7 @@ function installTabFocusIndicator(editor: monaco.editor.IStandaloneCodeEditor): 
  * editor buffer (unsaved edits included). Must be called after the DOM has
  * been parsed.
  */
-export function installIssue047Editor(): {
+export function installEditor(): {
   getValue: () => string;
   setValue: (content: string) => void;
   onDidChangeContent: (listener: () => void) => void;

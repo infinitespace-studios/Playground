@@ -1,6 +1,6 @@
-// Issue 052 — content preparation: turn a project's discovered Content/ assets
-// (issue 051 folder Open + Rust discovery) into the { path, bytes } list the
-// live preview runner mounts before Run.
+// Project content preparation — turn a project's discovered Content/ assets
+// (folder Open + Rust discovery) into the { path, bytes } list the live preview
+// runner mounts before Run. (Formerly issue052-content.ts.)
 //
 // The preview mount gate (PreviewExports.MountSingleAsset) is content-type-aware:
 //   .xnb                  -> validated as-is

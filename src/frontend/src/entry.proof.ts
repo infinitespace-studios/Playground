@@ -30,7 +30,7 @@ import { runIssue038ForceStopProof } from "./issue38";
 import { runIssue039ContentProof } from "./issue039";
 import { runIssue040AudioProof } from "./issue040";
 import { reportIssue041ShellReady, runIssue041Benchmark } from "./issue041";
-import { initTheme } from "./issue46";
+import { initTheme } from "./theme-controller";
 
 interface RuntimeDiagnostics {
   consoleErrors: string[];

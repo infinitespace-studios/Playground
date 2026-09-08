@@ -22,8 +22,13 @@
 //       are fully extracted, so their presence in the product graph is a HARD
 //       FAILURE (no transitional allowance).
 //     * the extracted production domain modules (compiler-context, live-preview,
-//       run-stop, lifecycle-controller, first-run-warning) ARE present in the
-//       product graph (proves the extraction is real, not dead re-exports).
+//       run-stop, lifecycle-controller, first-run-warning, plus the Stage-3
+//       responsibility-named UI modules: theme-controller, monaco-editor,
+//       problems-panel, output-panel, dirty-state, project-manager,
+//       preview-panel, project-content) ARE present in the product graph
+//       (proves the extraction/rename is real, not dead re-exports).
+//     * NO issue-numbered source module (issueNN*.ts) remains in the product
+//       module graph — any is a HARD FAILURE (Stage 3).
 //     * ZERO auto-proof markers (MONOGAME_ISSUE0xx_PROOF...) in any emitted
 //       .js/.html/.css artifact. ANY marker is a HARD FAILURE.
 //
@@ -112,13 +117,39 @@ const PROOF_ONLY_MODULES = [
 // modules. They MUST be present in the product module graph (so the extraction
 // is proven real), and they must be free of proof markers (asserted by the zero
 // marker check like every other product module).
+//
+// Stage-3 adds the responsibility-named UI modules extracted from the former
+// issue-numbered product modules (issue46/047/048/049/050/051/052/052-content):
+// theme controller, Monaco editor adapter, Problems/diagnostics panel, Output
+// panel, workspace dirty-state protection, folder project manager + project
+// identity, embedded preview panel, and project content preparation. They MUST
+// be present in the product graph so the renames are proven real (not dead
+// facades), and no issue-numbered module may remain in the product graph.
 const PRODUCT_DOMAIN_MODULES = [
   "src/compiler-context.ts",
   "src/live-preview.ts",
   "src/run-stop.ts",
   "src/lifecycle-controller.ts",
   "src/first-run-warning.ts",
+  "src/theme-controller.ts",
+  "src/monaco-editor.ts",
+  "src/problems-panel.ts",
+  "src/output-panel.ts",
+  "src/dirty-state.ts",
+  "src/project-manager.ts",
+  "src/preview-panel.ts",
+  "src/project-content.ts",
 ];
+
+// Any first-party module whose basename is issue-numbered (issue46.ts,
+// issue047.ts, issue051.ts, ...) is historical implementation architecture that
+// must NOT survive into the shipping product graph. Stage 3 renamed the last
+// product UI modules to responsibility names, so the presence of ANY
+// issue-numbered source module in the product Rollup graph is a HARD FAILURE
+// (proof-only modules are already forbidden explicitly above; this generic
+// guard also catches any future issue module that survives in the Rollup
+// manifest).
+const ISSUE_NUMBERED_MODULE_REGEX = /(^|\/)issue\d+[a-z0-9-]*\.ts$/i;
 
 // One marker (`MONOGAME_ISSUE037_PROOF_PHASE`) lives only in a source comment
 // naming a shell/Rust env var and is never emitted; it is documented in
@@ -272,6 +303,18 @@ function checkProduct() {
     fail(`PRODUCT module graph LEAKS proof-only modules: ${leakedModules.join(", ")}`);
   }
 
+  // Generic issue-numbered-module guard: no historical issue-numbered source
+  // module may remain in the product graph after Stage 3.
+  const issueNumberedModules = manifest.modules.filter((m) =>
+    ISSUE_NUMBERED_MODULE_REGEX.test(m),
+  );
+  if (issueNumberedModules.length > 0) {
+    fail(
+      `PRODUCT module graph contains issue-numbered modules (Stage 3 requires ` +
+        `responsibility-named modules): ${issueNumberedModules.join(", ")}`,
+    );
+  }
+
   // Stage-2: the extracted production domain modules must be present (proves the
   // real production code paths were extracted out of issue21/24/37, not merely
   // re-exported through dead facades).
@@ -295,12 +338,13 @@ function checkProduct() {
   }
   if (
     leakedModules.length === 0 &&
+    issueNumberedModules.length === 0 &&
     missingDomainModules.length === 0 &&
     emitted.size === 0 &&
     !modules.has(PROOF_ENTRY_MODULE)
   ) {
     console.log(
-      "  PASS: product graph clean, no proof-only modules, domain modules present, no proof markers.",
+      "  PASS: product graph clean, no issue-numbered/proof-only modules, domain modules present, no proof markers.",
     );
   }
 }

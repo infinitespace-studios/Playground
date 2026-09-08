@@ -22,7 +22,7 @@ import "./style.css";
 // Workbench application controller wiring (editor, panels, run/stop, projects).
 import "./app";
 
-// Issue 046: persistent theme + accessibility.
-import { initTheme } from "./issue46";
+// Persistent theme + accessibility.
+import { initTheme } from "./theme-controller";
 
 initTheme();

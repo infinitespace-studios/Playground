@@ -1,4 +1,5 @@
-// Issue 048 — Problems panel with Monaco markers and click-to-navigate.
+// Problems/diagnostics panel with Monaco markers and click-to-navigate.
+// (Formerly issue048.ts.)
 //
 // Wires the diagnostics produced by the compiler (issue 18 syntax errors,
 // issue 22 playground Game-discovery diagnostics PG0001/2/3, issues 31-32
@@ -22,7 +23,7 @@ import type * as monaco from "monaco-editor";
 // values are stable in the editor API: Hint=1, Info=2, Warning=4, Error=8).
 const MARKER_SEVERITY = { Hint: 1, Info: 2, Warning: 4, Error: 8 } as const;
 
-interface Issue048EditorHooks {
+interface ProblemsPanelEditorHooks {
   setMarkers: (markers: monaco.editor.IMarkerData[]) => void;
   revealAndFocus: (line: number, column: number) => void;
 }
@@ -69,7 +70,7 @@ function formatLocation(d: Diagnostic): string {
  * returns an `onDiagnostics` callback to hand to the Run flow (issue 24), plus
  * a helper to imperatively reveal the Problems tab.
  */
-export function installIssue048ProblemsPanel(editor: Issue048EditorHooks): {
+export function installProblemsPanel(editor: ProblemsPanelEditorHooks): {
   /** Pass to installIssue024RunStopControl as its onDiagnostics hook. */
   onDiagnostics: (diagnostics: readonly Diagnostic[], outcome: "success" | "failure") => void;
   /** Reveal a named drawer tab (e.g. "problems"). */
@@ -195,4 +196,4 @@ export function installIssue048ProblemsPanel(editor: Issue048EditorHooks): {
   return { onDiagnostics, revealTab };
 }
 
-export default installIssue048ProblemsPanel;
+export default installProblemsPanel;

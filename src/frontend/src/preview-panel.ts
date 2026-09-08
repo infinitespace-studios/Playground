@@ -1,4 +1,5 @@
-// Issue 052 — preview panel focus/input routing + status indicator.
+// Embedded preview panel — focus/input routing + status indicator.
+// (Formerly issue052.ts.)
 //
 // Now that the live Run renders in the in-page opaque-origin sandboxed iframe
 // (issue 052 task 1), this module wires the two preview-panel UX requirements
@@ -21,7 +22,7 @@
 //     by the run/stop controller lifecycle (issue 24) via its additive
 //     `onLifecycle` hook.
 
-import type { Issue052PreviewLifecycle } from "./issue24-controller";
+import type { Issue052PreviewLifecycle } from "./lifecycle-controller";
 
 const STATUS_PRESENTATION: Record<
   Issue052PreviewLifecycle | "idle",
@@ -99,7 +100,7 @@ function installStatusIndicator(): (state: Issue052PreviewLifecycle) => void {
  * Install issue 052 preview-panel UX. Returns the `onLifecycle` callback to hand
  * to `installIssue024RunStopControl` so the indicator tracks Run/Stop.
  */
-export function installIssue052PreviewPanel(): {
+export function installPreviewPanel(): {
   onLifecycle: (state: Issue052PreviewLifecycle) => void;
 } {
   const host = document.getElementById("canvas-frame");
