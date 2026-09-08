@@ -1,5 +1,5 @@
 import { installIssue024RunStopControl } from "./issue24";
-import { gateFirstRun } from "./issue37";
+import { gateFirstRun, SCRATCH_PROJECT_IDENTITY } from "./issue37";
 import { installIssue047Editor, defaultExampleSource } from "./issue047";
 import { installIssue048ProblemsPanel } from "./issue048";
 import { installIssue049OutputPanel } from "./issue049";
@@ -200,7 +200,15 @@ installIssue024RunStopControl(() => {
   // Gate Run behind first-run warning acknowledgement.
   // In non-Tauri environments (dev mode), allow Run without gating.
   if (!(window as any).__TAURI_INTERNALS__?.invoke) return Promise.resolve(true);
-  return gateFirstRun();
+  // Folder identities are SHA-256 digests of shell-canonicalized roots, so a
+  // different opened project gets its own acknowledgement without persisting
+  // the user's filesystem path. Fail closed if folder state ever lacks one;
+  // never silently reuse the built-in scratch acknowledgement.
+  const folderIdentity = project.identity();
+  if (project.hasProject() && folderIdentity === null) {
+    return Promise.reject(new Error("The open folder project has no stable identity."));
+  }
+  return gateFirstRun(folderIdentity ?? SCRATCH_PROJECT_IDENTITY);
 }, editor.getValue, problems.onDiagnostics, {
   onRunStart: () => output.clear(),
   onOutputLine: event => output.appendOutput(event),

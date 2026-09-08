@@ -12,6 +12,36 @@
 // manifest is not required for a one-file scratch project; unsupported
 // schemaVersions are rejected without modifying the project.
 
+function normalizeProjectPath(path: string): string {
+  let normalized = path.replaceAll("\\", "/");
+  // Windows canonical paths may use the extended `//?/` prefix. It identifies
+  // the same location as the ordinary drive form, so remove it before hashing.
+  if (normalized.startsWith("//?/")) normalized = normalized.slice(4);
+  // Windows drive paths are conventionally case-insensitive. Canonicalization
+  // resolves symlinks but may preserve caller-provided path casing.
+  if (/^[a-z]:\//i.test(normalized)) return normalized.toLowerCase();
+  return normalized;
+}
+
+/**
+ * Derive a stable, privacy-preserving identity from a shell-canonicalized
+ * project root. Only the SHA-256 digest is persisted in the acknowledgement
+ * store; the user's project path is never sent to the acknowledgement API.
+ */
+export async function folderProjectIdentity(canonicalRoot: string): Promise<string> {
+  if (canonicalRoot.length === 0) {
+    throw new Error("Cannot identify a project with an empty root path.");
+  }
+  if (!globalThis.crypto?.subtle) {
+    throw new Error("Web Crypto is unavailable; the project identity cannot be derived safely.");
+  }
+
+  const material = new TextEncoder().encode(normalizeProjectPath(canonicalRoot));
+  const digest = new Uint8Array(await globalThis.crypto.subtle.digest("SHA-256", material));
+  const hex = Array.from(digest, byte => byte.toString(16).padStart(2, "0")).join("");
+  return `folder-sha256-${hex}`;
+}
+
 // Current manifest schema version this application understands.
 export const ISSUE051_SCHEMA_VERSION = 1;
 
@@ -52,6 +82,7 @@ interface ProjectReadResult {
 // ----- Module state -----
 
 let projectRoot: string | null = null;
+let currentProjectIdentity: string | null = null;
 let projectFolderName = "";
 let files: Issue051File[] = [];
 let activePath: string | null = null;
@@ -157,6 +188,8 @@ export interface Issue051Api {
   getSources: () => Array<{ path: string; text: string }>;
   /** Whether a folder project is currently open. */
   hasProject: () => boolean;
+  /** Stable, path-redacted acknowledgement identity for the open project. */
+  identity: () => string | null;
   /**
    * Leave folder-project mode and discard its in-memory state. The caller must
    * obtain discard confirmation first when `isDirty()` is true.
@@ -222,6 +255,7 @@ export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api
 
   function closeProject(): void {
     projectRoot = null;
+    currentProjectIdentity = null;
     projectFolderName = "";
     files = [];
     activePath = null;
@@ -234,6 +268,7 @@ export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api
 
   const api: Issue051Api = {
     hasProject: () => projectRoot !== null,
+    identity: () => currentProjectIdentity,
     closeProject,
     isDirty: () => anyDirty(),
     getSources: () => {
@@ -293,8 +328,23 @@ export function installIssue051ProjectManager(hooks: Issue051Hooks): Issue051Api
         existedOnDisk = false;
       }
 
+      // Derive the stable identity before mutating module state. The root is
+      // canonicalized by the shell; only its SHA-256 digest is sent to the
+      // acknowledgement store, so no user path is persisted there.
+      let identity: string;
+      try {
+        identity = await folderProjectIdentity(project.root);
+      } catch (error) {
+        hooks.showError(
+          "Could not identify project",
+          error instanceof Error ? error.message : String(error),
+        );
+        return false;
+      }
+
       // Commit new project state.
       projectRoot = project.root;
+      currentProjectIdentity = identity;
       projectFolderName = project.folderName;
       manifest = parsedManifest;
       manifestOnDisk = existedOnDisk;
@@ -365,6 +415,7 @@ export default installIssue051ProjectManager;
 // Exposed for tests / debugging: reset module state.
 export function __resetIssue051State(): void {
   projectRoot = null;
+  currentProjectIdentity = null;
   projectFolderName = "";
   files = [];
   activePath = null;

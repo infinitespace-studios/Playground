@@ -2252,9 +2252,9 @@ fn issue036_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 // Persistence lives in a JSON file inside Tauri's app-data directory, which is
 // inaccessible to the opaque preview iframe (no Tauri IPC, no filesystem).
 // The store schema is: { "schemaVersion": 1, "acknowledged": { "<identity>": { "acknowledgedAt": "<ISO-8601>" } } }
-// Identity is currently the fixed string "builtin-scratch-v1" (the single
-// built-in scratch project).  Issues 050/051 will replace this with a real
-// per-project stable identity.
+// The built-in scratch project uses "builtin-scratch-v1". Folder projects use
+// a frontend-derived "folder-sha256-<digest>" identity based on the canonical
+// root, so the persisted store never contains the user's filesystem path.
 //
 // Atomic write: write to a `.tmp` sibling, then rename, so a crash mid-write
 // never corrupts the store.  Identity strings are bounded to 256 bytes of

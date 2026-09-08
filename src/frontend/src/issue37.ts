@@ -4,18 +4,13 @@
 // a stable project identity.  The acknowledgement is stored via Tauri commands
 // in the app-data directory, inaccessible to the opaque preview iframe.
 //
-// Identity: "builtin-scratch-v1" — the single built-in scratch project.
-// Issues 050/051 will replace this with a real per-project stable identity.
+// The built-in scratch buffer keeps a fixed identity. Folder projects supply
+// a SHA-256 identity derived from their canonical root (issue051.ts).
 
 import { preparePackagedProofRuntime, compileLoadStartIssue23 } from "./issue21";
 
-// --- Project identity ---
-
-/**
- * Current stable scratch identity.  Changing this value causes the warning to
- * reappear, which is the intended behaviour when the project identity
- * materially changes.  Issues 050/051 will supply a real per-project identity.
- */
+// Stable identity for the built-in scratch buffer. Opened folder projects use
+// their own path-redacted identities supplied by issue051.
 export const SCRATCH_PROJECT_IDENTITY = "builtin-scratch-v1";
 
 // --- Acknowledgement store (via Tauri IPC) ---

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   __resetIssue051State,
+  folderProjectIdentity,
   installIssue051ProjectManager,
 } from "./issue051.ts";
 
@@ -64,6 +65,10 @@ test("folder dirty state is published, survives a cancelled replacement, and cle
 
     assert.equal(await project.openFolder(), true);
     assert.equal(project.hasProject(), true);
+    assert.equal(
+      project.identity(),
+      await folderProjectIdentity("/tmp/playground-project"),
+    );
     assert.equal(editorContent, "class Game1 {}");
     assert.equal(explorerEntries.length, 2);
     assert.equal(dirtyStates.at(-1), false);
@@ -81,6 +86,7 @@ test("folder dirty state is published, survives a cancelled replacement, and cle
 
     project.closeProject();
     assert.equal(project.hasProject(), false);
+    assert.equal(project.identity(), null);
     assert.equal(project.isDirty(), false);
     assert.equal(project.getContent(), null);
     assert.deepEqual(project.getSources(), []);

@@ -373,12 +373,13 @@ hyphen/underscore.  The entry limit is 1024.
 
 ### Identity and invalidation
 
-The current identity is a fixed constant `"builtin-scratch-v1"` representing
-the single built-in scratch project.  Issues 050/051 will replace this with a
-real per-project stable identity.  Identity is not keyed on mutable source
-content (editing code does not reprompt).  Changing the identity constant
-causes the warning to reappear.  Clearing or deleting the store file also
-causes the warning to reappear.
+The built-in scratch project uses the fixed identity `"builtin-scratch-v1"`.
+An opened folder project uses `folder-sha256-<digest>`, where the digest is
+SHA-256 over the shell-canonicalized project root (with Windows separators and
+drive-path casing normalized). The raw project path is never written to the
+acknowledgement store. Identity is not keyed on mutable source content, so
+editing code does not reprompt; opening a different folder does. Clearing or
+deleting the store file also causes the warning to reappear.
 
 ### Proof namespace isolation
 
@@ -405,9 +406,10 @@ genuinely separate OS processes.
 The acknowledgement is advisory: it does not enforce OS-level isolation.
 A user who has acknowledged the warning may still run code that attempts to
 access desktop privileges; the defence-in-depth layers (sandbox, CSP, shell
-hooks, IPC boundary) are the actual mitigation.  The warning is not a consent
-gate for data collection or telemetry — no data leaves the device.  The
-identity scheme will be extended in issues 050/051.
+hooks, IPC boundary) are the actual mitigation. The warning is not a consent
+gate for data collection or telemetry — no data leaves the device. Standalone
+scratch-file opens currently retain the built-in scratch identity; folder
+projects receive distinct identities.
 
 ### Commands
 
