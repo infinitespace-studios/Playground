@@ -1,10 +1,21 @@
+// Issue 024 — Cooperative stop AUTO-PROOF (proof-only).
+//
+// The production Run/Stop control moved to `run-stop.ts` and the run/stop
+// lifecycle state machine to `lifecycle-controller.ts` (Stage-2 extraction).
+// This module keeps ONLY the packaged cooperative-stop auto-proof and
+// re-exports the production control under its historical name for entry.proof.ts.
+
 import {
   compileLoadStartIssue23,
   preparePackagedProofRuntime,
-  runLivePreviewInPage,
   type Issue23RunningPreview,
 } from "./issue21";
-import { createIssue024RunStopController } from "./issue24-controller";
+import { createRunStopController } from "./lifecycle-controller";
+
+// Re-export the production Run/Stop install under its historical name so
+// entry.proof.ts (and any historical caller) resolves unchanged. PRODUCT imports
+// `installRunStopControl` from run-stop.ts directly, never this module.
+export { installRunStopControl as installIssue024RunStopControl } from "./run-stop";
 
 const sourceText = `
 using Microsoft.Xna.Framework;
@@ -81,152 +92,33 @@ public sealed class CooperativeStopGame : Game
     }
 }`;
 
-const start = (
-  proofMode: boolean,
-  onOutput?: Parameters<typeof compileLoadStartIssue23>[0]["onOutput"],
-  sourceProvider?: () => string,
-  onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
-  multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
-  contentProvider?: () => { assets: ReadonlyArray<{ path: string; bytes: ArrayBuffer }>; contentRootDirectory?: string } | null,
-  onContentError?: (code: string, message: string) => void,
-) => {
-  // Issue 047: when a live editor source provider is supplied (real UI, non
-  // proof), compile the current in-memory editor buffer — including unsaved
-  // edits (PRD 8.6) — as the user's Game1.cs. Proof mode keeps the fixed
-  // cooperative-stop source so the issue 024 stop proof stays deterministic.
-  if (!proofMode && sourceProvider) {
-    // Issue 052: the live Run renders the game in the on-page sandboxed iframe
-    // (not the isolated window). Issue 051: when a folder project is open,
-    // compile ALL its .cs files together (issue 30 multi-file pattern).
-    const multi = multiSourceProvider?.();
-    const sources = multi && multi.sources.length > 0
-      ? multi.sources
-      : [{ path: "Game1.cs", text: sourceProvider() }];
-    const primarySourcePath = multi && multi.sources.length > 0
-      ? multi.primarySourcePath
-      : "Game1.cs";
-    // Issue 052: mount the project's Content/ assets before Run.
-    const content = contentProvider?.();
-    return runLivePreviewInPage({
-      assemblyName: "PlaygroundGame",
-      sources,
-      primarySourcePath,
-      onOutput,
-      onDiagnostics,
-      contentAssets: content?.assets,
-      contentRootDirectory: content?.contentRootDirectory,
-      onContentError,
-    });
-  }
-  return compileLoadStartIssue23({
-    assemblyName: proofMode ? "Issue024ProofGame" : "Issue024Game",
-    sourcePath: "src/CooperativeStopGame.cs",
-    sourceText,
-    proofMode,
-    issue024Proof: proofMode,
-    onOutput,
-  });
-};
-
-function createRunStopController(
-  proofMode: boolean,
-  sourceProvider?: () => string,
-  onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
-  onOutputLine?: (event: Parameters<NonNullable<Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]>>[0]) => void,
-  onRuntimeFailure?: (payload: Record<string, unknown>) => void,
-  onRunStart?: () => void,
-  multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null,
-  onLifecycle?: (state: import("./issue24-controller").Issue052PreviewLifecycle) => void,
-  contentProvider?: () => { assets: ReadonlyArray<{ path: string; bytes: ArrayBuffer }>; contentRootDirectory?: string } | null,
-  onContentError?: (code: string, message: string) => void,
-) {
+// Proof Run/Stop control: renders the fixed cooperative-stop source in the
+// isolated preview window so the issue 024 stop proof stays deterministic.
+function createProofRunStopController() {
   const runButton = document.querySelector<HTMLButtonElement>("#run-clear-color");
   const stopButton = document.querySelector<HTMLButtonElement>("#stop-clear-color");
   const status = document.querySelector<HTMLElement>("#run-clear-color-status");
   if (!runButton || !stopButton || !status)
     throw new Error("Issue 024 Run/Stop control is missing.");
-  const controller = createIssue024RunStopController({
-    start: () => {
-      // Issue 049: each Run clears the Output panel, then streams live output
-      // into it (replacing the temporary #preview-managed-output stand-in).
-      onRunStart?.();
-      return start(proofMode, event => {
-        onOutputLine?.(event);
-      }, sourceProvider, onDiagnostics, multiSourceProvider, contentProvider, onContentError);
-    },
+  const controller = createRunStopController<Issue23RunningPreview>({
+    start: () => compileLoadStartIssue23({
+      assemblyName: "Issue024ProofGame",
+      sourcePath: "src/CooperativeStopGame.cs",
+      sourceText,
+      proofMode: true,
+      issue024Proof: true,
+    }),
     stop: (preview, reason) => preview.stop(reason),
-    observeFailure: preview => {
-      // Issue 049: render the runtime failure in the Output panel when the
-      // preview's failure promise resolves, then hand the result back to the
-      // controller unchanged so its own recovery/status logic still runs.
-      const failure = preview.failure;
-      if (onRuntimeFailure) {
-        void failure.then(
-          result => {
-            const failedPayload =
-              (result as { failedEvent?: { payload?: Record<string, unknown> } })
-                .failedEvent?.payload;
-            if (failedPayload) onRuntimeFailure(failedPayload);
-          },
-          () => { /* rejection surfaces through the controller's own path */ },
-        );
-      }
-      return failure;
-    },
+    observeFailure: preview => preview.failure,
     setRunDisabled: disabled => { runButton.disabled = disabled; },
     setStopDisabled: disabled => { stopButton.disabled = disabled; },
     setStatus: (state, text) => {
       status.dataset.state = state;
       status.textContent = text;
     },
-    onLifecycle,
     reportError: error => { console.error("Clear-color Game lifecycle failed", error); },
   });
   return { controller, runButton, stopButton, status };
-}
-
-export interface Issue024OutputHooks {
-  onOutputLine?: (event: Parameters<NonNullable<Parameters<typeof compileLoadStartIssue23>[0]["onOutput"]>>[0]) => void;
-  onRuntimeFailure?: (payload: Record<string, unknown>) => void;
-  onRunStart?: () => void;
-  /** Issue 051: when set and it returns sources, Run compiles them together. */
-  multiSourceProvider?: () => { sources: Array<{ path: string; text: string }>; primarySourcePath: string } | null;
-  /** Issue 052: preview-panel status indicator lifecycle updates. */
-  onLifecycle?: (state: import("./issue24-controller").Issue052PreviewLifecycle) => void;
-  /** Issue 052: the open project's prepared Content/ assets to mount before Run. */
-  contentProvider?: () => { assets: ReadonlyArray<{ path: string; bytes: ArrayBuffer }>; contentRootDirectory?: string } | null;
-  /** Issue 052: labelled content-error entry for the Output panel. */
-  onContentError?: (code: string, message: string) => void;
-}
-
-export function installIssue024RunStopControl(
-  gate?: () => Promise<boolean>,
-  sourceProvider?: () => string,
-  onDiagnostics?: Parameters<typeof compileLoadStartIssue23>[0]["onDiagnostics"],
-  outputHooks?: Issue024OutputHooks,
-): void {
-  const { controller, runButton, stopButton } = createRunStopController(
-    false,
-    sourceProvider,
-    onDiagnostics,
-    outputHooks?.onOutputLine,
-    outputHooks?.onRuntimeFailure,
-    outputHooks?.onRunStart,
-    outputHooks?.multiSourceProvider,
-    outputHooks?.onLifecycle,
-    outputHooks?.contentProvider,
-    outputHooks?.onContentError,
-  );
-  runButton.addEventListener("click", () => {
-    if (gate) {
-      void gate().then(proceed => {
-        if (proceed) void controller.run().catch(() => {});
-      }).catch(() => {});
-    } else {
-      void controller.run().catch(() => {});
-    }
-  });
-  stopButton.addEventListener("click", () => { void controller.stop().catch(() => {}); });
 }
 
 const wait = (milliseconds: number) =>
@@ -236,7 +128,7 @@ export async function runIssue024AutoProof(): Promise<void> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (!invoke || !(await invoke<boolean>("issue024_is_proof_enabled"))) return;
   const proofRuntimeReadiness = await preparePackagedProofRuntime();
-  const { controller, runButton, stopButton, status } = createRunStopController(true);
+  const { controller, runButton, stopButton, status } = createProofRunStopController();
   const preview = await controller.run() as Issue23RunningPreview;
   const deadline = performance.now() + 10_000;
   let running = await preview.query();

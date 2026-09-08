@@ -1,5 +1,5 @@
-import { installIssue024RunStopControl } from "./issue24";
-import { gateFirstRun, SCRATCH_PROJECT_IDENTITY } from "./issue37";
+import { installRunStopControl } from "./run-stop";
+import { gateFirstRun, SCRATCH_PROJECT_IDENTITY } from "./first-run-warning";
 import { installIssue047Editor, defaultExampleSource } from "./issue047";
 import { installIssue048ProblemsPanel } from "./issue048";
 import { installIssue049OutputPanel } from "./issue049";
@@ -196,7 +196,7 @@ const output = installIssue049OutputPanel();
 // lifecycle callback that drives the indicator from the Run/Stop controller.
 const previewPanel = installIssue052PreviewPanel();
 
-installIssue024RunStopControl(() => {
+installRunStopControl(() => {
   // Gate Run behind first-run warning acknowledgement.
   // In non-Tauri environments (dev mode), allow Run without gating.
   if (!(window as any).__TAURI_INTERNALS__?.invoke) return Promise.resolve(true);

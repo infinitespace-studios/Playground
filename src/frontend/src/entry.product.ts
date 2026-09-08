@@ -7,14 +7,15 @@
 // the giant per-issue proof instrumentation and its environment markers
 // (MONOGAME_ISSUE0xx_PROOF) are absent from the product dist.
 //
-// Stage-2 note: `./app` still transitively imports a few mixed modules
-// (issue21/issue24/issue37) that carry their own proof markers. Product uses
-// only their controller/gate exports, so their `runIssueXXXAutoProof` marker
-// strings are tree-shaken out of the emitted product bundle. Those modules are
-// tracked as remaining coupling to extract in a later stage; see
-// `scripts/check-profile-artifacts.mjs` (MIXED_TRANSITIONAL_MODULES). The
-// checker allows those modules in the product module graph but HARD-FAILS if
-// any proof marker string is emitted into a product artifact.
+// Stage-2 note: the real production compiler / embedded-preview / run-stop /
+// first-run code was extracted out of the former mixed modules
+// (issue21/issue24/issue37) into production-neutral domain modules
+// (compiler-context, live-preview, run-stop, lifecycle-controller,
+// first-run-warning). `./app` imports ONLY those domain modules, so
+// issue21/issue24/issue37 — and their `runIssueXXXAutoProof` marker strings —
+// are absent from the product Rollup module graph entirely (proven by
+// `scripts/check-profile-artifacts.mjs`, which now hard-fails if any of those
+// three modules appears in the product graph).
 
 import "./style.css";
 

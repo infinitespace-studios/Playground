@@ -16,11 +16,16 @@
 //     * manifest present, schema known, profile === "product",
 //       entrySource === src/entry.product.ts, non-empty module/chunk inventory.
 //     * src/entry.product.ts present in the emitted module graph.
-//     * src/entry.proof.ts and every proof-only former-direct-import module
-//       (issue22/23/25/27..36/38/039/040/041) ABSENT from the module graph.
+//     * src/entry.proof.ts and every proof-only module
+//       (issue21/22/23/24/25/27..37/38/039/040/041) ABSENT from the module
+//       graph. As of Stage 2 the former mixed modules issue21/issue24/issue37
+//       are fully extracted, so their presence in the product graph is a HARD
+//       FAILURE (no transitional allowance).
+//     * the extracted production domain modules (compiler-context, live-preview,
+//       run-stop, lifecycle-controller, first-run-warning) ARE present in the
+//       product graph (proves the extraction is real, not dead re-exports).
 //     * ZERO auto-proof markers (MONOGAME_ISSUE0xx_PROOF...) in any emitted
-//       .js/.html/.css artifact. ANY marker — including the transitional mixed
-//       021/024/037 markers — is a HARD FAILURE (no warnings, no downgrades).
+//       .js/.html/.css artifact. ANY marker is a HARD FAILURE.
 //
 //   PROOF (dist-proof/):
 //     * manifest present, schema known, profile === "proof",
@@ -70,13 +75,19 @@ const COMMENT_ONLY_MARKERS = new Set([
   "MONOGAME_ISSUE037_PROOF_PHASE",
 ]);
 
-// Proof-only source modules: the former `main.ts` (now entry.proof.ts) direct
-// imports that carry auto-proof instrumentation and must NEVER be linked into
-// the product graph. Present in the proof graph, absent from the product graph.
+// Proof-only source modules: modules that carry auto-proof instrumentation and
+// must NEVER be linked into the product graph. Present in the proof graph,
+// absent from the product graph. As of Stage 2 this includes the former mixed
+// modules issue21/issue24/issue37: their production code paths were extracted
+// into the domain modules listed in PRODUCT_DOMAIN_MODULES, so what remains in
+// issue21/24/37 is proof-only (auto-proof entries + proof scenario code) plus
+// compatibility re-exports that the product build never imports.
 const PROOF_ONLY_MODULES = [
   "src/entry.proof.ts",
+  "src/issue21.ts",
   "src/issue22.ts",
   "src/issue23.ts",
+  "src/issue24.ts",
   "src/issue25.ts",
   "src/issue27.ts",
   "src/issue28.ts",
@@ -88,30 +99,30 @@ const PROOF_ONLY_MODULES = [
   "src/issue34.ts",
   "src/issue35.ts",
   "src/issue36.ts",
+  "src/issue37.ts",
   "src/issue38.ts",
   "src/issue039.ts",
   "src/issue040.ts",
   "src/issue041.ts",
 ];
 
-// Transitional MIXED modules (Stage-2 extraction work). These are still
-// transitively imported by the product app graph because product uses their
-// controller/gate exports:
-//   * issue21.ts  — export used by issue21-controller / app wiring
-//   * issue24.ts  — installIssue024RunStopControl (Run/Stop control)
-//   * issue37.ts  — gateFirstRun / SCRATCH_PROJECT_IDENTITY (first-run gate)
-// They DEFINE proof markers, but the product app graph imports only the product
-// exports, so the `runIssueXXXAutoProof` functions carrying the marker strings
-// are tree-shaken out of the emitted product bundle. This checker allows these
-// modules to appear in the product MODULE GRAPH, but still HARD-FAILS if their
-// proof MARKER STRINGS are emitted into any product artifact (see the zero
-// marker assertion). Extracting the product code paths out of these modules is
-// Stage-2 work.
-const MIXED_TRANSITIONAL_MODULES = new Set([
-  "src/issue21.ts",
-  "src/issue24.ts",
-  "src/issue37.ts",
-]);
+// Stage-2 extracted production domain modules. These carry the REAL production
+// compiler context, embedded live preview, run/stop lifecycle + control, and
+// first-run security gate that used to live inside the mixed issue21/24/37
+// modules. They MUST be present in the product module graph (so the extraction
+// is proven real), and they must be free of proof markers (asserted by the zero
+// marker check like every other product module).
+const PRODUCT_DOMAIN_MODULES = [
+  "src/compiler-context.ts",
+  "src/live-preview.ts",
+  "src/run-stop.ts",
+  "src/lifecycle-controller.ts",
+  "src/first-run-warning.ts",
+];
+
+// One marker (`MONOGAME_ISSUE037_PROOF_PHASE`) lives only in a source comment
+// naming a shell/Rust env var and is never emitted; it is documented in
+// COMMENT_ONLY_MARKERS (still forbidden in product, not required in proof).
 
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -261,26 +272,36 @@ function checkProduct() {
     fail(`PRODUCT module graph LEAKS proof-only modules: ${leakedModules.join(", ")}`);
   }
 
+  // Stage-2: the extracted production domain modules must be present (proves the
+  // real production code paths were extracted out of issue21/24/37, not merely
+  // re-exported through dead facades).
+  const missingDomainModules = PRODUCT_DOMAIN_MODULES.filter((m) => !modules.has(m));
+  if (missingDomainModules.length > 0) {
+    fail(
+      `PRODUCT module graph is missing extracted production domain modules: ` +
+        `${missingDomainModules.join(", ")}`,
+    );
+  }
+
   // Zero markers in emitted output — ANY marker is a hard failure.
   const emitted = markersEmittedIn(distDir);
   console.log(`  module graph: ${manifest.modules.length} modules, ${manifest.chunks.length} chunks`);
   console.log(`  source marker inventory: ${sourceInventory.length}`);
   console.log(`  proof markers found in product output: ${emitted.size}`);
-  const mixedPresent = MIXED_TRANSITIONAL_MODULES.size
-    ? [...MIXED_TRANSITIONAL_MODULES].filter((m) => modules.has(m))
-    : [];
-  if (mixedPresent.length > 0) {
-    console.log(
-      `  note: transitional mixed modules in product graph (markers must stay tree-shaken): ${mixedPresent.join(", ")}`,
-    );
-  }
   if (emitted.size > 0) {
     for (const [marker, files] of emitted) {
       fail(`PRODUCT output emits proof marker ${marker} in ${files.join(", ")}`);
     }
   }
-  if (leakedModules.length === 0 && emitted.size === 0 && !modules.has(PROOF_ENTRY_MODULE)) {
-    console.log("  PASS: product graph clean, no proof-only modules, no proof markers.");
+  if (
+    leakedModules.length === 0 &&
+    missingDomainModules.length === 0 &&
+    emitted.size === 0 &&
+    !modules.has(PROOF_ENTRY_MODULE)
+  ) {
+    console.log(
+      "  PASS: product graph clean, no proof-only modules, domain modules present, no proof markers.",
+    );
   }
 }
 

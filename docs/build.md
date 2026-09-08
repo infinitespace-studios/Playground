@@ -86,12 +86,15 @@ empty/malformed module inventory, or the wrong entry source.
 
 Beyond the manifest it asserts, per profile:
 
-- **PRODUCT (`dist/`)** — `src/entry.proof.ts` and every proof-only former
-  direct-import module (`issue22/23/25/27..36/38/039/040/041`) are absent from
-  the emitted module graph, and **zero** auto-proof markers
-  (`MONOGAME_ISSUE0xx_PROOF...`) appear in any emitted `.js/.html/.css`
-  artifact. **Any** marker — including the transitional mixed `021/024/037`
-  markers — is a **hard failure** (no warnings, no downgrades).
+- **PRODUCT (`dist/`)** — `src/entry.proof.ts` and every proof-only module
+  (`issue21/22/23/24/25/27..37/38/039/040/041`) are absent from the emitted
+  module graph, and **zero** auto-proof markers (`MONOGAME_ISSUE0xx_PROOF...`)
+  appear in any emitted `.js/.html/.css` artifact. **Any** marker is a **hard
+  failure** (no warnings, no downgrades). The checker additionally asserts that
+  the Stage-2 extracted production domain modules (`compiler-context`,
+  `live-preview`, `run-stop`, `lifecycle-controller`, `first-run-warning`) **are**
+  present in the product graph, so the extraction is proven real rather than a
+  dead re-export.
 - **PROOF (`dist-proof/`)** — `src/entry.proof.ts` and every proof-only module
   are present in the graph, `src/entry.product.ts` is absent, and every
   expected proof marker is present in the emitted output.
@@ -143,19 +146,51 @@ release binary therefore run whichever frontend was embedded by the most recent
 build; they build the proof profile immediately beforehand so the binary embeds
 the proof frontend.
 
-### Stage-2 coupling (known, documented)
+### Stage-2 boundary (production/proof module extraction, done)
 
-`entry.product.ts` -> `./app` still transitively imports a few mixed modules
-(`issue21` / `issue24` / `issue37`) that *define* proof markers
-(`MONOGAME_ISSUE021_PROOF`, `MONOGAME_ISSUE024_PROOF`,
-`MONOGAME_ISSUE037_PROOF`). Product uses only their controller/gate exports
-(`installIssue024RunStopControl`, `gateFirstRun`, ...), so the
-`runIssueXXXAutoProof` functions carrying the marker strings are tree-shaken
-out of the emitted product bundle. The checker's `MIXED_TRANSITIONAL_MODULES`
-allowlist permits these three modules to appear in the product **module graph**
-only, but the zero-marker assertion still **hard-fails** if any of their proof
-marker strings are emitted into a product artifact. Extracting the product code
-paths out of `issue21/24/37` is Stage-2 work.
+Stage 2 extracted the REAL production compiler / embedded-preview / run-stop /
+first-run code out of the former mixed issue-numbered modules `issue21.ts`,
+`issue24.ts`, and `issue37.ts`. The product module graph no longer contains any
+of those three modules; they remain in the **proof** graph only (imported by
+`entry.proof.ts`) for the historical per-issue proofs.
+
+Extracted production domain modules (production-neutral — no proof markers, no
+auto-proof entries):
+
+| Domain module | Responsibility | Formerly in |
+| --- | --- | --- |
+| `src/compiler-context.ts` | The single process-wide compiler + initial-preview iframe context: bootstrap, `ensureContexts`, `retireInitialPreviewContext`, `waitForTopRuntime`, MessagePort/client ownership. Exposes a `registerContextSetup` hook so proof-only closures inject from `issue21.ts` without the product linking them. | `issue21.ts` |
+| `src/live-preview.ts` | `runLivePreviewInPage` — the real embedded Run flow (compile → mount sandboxed opaque-origin iframe → load → mount Content before start → start → cooperative stop). | `issue21.ts` |
+| `src/lifecycle-controller.ts` | The neutral run/stop/restart lifecycle state machine (`createRunStopController`, `PreviewLifecycleState`): start-throw recovery, stop coalescing, restart queueing, failure observation, preview-panel indicator. | `issue24-controller.ts` |
+| `src/run-stop.ts` | `installRunStopControl` — wires the workbench Run/Stop buttons to the lifecycle controller driving the in-page live preview. | `issue24.ts` |
+| `src/first-run-warning.ts` | ADR-0003 non-yielding first-run warning modal, per-folder-identity acknowledgement store client, and `gateFirstRun`. | `issue37.ts` |
+
+Compatibility strategy (proof/tests unchanged, product never imports the
+façades):
+
+- `issue24-controller.ts` is now a **compatibility façade** that re-exports
+  `createRunStopController` (as `createIssue024RunStopController`) and the
+  `PreviewLifecycleState` / `Issue052PreviewLifecycle` types from
+  `lifecycle-controller.ts`, so proof modules (`issue24/25/29/30/041`),
+  `issue052`'s type import, and the protocol test resolve unchanged.
+- `issue24.ts` keeps only the cooperative-stop AUTO-PROOF and re-exports
+  `installRunStopControl` under its historical name
+  `installIssue024RunStopControl` for `entry.proof.ts`.
+- `issue37.ts` keeps only the two-phase packaged first-run PROOF and re-exports
+  `gateFirstRun` / `SCRATCH_PROJECT_IDENTITY` from `first-run-warning.ts`.
+- `issue21.ts` keeps its proof-only compile/load/preview functions and injects
+  its proof context closures via `registerContextSetup`; its shared compiler
+  context now comes from `compiler-context.ts`.
+
+`app.ts` imports `installRunStopControl` from `run-stop.ts` and `gateFirstRun` /
+`SCRATCH_PROJECT_IDENTITY` from `first-run-warning.ts` — no issue-numbered
+module is on the product Run/first-run path. Shared protocol validation stays in
+`protocol.ts` / `ProtocolRuntime`; it is not forked.
+
+Remaining issue-numbered modules still in the **product** graph (Stage-3 UI
+rename scope, not Stage 2): `issue046` (theme), `issue047` (editor), `issue048`
+(problems), `issue049` (output), `issue050` (dirty tracker), `issue051` (project
+manager), `issue052` / `issue052-content` (preview panel + content).
 
 ## Manifest schema
 

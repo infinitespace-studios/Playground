@@ -1,6 +1,5 @@
 import {
   PROTOCOL_VERSION,
-  type AssetMountRequest,
   type BinaryProof,
   type CompileRequest,
   type Diagnostic,
@@ -20,7 +19,6 @@ import {
   ProtocolPortClient,
   sha256,
   standaloneBuffer,
-  validateAssetMountResponse,
   validateCompileResponse,
   validatePreviewLoadResponse,
   validatePreviewLifecycleEvent,
@@ -34,7 +32,6 @@ import {
 } from "./issue21-controller";
 import { withForcedPreviewRetirement } from "./issue23-controller";
 import {
-  assertPreviewSandbox,
   createPreviewBridge,
   createPreviewIframe,
   loadIssue033NoWasmEvalPreviewIframe,
@@ -42,6 +39,30 @@ import {
   previewBridgeFor,
   type PreviewBridge,
 } from "./preview-frame";
+import {
+  allocContentWindowIdentity,
+  allocFrameDomIdentity,
+  compilerClient,
+  compilerFrame,
+  createUuid,
+  ensureContexts,
+  getLastPrimaryRunFrame,
+  getLivePreviewFrame,
+  hostTransport,
+  initialPreviewBridge,
+  isProofModeAuthorized,
+  previewClient,
+  previewFrame,
+  previewGeneration,
+  previewId,
+  registerContextSetup,
+  requiredElement,
+  retireInitialPreviewContext,
+  setLastPrimaryRunFrame,
+  setLivePreviewFrame,
+  setProofModeAuthorized,
+  waitForTopRuntime,
+} from "./compiler-context";
 
 interface ContextProof {
   runtimeStarts: number;
@@ -194,33 +215,6 @@ export interface Issue23RunningPreview {
   teardown(): Promise<unknown>;
 }
 
-function requiredElement<T extends Element>(selector: string): T {
-  const element = document.querySelector<T>(selector);
-  if (!element) throw new Error(`Required element is missing: ${selector}`);
-  return element;
-}
-
-const createUuid = () => crypto.randomUUID() as UuidV4;
-const frameIdentities = new WeakMap<HTMLIFrameElement, number>();
-const windowIdentities = new WeakMap<Window, number>();
-let nextFrameIdentity = 1;
-let nextWindowIdentity = 1;
-let lastPrimaryRunFrame: HTMLIFrameElement | null = null;
-const identityFor = <T extends object>(
-  values: WeakMap<T, number>,
-  value: T,
-  allocate: () => number,
-) => {
-  const existing = values.get(value);
-  if (existing !== undefined) return existing;
-  const identity = allocate();
-  values.set(value, identity);
-  return identity;
-};
-const compilerFrame = requiredElement<HTMLIFrameElement>("#compiler-frame");
-const previewFrame = requiredElement<HTMLIFrameElement>("#preview-frame");
-assertPreviewSandbox(previewFrame);
-const initialPreviewBridge = createPreviewBridge(previewFrame);
 const loadButton = requiredElement<HTMLButtonElement>("#compile-load");
 const loadStatus = requiredElement<HTMLElement>("#compile-load-status");
 const sourcePath = "src/Foo.cs";
@@ -232,35 +226,7 @@ const sourceText = `public sealed class Foo
     public int Bar() => 42;
 }`;
 
-const compilerGeneration = createUuid();
-const previewGeneration = createUuid();
-const previewId = createUuid();
-const compilerChannel = new MessageChannel();
-const previewChannel = new MessageChannel();
-const compilerClient = new ProtocolPortClient(compilerChannel.port1, createUuid());
-const previewClient = new ProtocolPortClient(previewChannel.port1, createUuid());
-const hostTransport = {
-  windowMessagesObserved: 0,
-  bootstrapMessagesSent: 0,
-  postBootstrapWindowProtocolMessages: 0,
-  compilerPortIdentity: compilerClient.portIdentity,
-  previewPortIdentity: previewClient.portIdentity,
-  taintedPreviewTeardownsObserved: 0,
-};
-window.addEventListener("message", event => {
-  hostTransport.windowMessagesObserved += 1;
-  if ((compilerBootstrapped || previewBootstrapped) &&
-      typeof event.data?.type === "string" &&
-      event.data.type !== "protocol.bootstrap") {
-    hostTransport.postBootstrapWindowProtocolMessages += 1;
-  }
-});
-let compilerBootstrapped = false;
-let previewBootstrapped = false;
-let initialPreviewRetired = false;
-let initialPreviewRetirement: Promise<void> | null = null;
 let operationActive = false;
-let proofModeAuthorized = false;
 const proofInvocationToken = Symbol("issue021-proof");
 let provePostMutationTaint: (
   compileId: UuidV4,
@@ -275,92 +241,6 @@ let registerPreviewProbeExpectation: (
   probePhase: string,
   expectedCode: string,
 ) => Promise<ProbeExpectation>;
-
-function bootstrap(
-  frame: HTMLIFrameElement,
-  channel: MessageChannel,
-  generation: UuidV4,
-  kind: "compiler" | "preview",
-  bridge?: PreviewBridge,
-) {
-  if (kind === "preview" && initialPreviewRetired) return;
-  if ((kind === "compiler" && compilerBootstrapped) || (kind === "preview" && previewBootstrapped)) return;
-  const target = frame.contentWindow;
-  if (!target) throw new Error(`${kind} contentWindow is unavailable.`);
-  const bootstrapMessage = kind === "preview"
-    ? { type: "protocol.bootstrap", contextGeneration: generation, previewId, issue021Proof: proofModeAuthorized }
-    : { type: "protocol.bootstrap", contextGeneration: generation, issue021Proof: proofModeAuthorized };
-  const transfer = bridge ? [channel.port2, bridge.childPort] : [channel.port2];
-  target.postMessage(
-    bootstrapMessage,
-    kind === "preview" ? "*" : window.location.origin,
-    transfer,
-  );
-  hostTransport.bootstrapMessagesSent += 1;
-  if (kind === "compiler") compilerBootstrapped = true;
-  else previewBootstrapped = true;
-}
-
-function retireInitialPreviewContext() {
-  if (initialPreviewRetirement) return initialPreviewRetirement;
-  initialPreviewRetirement = (async () => {
-    if (!previewFrame.isConnected) return;
-    initialPreviewRetired = true;
-    try {
-      if (previewBootstrapped) {
-        const correlationId = createUuid();
-        const request: PreviewStopRequest = {
-          protocolVersion: PROTOCOL_VERSION,
-          correlationId,
-          type: "preview.stop.request",
-          payload: { previewId, reason: "restart", timeoutMs: 2_000 },
-        };
-        await previewClient.request(
-          request,
-          "preview.stop.response",
-          value => validatePreviewStopResponse(value, correlationId, previewId),
-          [],
-          2_000,
-        );
-      }
-    } finally {
-      previewClient.close(new Error("Initial preview context retired before Game run."));
-      initialPreviewBridge.close();
-      previewFrame.remove();
-    }
-  })();
-  return initialPreviewRetirement;
-}
-
-compilerFrame.addEventListener("load", () => {
-  if (compilerFrame.getAttribute("src") === compilerFrame.dataset.src) {
-    bootstrap(compilerFrame, compilerChannel, compilerGeneration, "compiler");
-  }
-});
-previewFrame.addEventListener("load", () => {
-  if (previewFrame.srcdoc) {
-    bootstrap(previewFrame, previewChannel, previewGeneration, "preview", initialPreviewBridge);
-  }
-});
-
-async function waitForTopRuntime() {
-  // Issue 052 task-A: "shell ready" no longer means the top-level MonoGame demo
-  // rendered a frame — the workbench (issue 45) removed that demo's `#canvas`,
-  // so the demo is obsolete and gated off (see main.ts). Readiness is now: the
-  // document is visible and the page has painted at least one animation frame.
-  // The compiler/preview iframes (which the proofs actually use) load the WASM
-  // runtime directly and gate themselves via their own bridges.
-  const deadline = performance.now() + 120_000;
-  const paintedFrame = () => new Promise<boolean>(resolve => {
-    const timer = window.setTimeout(() => resolve(false), 500);
-    requestAnimationFrame(() => { window.clearTimeout(timer); resolve(true); });
-  });
-  while (performance.now() < deadline) {
-    if (document.visibilityState === "visible" && await paintedFrame()) return;
-    await new Promise(resolve => window.setTimeout(resolve, 100));
-  }
-  throw new Error("Top-level shell did not reach a painting steady state.");
-}
 
 export async function preparePackagedProofRuntime(): Promise<Record<string, unknown>> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
@@ -510,24 +390,12 @@ async function requireVisiblePreviewFrame(
   return child;
 }
 
-async function startPreviewAfterTopRuntime() {
-  await waitForTopRuntime();
-  if (!previewFrame.srcdoc) loadPreviewIframe(previewFrame);
-}
-
-void startPreviewAfterTopRuntime().catch(() => {
-  previewStatusFallback("Preview deferred until the top-level runtime can render.");
-});
-
-function previewStatusFallback(message: string) {
-  const status = document.querySelector<HTMLElement>("#preview-context-status");
-  if (status) status.textContent = message;
-}
-
-async function ensureIssue21Contexts(allowLockedSession = false, compilerOnly = false) {
-  if (!allowLockedSession && !compilerOnly) await waitForTopRuntime();
-  if (!previewFrame.srcdoc) loadPreviewIframe(previewFrame);
-
+// Proof-only context setup: register the post-mutation taint prover and the
+// preview probe-expectation registrar. compiler-context's ensureContexts() runs
+// this at the top of every call, exactly where the original ensureIssue21Contexts
+// assigned these closures. Product never imports issue21, so it never registers
+// (and never links) this proof code.
+registerContextSetup(() => {
   registerPreviewProbeExpectation = (
     frame: HTMLIFrameElement,
     contextGeneration: UuidV4,
@@ -535,7 +403,7 @@ async function ensureIssue21Contexts(allowLockedSession = false, compilerOnly = 
     probePhase: string,
     expectedCode: string,
   ): Promise<ProbeExpectation> => {
-    if (!proofModeAuthorized) throw new Error("Proof expectation registration is not authorized.");
+    if (!isProofModeAuthorized()) throw new Error("Proof expectation registration is not authorized.");
     return (async () => {
       const bridge = previewBridgeFor(frame);
       const proof = await bridge.request<ContextProof>("snapshot", { name: "issue21" });
@@ -691,24 +559,7 @@ async function ensureIssue21Contexts(allowLockedSession = false, compilerOnly = 
       if (!frame.isConnected) hostTransport.taintedPreviewTeardownsObserved += 1;
     }
   }
-  if (!compilerFrame.getAttribute("src")) {
-    compilerFrame.setAttribute("src", compilerFrame.dataset.src ?? "/compiler/index.html");
-  }
-  let previewReady = compilerOnly;
-  if (!compilerOnly) void initialPreviewBridge.ready.then(() => { previewReady = true; });
-  const deadline = performance.now() + 180_000;
-  while ((!compilerBootstrapped || (!compilerOnly && !previewBootstrapped) ||
-          compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts !== 1 ||
-          !previewReady) &&
-         performance.now() < deadline) {
-    await new Promise(resolve => window.setTimeout(resolve, 100));
-  }
-  if (!compilerBootstrapped || (!compilerOnly && !previewBootstrapped) ||
-      compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts !== 1 ||
-      !previewReady) {
-    throw new Error("Compiler or preview runtime did not become ready.");
-  }
-}
+});
 
 async function compileAndLoadInternal(
   probeLifecycle = false,
@@ -722,7 +573,7 @@ async function compileAndLoadInternal(
   operationActive = true;
   let stage = "context startup";
   try {
-    await ensureIssue21Contexts(allowLockedSession);
+    await ensureContexts(allowLockedSession);
     const compileId = createUuid();
     const compileCorrelationId = createUuid();
     const compileRequest: CompileRequest = {
@@ -1019,7 +870,7 @@ export async function runIssue021AutoProof(): Promise<void> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (!invoke || !(await invoke<boolean>("issue021_is_proof_enabled"))) return;
   // Authorization must be established before readiness can trigger iframe bootstrap.
-  proofModeAuthorized = true;
+  setProofModeAuthorized(true);
   const lockedSession = await invoke<boolean>("issue021_is_locked_session_proof");
   const proofRuntimeReadiness =
     lockedSession ? null : await preparePackagedProofRuntime();
@@ -1066,7 +917,7 @@ export async function compileLoadConstructIssue22Case(input: {
   sourcePath: string;
   sourceText: string;
 }): Promise<Record<string, unknown>> {
-  await ensureIssue21Contexts();
+  await ensureContexts();
   const compileId = createUuid();
   const compileCorrelationId = createUuid();
   const compileRequest: CompileRequest = {
@@ -1240,7 +1091,7 @@ export async function compileSourcesThroughPersistentCompiler(input: {
   sources: readonly { path: string; text: string }[];
   primarySourcePath: string;
 }): Promise<Record<string, unknown>> {
-  await ensureIssue21Contexts(false, true);
+  await ensureContexts(false, true);
   const compileId = createUuid();
   const correlationId = createUuid();
   const request: CompileRequest = {
@@ -1300,7 +1151,7 @@ export async function compileSourcesThroughPersistentCompiler(input: {
  *  harness time cold compiler initialisation separately from the first
  *  compilation of a project. */
 export async function prepareCompilerContextForBenchmark(): Promise<number> {
-  await ensureIssue21Contexts(false, true);
+  await ensureContexts(false, true);
   return compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts ?? 0;
 }
 
@@ -1350,7 +1201,7 @@ export async function compileLoadStartIssue23(input: {
   }): Promise<Issue23RunningPreview> {
     const mark = (phase: string) => input.onPhase?.(phase, performance.now());
     mark("request.begin");
-    await ensureIssue21Contexts(false, true);
+    await ensureContexts(false, true);
     mark("contexts.ready");
     const compileId = createUuid();
     const compileCorrelationId = createUuid();
@@ -1405,6 +1256,7 @@ export async function compileLoadStartIssue23(input: {
     const assembly = standaloneBuffer(new Uint8Array(data.assembly));
     const pdb = standaloneBuffer(new Uint8Array(data.pdb));
     if (!input.auxiliary) await retireInitialPreviewContext();
+    const lastPrimaryRunFrame = getLastPrimaryRunFrame();
     const previousIframeRemovedBeforeCreation =
       input.auxiliary === true || lastPrimaryRunFrame === null || !lastPrimaryRunFrame.isConnected;
     if (!previousIframeRemovedBeforeCreation) {
@@ -1481,11 +1333,11 @@ export async function compileLoadStartIssue23(input: {
     } as unknown as HTMLIFrameElement;
 
     if (!input.auxiliary) {
-      lastPrimaryRunFrame = frame;
+      setLastPrimaryRunFrame(frame);
     }
 
-    const frameDomIdentity = nextFrameIdentity++;
-    const contentWindowIdentity = nextWindowIdentity++;
+    const frameDomIdentity = allocFrameDomIdentity();
+    const contentWindowIdentity = allocContentWindowIdentity();
 
     await bridge.ready;
     mark("preview.bridge.ready");
@@ -1983,338 +1835,6 @@ export async function compileLoadStartIssue23(input: {
     };
 }
 
-// ── Issue 052: live preview in the in-page sandboxed iframe ──────────────────
-//
-// The real Run flow (issue 24) renders the user's game in the on-page
-// `#preview-frame` panel iframe rather than the isolated WebviewWindow (issue
-// 038). Per the issue 052 decision: a same-process sandboxed iframe keeps the
-// issue 033/034 security boundary (opaque origin — `sandbox="allow-scripts"`
-// with no `allow-same-origin`, so `__TAURI_INTERNALS__` is never injected and
-// no app command is reachable) while giving an embedded preview. The tradeoff
-// (accepted): an infinite loop inside a single Game.Tick freezes the shared
-// thread. Force-stop is cooperative (issue 024) + iframe removal on stop.
-//
-// This is a SEPARATE code path from compileLoadStartIssue23 so every existing
-// lifecycle/security proof (issues 23/25/27-30/33-37) stays byte-for-byte on
-// the isolated window until those proofs are deliberately re-pointed.
-
-export interface LivePreviewHandle {
-  /** Resolves if the running game reports an unhandled runtime failure. */
-  readonly failure: Promise<Record<string, unknown>>;
-  /** Cooperatively stop the game and remove the preview iframe. */
-  stop: (reason?: "user" | "restart") => Promise<Record<string, unknown>>;
-}
-
-// Track the current live preview iframe so a restart retires the previous one.
-let livePreviewFrame: HTMLIFrameElement | null = null;
-
-/**
- * Compile the given sources and run the resulting game in a fresh sandboxed
- * iframe mounted into the preview panel. Returns a handle exposing the runtime
- * failure promise and a cooperative stop. Fires onDiagnostics (issue 048) and
- * onOutput (issue 049) exactly like the isolated path.
- */
-export async function runLivePreviewInPage(input: {
-  assemblyName: string;
-  sources: readonly { path: string; text: string }[];
-  primarySourcePath: string;
-  onOutput?: (event: PreviewOutput) => void;
-  onDiagnostics?: (diagnostics: readonly Diagnostic[], outcome: "success" | "failure") => void;
-  // Issue 052: content assets discovered under the project's Content/ folder,
-  // mounted into the preview VFS AFTER load and BEFORE start so
-  // Content.Load<T>(...) resolves. `path` is the logical Content-relative path
-  // (e.g. "textures/player.png" or "audio/blip.xnb"); `bytes` is a standalone
-  // ArrayBuffer transferred to the preview. `.wav` sources must already have
-  // been prepared to a ".xnb" path by the caller (issue052-content).
-  contentAssets?: readonly { path: string; bytes: ArrayBuffer }[];
-  contentRootDirectory?: string;
-  // Issue 052: surface a content-mount failure as a labelled Output-panel entry
-  // (issue 049), distinct from compile diagnostics (Problems panel).
-  onContentError?: (code: string, message: string) => void;
-}): Promise<LivePreviewHandle> {
-  await ensureIssue21Contexts(false, true);
-
-  // ── Compile (keep diagnostics on both outcomes for the Problems panel) ──
-  const compileId = createUuid();
-  const compileCorrelationId = createUuid();
-  const compileRequest: CompileRequest = {
-    protocolVersion: PROTOCOL_VERSION,
-    correlationId: compileCorrelationId,
-    type: "compile.request",
-    payload: {
-      compileId,
-      assemblyName: input.assemblyName,
-      sources: [...input.sources],
-      primarySourcePath: input.primarySourcePath,
-      timeoutMs: 30_000,
-      settings: {
-        languageVersion: "13.0",
-        nullable: "disable",
-        optimization: "debug",
-        allowUnsafe: false,
-        warningsAsErrors: false,
-      },
-    },
-  };
-  const compiled = await compilerClient.request(
-    compileRequest,
-    "compile.response",
-    value => validateCompileResponse(value, compileCorrelationId, compileId, {
-      assemblyName: input.assemblyName,
-      sourcePaths: input.sources.map(source => source.path),
-      primarySourcePath: input.primarySourcePath,
-    }),
-    [],
-    30_000,
-  ) as ReturnType<typeof validateCompileResponse>;
-  if (!compiled.message.result.success) {
-    // Surface diagnostics to the Problems panel before throwing (PRD 8.4: an
-    // already-running preview is left untouched — we have not created one yet).
-    input.onDiagnostics?.(compiled.message.result.error.diagnostics ?? [], "failure");
-    throw new Error(
-      `${compiled.message.result.error.code}: ${compiled.message.result.error.message}`);
-  }
-  const data = compiled.message.result.data;
-  input.onDiagnostics?.(data.diagnostics, "success");
-  const assembly = standaloneBuffer(new Uint8Array(data.assembly));
-  const pdb = standaloneBuffer(new Uint8Array(data.pdb));
-
-  // ── Retire any previous live preview, then mount a fresh sandboxed iframe ──
-  await retireInitialPreviewContext();
-  if (livePreviewFrame && livePreviewFrame.isConnected) {
-    livePreviewFrame.remove();
-  }
-  const canvasFrame = document.getElementById("canvas-frame");
-  if (!canvasFrame) throw new Error("Preview panel host (#canvas-frame) is missing.");
-  // Hide the "Press Run to start" placeholder while the game is mounted.
-  const statusLabel = document.getElementById("preview-context-status");
-  if (statusLabel) statusLabel.hidden = true;
-
-  const frame = createPreviewIframe();
-  frame.className = "live-preview-frame";
-  frame.title = "Running Game (in-page preview)";
-  const bridge = createPreviewBridge(frame);
-  const channel = new MessageChannel();
-  const client = new ProtocolPortClient(channel.port1, createUuid());
-  const previewId = createUuid();
-  const generation = createUuid();
-
-  const loaded = new Promise<void>((resolve, reject) => {
-    const timer = window.setTimeout(
-      () => reject(new Error("Preview iframe load timed out.")), 60_000);
-    frame.addEventListener("load", () => {
-      window.clearTimeout(timer);
-      const target = frame.contentWindow;
-      if (!target) return reject(new Error("Preview contentWindow is unavailable."));
-      // Opaque-origin iframe: post with "*" and transfer the protocol + bridge
-      // ports. It has no same-origin access and no Tauri bridge (issue 033/034).
-      // preview.js's installPrivatePortBootstrap requires issue021Proof (bool)
-      // and runGamePipeline:true to actually run the user's Game (not a proof).
-      target.postMessage(
-        {
-          type: "protocol.bootstrap",
-          contextGeneration: generation,
-          previewId,
-          issue021Proof: false,
-          runGamePipeline: true,
-        },
-        "*",
-        [channel.port2, bridge.childPort],
-      );
-      resolve();
-    }, { once: true });
-  });
-
-  livePreviewFrame = frame;
-  // Set srcdoc BEFORE appending to the DOM. Appending first fires a `load`
-  // event for the initial about:blank document, which a { once: true } listener
-  // would consume — the bootstrap would then post to the blank frame and the
-  // real preview.js load would never be observed (bridge.ready hangs). This is
-  // the order the proven proof paths use.
-  loadPreviewIframe(frame);
-  canvasFrame.appendChild(frame);
-
-  const retire = () => {
-    client.close(new Error("Live preview retired."));
-    bridge.close();
-    if (frame.isConnected) frame.remove();
-    if (livePreviewFrame === frame) livePreviewFrame = null;
-    // Restore the placeholder label now the panel is empty again.
-    const label = document.getElementById("preview-context-status");
-    if (label) label.hidden = false;
-  };
-
-  try {
-    await loaded;
-    await bridge.ready;
-
-    // ── Load the compiled binaries (inline transfer, same-process) ──
-    const loadCorrelationId = createUuid();
-    const loadRequest: PreviewLoadRequest = {
-      protocolVersion: PROTOCOL_VERSION,
-      correlationId: loadCorrelationId,
-      type: "preview.load.request",
-      payload: { previewId, compileId, assembly, pdb, binaryProof: data.binaryProof },
-    };
-    const loadResponse = await client.request(
-      loadRequest,
-      "preview.load.response",
-      value => validatePreviewLoadResponse(value, loadCorrelationId, previewId, compileId),
-      [assembly, pdb],
-    ) as ReturnType<typeof validatePreviewLoadResponse>;
-    if (!loadResponse.message.result.success) {
-      retire();
-      throw new Error(
-        `${loadResponse.message.result.error.code}: ${loadResponse.message.result.error.message}`);
-    }
-
-    // ── Mount discovered Content/ assets (issue 052) BEFORE start ──
-    // Inline transfer over the same in-page protocol port (no Rust relay). Each
-    // asset's bytes go through the preview's content-type-aware mount gate
-    // (wav->xnb transcode / image sniff / xnb validate). A mount failure aborts
-    // the run and surfaces a labelled content error via onDiagnostics (issue 049
-    // Output panel), leaving no preview running.
-    if (input.contentAssets && input.contentAssets.length > 0) {
-      const mountCorrelationId = createUuid();
-      const mountId = createUuid();
-      const mountAssets = input.contentAssets.map(asset => ({
-        path: asset.path,
-        bytes: standaloneBuffer(new Uint8Array(asset.bytes)),
-      }));
-      const mountRequest: AssetMountRequest = {
-        protocolVersion: PROTOCOL_VERSION,
-        correlationId: mountCorrelationId,
-        type: "asset.mount.request",
-        payload: {
-          previewId,
-          mountId,
-          contentRootDirectory: input.contentRootDirectory ?? "Content",
-          assets: mountAssets,
-        },
-      };
-      const mountResponse = await client.request(
-        mountRequest,
-        "asset.mount.response",
-        value => validateAssetMountResponse(value, mountCorrelationId, previewId, mountId),
-        mountAssets.map(asset => asset.bytes),
-      ) as ReturnType<typeof validateAssetMountResponse>;
-      if (!mountResponse.message.result.success) {
-        const error = mountResponse.message.result.error;
-        // Surface the content error in the real Output panel (issue 049), then
-        // abort the run without starting a game (PRD 8.4/§15: fail clearly, don't
-        // render). Also mirror any structured diagnostics to the Problems panel.
-        input.onContentError?.(error.code, error.message);
-        const diagnostics = (error as { diagnostics?: Diagnostic[] }).diagnostics;
-        if (diagnostics && diagnostics.length > 0) input.onDiagnostics?.(diagnostics, "failure");
-        retire();
-        throw new Error(`${error.code}: ${error.message}`);
-      }
-    }
-
-    // ── Wire output + runtime-failure listeners (issues 049 / 029) ──
-    const startCorrelationId = createUuid();
-    let resolveFailure!: (value: Record<string, unknown>) => void;
-    const failure = new Promise<Record<string, unknown>>(resolve => { resolveFailure = resolve; });
-    let failureCorrelation: string | null = null;
-    let runtimeFailedEvent: unknown = null;
-
-    const removeOutput = client.onOutputEvent(message => {
-      if (message.correlationId !== startCorrelationId) return;
-      const validated = validatePreviewOutputEvent(message, previewId, startCorrelationId);
-      input.onOutput?.(validated.message);
-    });
-    const removeFailure = client.onLifecycleEvent(message => {
-      if (message.type === "preview.failed" && message.payload.phase === "running") {
-        if (failureCorrelation !== null) return;
-        const validated = validatePreviewLifecycleEvent(message, previewId);
-        failureCorrelation = validated.message.correlationId;
-        runtimeFailedEvent = validated.message;
-        return;
-      }
-      if (message.type !== "preview.stopped" || message.correlationId !== failureCorrelation) return;
-      const validated = validatePreviewLifecycleEvent(message, previewId, failureCorrelation);
-      removeOutput();
-      removeFailure();
-      retire();
-      resolveFailure({ failedEvent: runtimeFailedEvent, stoppedEvent: validated.message });
-    });
-
-    // ── Start the game ──
-    const startedPromise = new Promise<unknown>((resolve, reject) => {
-      const timer = window.setTimeout(() => reject(new Error("preview.started timed out.")), 10_000);
-      const removeStarted = client.onLifecycleEvent(message => {
-        if (message.correlationId !== startCorrelationId) return;
-        const validated = validatePreviewLifecycleEvent(message, previewId, startCorrelationId);
-        if (validated.message.type === "preview.started") {
-          window.clearTimeout(timer);
-          removeStarted();
-          resolve(validated.message);
-        }
-      });
-    });
-    const startRequest: PreviewStartRequest = {
-      protocolVersion: PROTOCOL_VERSION,
-      correlationId: startCorrelationId,
-      type: "preview.start.request",
-      payload: { previewId, timeoutMs: 10_000 },
-    };
-    const startResponse = await client.request(
-      startRequest,
-      "preview.start.response",
-      value => validatePreviewStartResponse(value, startCorrelationId, previewId),
-      [],
-    ) as ReturnType<typeof validatePreviewStartResponse>;
-    if (!startResponse.message.result.success) {
-      removeOutput();
-      removeFailure();
-      retire();
-      throw new Error(
-        `${startResponse.message.result.error.code}: ${startResponse.message.result.error.message}`);
-    }
-    await startedPromise;
-
-    // ── Cooperative stop (issue 024) + iframe removal ──
-    let stopOperation: Promise<Record<string, unknown>> | null = null;
-    const stop = (reason: "user" | "restart" = "user") => {
-      if (stopOperation) return stopOperation;
-      stopOperation = (async () => {
-        const correlationId = createUuid();
-        const request: PreviewStopRequest = {
-          protocolVersion: PROTOCOL_VERSION,
-          correlationId,
-          type: "preview.stop.request",
-          payload: { previewId, reason, timeoutMs: 2_000 },
-        };
-        try {
-          const response = await client.request(
-            request,
-            "preview.stop.response",
-            value => validatePreviewStopResponse(value, correlationId, previewId),
-            [],
-            2_000,
-          ) as ReturnType<typeof validatePreviewStopResponse>;
-          removeOutput();
-          removeFailure();
-          retire();
-          return { correlationId, response: response.message };
-        } catch (error) {
-          // Even if the cooperative stop times out (e.g. an in-tick hang), tear
-          // the iframe down so the panel returns to a clean state.
-          removeOutput();
-          removeFailure();
-          retire();
-          throw error instanceof Error ? error : new Error(String(error));
-        }
-      })();
-      return stopOperation;
-    };
-
-    return { failure, stop };
-  } catch (error) {
-    retire();
-    throw error instanceof Error ? error : new Error(String(error));
-  }
-}
 
 // ── Issue 052 task 3: proof-capable in-page preview runner ──────────────────
 //
@@ -2353,7 +1873,7 @@ export async function runInPagePreviewForProof(input: {
   issue035Proof?: boolean;
   issue036Proof?: boolean;
 }): Promise<InPageProofPreview> {
-  await ensureIssue21Contexts(false, true);
+  await ensureContexts(false, true);
 
   const compileSources = input.sources ?? [{ path: input.sourcePath, text: input.sourceText }];
   const primarySourcePath = input.primarySourcePath ?? input.sourcePath;
@@ -2398,8 +1918,9 @@ export async function runInPagePreviewForProof(input: {
   const pdb = standaloneBuffer(new Uint8Array(data.pdb));
 
   await retireInitialPreviewContext();
-  if (livePreviewFrame && livePreviewFrame.isConnected) {
-    livePreviewFrame.remove();
+  const existingLiveFrame = getLivePreviewFrame();
+  if (existingLiveFrame && existingLiveFrame.isConnected) {
+    existingLiveFrame.remove();
   }
   const canvasFrame = document.getElementById("canvas-frame");
   if (!canvasFrame) throw new Error("Preview panel host (#canvas-frame) is missing.");
@@ -2445,7 +1966,7 @@ export async function runInPagePreviewForProof(input: {
     }, { once: true });
   });
 
-  livePreviewFrame = frame;
+  setLivePreviewFrame(frame);
   loadPreviewIframe(frame);
   canvasFrame.appendChild(frame);
 
@@ -2456,7 +1977,7 @@ export async function runInPagePreviewForProof(input: {
     client.close(new Error("Proof preview retired."));
     bridge.close();
     if (frame.isConnected) frame.remove();
-    if (livePreviewFrame === frame) livePreviewFrame = null;
+    if (getLivePreviewFrame() === frame) setLivePreviewFrame(null);
     const label = document.getElementById("preview-context-status");
     if (label) label.hidden = false;
   };
@@ -2593,9 +2114,10 @@ export async function runInPagePreviewForProof(input: {
 export async function probeInPageNoWasmEvalBoot(
   waitMs = 6_000,
 ): Promise<{ bridgeReady: boolean }> {
-  await ensureIssue21Contexts(false, true);
-  if (livePreviewFrame && livePreviewFrame.isConnected) {
-    livePreviewFrame.remove();
+  await ensureContexts(false, true);
+  const existingLiveFrame = getLivePreviewFrame();
+  if (existingLiveFrame && existingLiveFrame.isConnected) {
+    existingLiveFrame.remove();
   }
   const canvasFrame = document.getElementById("canvas-frame");
   if (!canvasFrame) throw new Error("Preview panel host (#canvas-frame) is missing.");
@@ -2628,7 +2150,7 @@ export async function probeInPageNoWasmEvalBoot(
     );
   }, { once: true });
 
-  livePreviewFrame = frame;
+  setLivePreviewFrame(frame);
   // No-wasm-eval CSP variant; set srcdoc BEFORE append (about:blank load-race).
   loadIssue033NoWasmEvalPreviewIframe(frame);
   canvasFrame.appendChild(frame);
@@ -2641,7 +2163,7 @@ export async function probeInPageNoWasmEvalBoot(
     client.close(new Error("No-wasm-eval negative probe retired."));
     bridge.close();
     if (frame.isConnected) frame.remove();
-    if (livePreviewFrame === frame) livePreviewFrame = null;
+    if (getLivePreviewFrame() === frame) setLivePreviewFrame(null);
     const label = document.getElementById("preview-context-status");
     if (label) label.hidden = false;
   }
@@ -2663,7 +2185,7 @@ export async function compileToBuffers(input: {
   binaryProof: BinaryProof;
   diagnostics: readonly unknown[];
 }> {
-  await ensureIssue21Contexts(false, true);
+  await ensureContexts(false, true);
   const compileId = createUuid();
   const compileCorrelationId = createUuid();
   const compileSources = input.sources ?? [{
