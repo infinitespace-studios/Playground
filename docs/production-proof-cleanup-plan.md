@@ -128,23 +128,52 @@ Accepted evidence:
 - A full native PRODUCT package built successfully after the proof package.
 - Independent review reported no blocking findings.
 
-### Stage 4 — Consolidate historical issue proofs — PENDING
+### Stage 4 — Consolidate historical issue proofs — COMPLETE
 
-Replace the many permanent per-issue drivers with a smaller durable scenario
-suite:
+**Commit:** `ad8b0a8 test: consolidate proof drivers into scenarios`
 
-1. Compile → Run → Stop → rerun.
-2. Compiler diagnostics and policy rejection.
-3. Runtime exception and portable-PDB mapping.
-4. Managed/native output.
-5. Texture/audio content workflow.
-6. Embedded preview security boundary.
-7. Project open/save/dirty-state/identity behavior.
-8. Performance and memory.
+Delivered eight durable scenario suites:
 
-Historical evidence remains in `issues/` and ignored artifacts. Proof
-implementation does not need to ship forever merely because an issue once used
-it.
+1. `proof-compile-run-stop.ts`
+2. `proof-compiler-diagnostics.ts`
+3. `proof-runtime-exception.ts`
+4. `proof-output.ts`
+5. `proof-content.ts`
+6. `proof-preview-security.ts`
+7. `proof-project-lifecycle.ts` plus `project-lifecycle.test.ts`
+8. `proof-performance.ts`
+
+`entry.proof.ts` now dispatches one entrypoint per scenario through the shared
+`scenario-runner.ts`. The canonical packaged path is
+`scripts/prove-scenarios-macos.sh`; historical issue-named scripts remain only
+as compatibility runners. Content and shared proof flows now use the embedded
+opaque-origin preview. `issue38.ts` is the sole remaining importer of
+`issue38-bridge.ts`, unblocking Stage 5.
+
+The artifact checker structurally rejects every `proof-*` module in PRODUCT,
+requires exactly the eight scenario modules in PROOF, and retains explicit
+issue21/issue38 checks. Project lifecycle tests consolidate historical identity
+coverage and add open/save/dirty-state/atomic-failure coverage. The existing
+issue040 input command now uses exact, bounded, main-caller-only embedded
+preview registration for trusted packaged audio activation; command and ACL
+inventories are unchanged.
+
+Accepted evidence:
+
+- PRODUCT graph: 21 modules, zero issue-numbered modules, zero `proof-*`
+  modules, and zero proof markers.
+- PROOF graph: 44 modules, exactly eight scenario modules, and all 18 expected
+  proof markers.
+- TypeScript, 102 protocol tests, 51 focused content/project tests, 32
+  performance tests, Cargo format/check/Clippy, and 58 Rust tests passed.
+- The canonical packaged suite passed all eight scenarios and every mapped
+  sub-proof, including embedded texture/audio and performance.
+- The retained issue038 packaged regression suite passed with zero orphans and
+  a clean invoke-key scan.
+- Full native PROOF and PRODUCT packages built successfully, with PRODUCT built
+  last and passing its artifact check.
+- Independent strict review accepted the final implementation with no blocking
+  findings.
 
 ### Stage 5 — Retire isolated-window/issue-038 harness — PENDING
 

@@ -1,7 +1,6 @@
 # Stage 4 — durable scenario suite (inventory & verification matrix)
 
-**Status:** accepted after strict review, remediation, and packaged verification;
-pending commit
+**Status:** complete — `ad8b0a8 test: consolidate proof drivers into scenarios`
 **Decision basis:** ADR 0003; `production-proof-cleanup-plan.md` Stage 4
 **Scope:** frontend proof-driver consolidation into genuine scenario
 orchestration + packaged-scenario/artifact-check enforcement + scenario-7
