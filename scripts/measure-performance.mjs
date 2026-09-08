@@ -921,8 +921,9 @@ async function main() {
     statSync(BINARY);
   } catch {
     throw new Error(
-      `packaged binary not found: ${BINARY}\n` +
-      "build it first: npm --prefix src/desktop run tauri -- build");
+      `packaged proof binary not found: ${BINARY}\n` +
+      "build it first: npm --prefix src/desktop run tauri -- build " +
+      "--config src-tauri/tauri.proof.conf.json");
   }
 
   const preexisting = applicationPids();
@@ -1421,8 +1422,8 @@ async function main() {
     caveats,
     reproduction: {
       commands: [
-        "npm --prefix src/frontend run build",
-        "npm --prefix src/desktop run tauri -- build",
+        "npm --prefix src/desktop run tauri -- build --config " +
+          "src-tauri/tauri.proof.conf.json",
         `caffeinate -di node scripts/measure-performance.mjs --runs ${options.runs} ` +
         `${options.memoryBaseline
           ? `--memory-baseline --warm-compiles-baseline ${options.warmCompilesBaseline} ` +
@@ -1432,8 +1433,10 @@ async function main() {
         "node --test scripts/performance-report.test.mjs scripts/measure-performance.test.mjs",
       ],
       notes: [
-        "The driver requires the macOS packaged release binary at " +
-        "`src/desktop/src-tauri/target/release/monogame-playground`.",
+        "The driver requires the macOS proof-profile release binary at " +
+        "`src/desktop/src-tauri/target/release/monogame-playground`; build it with " +
+        "`src-tauri/tauri.proof.conf.json` immediately before measuring because the raw " +
+        "Cargo target path is shared by product and proof builds.",
         "Run it under `caffeinate -di` on an unlocked console session: the measured Run path " +
         "requires the application window to activate and paint, which macOS suppresses while " +
         "the display sleeps or the screen is locked. The driver reads the console session " +

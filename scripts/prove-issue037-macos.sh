@@ -18,7 +18,12 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_DIR="$REPO_ROOT/src/desktop"
-APP_BINARY="$DESKTOP_DIR/src-tauri/target/release/bundle/macos/MonoGame Playground.app/Contents/MacOS/monogame-playground"
+# PROOF profile packages under a distinct productName ("MonoGame Playground
+# Proof") and identifier (com.monogame.playground.proof) via
+# tauri.proof.conf.json, so the proof bundle cannot masquerade as or overwrite
+# the normal installed product. The inner Mach-O executable keeps the Cargo
+# crate name (monogame-playground); only the .app directory takes productName.
+APP_BINARY="$DESKTOP_DIR/src-tauri/target/release/bundle/macos/MonoGame Playground Proof.app/Contents/MacOS/monogame-playground"
 BUILD_APP=1
 
 while [ "$#" -gt 0 ]; do
@@ -34,10 +39,11 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 if [ "$BUILD_APP" -eq 1 ]; then
-    echo "=== Building frontend ==="
-    (cd "$REPO_ROOT/src/frontend" && npm run build)
-    echo "=== Building release bundle ==="
-    (cd "$DESKTOP_DIR" && npm run tauri -- build 2>&1 | tail -5)
+    # tauri.proof.conf.json's beforeBuildCommand already runs `build:proof`, so
+    # we do not build the frontend separately here (avoids a redundant double
+    # frontend build). The Tauri build stages + embeds the proof frontend.
+    echo "=== Building release bundle (PROOF profile) ==="
+    (cd "$DESKTOP_DIR" && npm run tauri -- build --config src-tauri/tauri.proof.conf.json 2>&1 | tail -5)
 fi
 
 if [ ! -x "$APP_BINARY" ]; then

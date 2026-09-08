@@ -1,0 +1,9 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MonoGame Playground Proof",
+  "identifier": "com.monogame.playground.proof",
+  "build": {
+    "beforeBuildCommand": "npm --prefix ../frontend run build:proof",
+    "frontendDist": "../../frontend/dist-proof"
+  }
+}

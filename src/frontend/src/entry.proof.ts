@@ -1,3 +1,14 @@
+// Proof frontend entry (Stage 1 of the production/proof split).
+//
+// This is the compile-time PROOF entry point, selected only when the Vite
+// build is invoked with MONOGAME_FRONTEND_PROFILE=proof (see vite.config.ts and
+// the `build:proof` / `dev:proof` npm scripts). It preserves the historical
+// `main.ts` behavior: it imports and invokes the full per-issue auto-proof
+// graph plus the Workbench app, theme, and benchmark instrumentation.
+//
+// The default PRODUCT build (`entry.product.ts`) must NEVER import this module,
+// so the auto-proof environment markers below (MONOGAME_ISSUE0xx_PROOF) stay
+// out of the shipping product dist.
 import "./style.css";
 import { runIssue021AutoProof } from "./issue21";
 import { runIssue022AutoProof } from "./issue22";

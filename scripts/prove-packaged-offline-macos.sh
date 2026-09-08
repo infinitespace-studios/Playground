@@ -4,7 +4,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DESKTOP_DIR="$REPO_ROOT/src/desktop"
-APP_BINARY="$DESKTOP_DIR/src-tauri/target/release/bundle/macos/MonoGame Playground.app/Contents/MacOS/monogame-playground"
+# PROOF profile packages as "MonoGame Playground Proof.app" (distinct
+# productName/identifier via tauri.proof.conf.json). The inner Mach-O keeps the
+# Cargo crate name (monogame-playground).
+APP_BINARY="$DESKTOP_DIR/src-tauri/target/release/bundle/macos/MonoGame Playground Proof.app/Contents/MacOS/monogame-playground"
 EVIDENCE_FILE="$REPO_ROOT/artifacts/offline-proof-macos.log"
 BUILD_APP=1
 
@@ -63,8 +66,8 @@ for command in npm sandbox-exec python3; do
 done
 
 if [ "$BUILD_APP" -eq 1 ]; then
-    echo "Building packaged application before network isolation..."
-    npm --prefix "$DESKTOP_DIR" run tauri -- build
+    echo "Building packaged application (PROOF profile) before network isolation..."
+    npm --prefix "$DESKTOP_DIR" run tauri -- build --config src-tauri/tauri.proof.conf.json
 fi
 
 if [ ! -x "$APP_BINARY" ]; then

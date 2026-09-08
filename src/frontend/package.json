@@ -11,12 +11,21 @@
     "test:stage-issue21-clean": "bash scripts/test-stage-issue21-clean.sh",
     "test:preview-native-artifacts": "bash ../../scripts/test-preview-native-artifacts.sh",
     "test:protocol": "node --experimental-strip-types --test src/protocol.test.ts",
+    "check:profiles": "node scripts/check-profile-artifacts.mjs both",
+    "check:profile-product": "node scripts/check-profile-artifacts.mjs product",
+    "check:profile-proof": "node scripts/check-profile-artifacts.mjs proof",
+    "verify:profiles": "bash scripts/verify-profiles.sh",
     "test:performance-report": "node --test ../../scripts/performance-report.test.mjs",
     "test:measure-performance": "node --test ../../scripts/measure-performance.test.mjs",
     "measure:performance": "node ../../scripts/measure-performance.mjs",
     "typecheck": "tsc --noEmit",
-    "dev": "npm run stage:monogame && npm run stage:compiler && npm run stage:preview && vite",
-    "build": "npm run stage:monogame && npm run stage:compiler && npm run stage:preview && vite build"
+    "stage": "npm run stage:monogame && npm run stage:compiler && npm run stage:preview",
+    "dev": "npm run stage && vite",
+    "dev:proof": "MONOGAME_FRONTEND_PROFILE=proof npm run dev",
+    "build:vite": "vite build",
+    "build:vite:proof": "MONOGAME_FRONTEND_PROFILE=proof vite build",
+    "build": "npm run stage && npm run build:vite",
+    "build:proof": "npm run stage && npm run build:vite:proof"
   },
   "devDependencies": {
     "typescript": "5.9.2",

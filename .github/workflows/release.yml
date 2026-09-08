@@ -282,8 +282,11 @@ jobs:
       - name: Stage assets + build frontend
         # Runs stage:monogame (consumes artifacts/monogame) + stage:compiler +
         # stage:preview (each does its own `dotnet publish -c Release`) then
-        # `vite build`.
+        # `vite build`. The default profile is always PRODUCT.
         run: npm --prefix src/frontend ci && npm --prefix src/frontend run build
+
+      - name: Verify product frontend excludes proof graph
+        run: npm --prefix src/frontend run check:profile-product
 
       - name: Build Tauri bundle (${{ matrix.target }})
         uses: tauri-apps/tauri-action@v0

@@ -6,6 +6,157 @@ for the MonoGame revision and tools used to build the playground. It prevents a
 build from silently following a branch head or using whatever tool versions
 happen to be installed.
 
+## Frontend build profiles (PRODUCT vs PROOF)
+
+The frontend (`src/frontend`) builds under one of two **compile-time** profiles,
+selected by the `MONOGAME_FRONTEND_PROFILE` environment variable that
+`vite.config.ts` reads at build time. This is a build-time entry split, not a
+runtime flag: exactly one entry graph is compiled per build, so proof-only
+modules and chunks are physically absent from the product output.
+
+| Profile | Env | Entry module | Output dir | Contents |
+| --- | --- | --- | --- | --- |
+| PRODUCT (default) | unset or `product` | `src/entry.product.ts` | `dist/` | Workbench product + theme only. No auto-proof entry graph. |
+| PROOF | `proof` | `src/entry.proof.ts` (former `main.ts`) | `dist-proof/` | Full per-issue auto-proof instrumentation + Workbench + benchmarks. |
+
+`index.html` references the product entry by default; a build-time Vite HTML
+transform (`order: "pre"`) rewrites that single `<script>` to the proof entry
+only when the proof profile is active. The two profiles write to separate
+directories and each build empties its own output dir (`build.emptyOutDir`), so
+stale artifacts are removed per profile and a clean product build after a proof
+build never inherits proof-only artifacts.
+
+### Build manifest (`profile-manifest.json`)
+
+Every Vite build stamps a machine-readable manifest into its own output
+directory via the `monogame-emit-profile-manifest` plugin
+(`vite.config.ts`, `generateBundle` hook). It records:
+
+- `profile` — `"product"` or `"proof"` (which build produced this directory).
+- `entrySource` — the selected entry module (`src/entry.product.ts` or
+  `src/entry.proof.ts`).
+- `modules` — the **actual Rollup module graph**: every first-party source
+  module that survived tree-shaking into the emitted chunks. Tree-shaken
+  modules never appear here, so module-graph exclusion is proven from Rollup,
+  not inferred from minified text.
+- `chunks` — every emitted JS chunk, whether it is an entry chunk, its facade
+  module id, and its module count.
+- `schemaVersion` — manifest format version (checker rejects unknown versions).
+
+### Commands (staging separated from Vite-only profile builds)
+
+The expensive .NET staging (`stage:monogame/compiler/preview`, which populates
+`.generated-public/`) is profile-independent and split out from the Vite build,
+so profile verification does not repeat it three times:
+
+```bash
+# Stage the .NET assets once (profile-independent)
+npm --prefix src/frontend run stage
+
+# Vite-only profile builds (reuse staged .generated-public/)
+npm --prefix src/frontend run build:vite         # PRODUCT -> dist/
+npm --prefix src/frontend run build:vite:proof   # PROOF   -> dist-proof/
+
+# Full builds (stage + vite) — what Tauri's beforeBuildCommand invokes
+npm --prefix src/frontend run build              # PRODUCT -> dist/
+npm --prefix src/frontend run build:proof        # PROOF   -> dist-proof/
+
+# Dev servers
+npm --prefix src/frontend run dev                # product dev server
+npm --prefix src/frontend run dev:proof          # proof dev server
+
+# Stage 1 artifact separation checks (validate existing built output; these do
+# not rebuild, so use verify:profiles when freshness is part of the check)
+npm --prefix src/frontend run check:profiles          # both dirs
+npm --prefix src/frontend run check:profile-product   # dist/ only
+npm --prefix src/frontend run check:profile-proof     # dist-proof/ only
+
+# Fresh-build verification: product -> proof -> product (proves the product
+# build after a proof build stays clean). Stages once, then vite-only builds.
+npm --prefix src/frontend run verify:profiles
+npm --prefix src/frontend run verify:profiles -- --skip-stage   # reuse staging
+```
+
+### Checker (`scripts/check-profile-artifacts.mjs`)
+
+The checker requires and validates each build's `profile-manifest.json`, and
+fails on: a missing/malformed manifest, an unknown schema version, a directory
+stamped with the wrong profile (product stamped proof or vice versa), an
+empty/malformed module inventory, or the wrong entry source.
+
+Beyond the manifest it asserts, per profile:
+
+- **PRODUCT (`dist/`)** — `src/entry.proof.ts` and every proof-only former
+  direct-import module (`issue22/23/25/27..36/38/039/040/041`) are absent from
+  the emitted module graph, and **zero** auto-proof markers
+  (`MONOGAME_ISSUE0xx_PROOF...`) appear in any emitted `.js/.html/.css`
+  artifact. **Any** marker — including the transitional mixed `021/024/037`
+  markers — is a **hard failure** (no warnings, no downgrades).
+- **PROOF (`dist-proof/`)** — `src/entry.proof.ts` and every proof-only module
+  are present in the graph, `src/entry.product.ts` is absent, and every
+  expected proof marker is present in the emitted output.
+
+Anti-drift guards prevent a check from passing vacuously: the source marker
+inventory is scanned from the **whole non-test runtime source** text (no `//`
+comment truncation) and must meet a minimum count; the expected proof marker set must be
+non-empty and meet a minimum count; and the manifest module inventory must be
+non-empty. One marker (`MONOGAME_ISSUE037_PROOF_PHASE`) lives only in a source
+comment naming a shell/Rust env var and is never emitted; it is documented in
+the checker's `COMMENT_ONLY_MARKERS` (still forbidden in product, not required
+in proof output).
+
+The release workflow runs `check:profile-product` immediately after its normal
+frontend build, so a release leg fails before Tauri packaging if the product
+module graph or emitted assets contain proof instrumentation.
+
+### Tauri integration and native output separation
+
+Tauri's normal `beforeBuildCommand` is the **PRODUCT** build
+(`tauri.conf.json`, `productName` "MonoGame Playground", identifier
+`com.monogame.playground`). Packaged proof scripts select the proof profile by
+merging `src-tauri/tauri.proof.conf.json`, which overrides:
+
+- `build.beforeBuildCommand` -> `npm --prefix ../frontend run build:proof`
+- `build.frontendDist` -> `../../frontend/dist-proof`
+- `productName` -> `MonoGame Playground Proof`
+- `identifier` -> `com.monogame.playground.proof`
+
+```bash
+npm --prefix src/desktop run tauri -- build \
+  --config src-tauri/tauri.proof.conf.json
+```
+
+The distinct `productName`/`identifier` mean the proof package bundles as
+`MonoGame Playground Proof.app` with bundle id `com.monogame.playground.proof`,
+so a proof build cannot masquerade as or overwrite the normally installed
+product, and its persisted app data is namespaced separately. The normal
+product identity is unchanged.
+
+**Residual shared behavior (documented):** both profiles compile the same Cargo
+crate, so the intermediate raw release binary
+`src/desktop/src-tauri/target/release/monogame-playground` and the Rust `target/`
+tree are shared and overwritten by whichever profile built last. The macOS
+`.app` bundles are separate (distinct `productName`), but the inner Mach-O
+executable keeps the Cargo crate name `monogame-playground` in both. The
+packaged proof runner scripts (`prove-issue03x/04x`) that exercise the raw
+release binary therefore run whichever frontend was embedded by the most recent
+build; they build the proof profile immediately beforehand so the binary embeds
+the proof frontend.
+
+### Stage-2 coupling (known, documented)
+
+`entry.product.ts` -> `./app` still transitively imports a few mixed modules
+(`issue21` / `issue24` / `issue37`) that *define* proof markers
+(`MONOGAME_ISSUE021_PROOF`, `MONOGAME_ISSUE024_PROOF`,
+`MONOGAME_ISSUE037_PROOF`). Product uses only their controller/gate exports
+(`installIssue024RunStopControl`, `gateFirstRun`, ...), so the
+`runIssueXXXAutoProof` functions carrying the marker strings are tree-shaken
+out of the emitted product bundle. The checker's `MIXED_TRANSITIONAL_MODULES`
+allowlist permits these three modules to appear in the product **module graph**
+only, but the zero-marker assertion still **hard-fails** if any of their proof
+marker strings are emitted into a product artifact. Extracting the product code
+paths out of `issue21/24/37` is Stage-2 work.
+
 ## Manifest schema
 
 `schemaVersion` identifies the manifest format. The remaining top-level objects

@@ -10,7 +10,7 @@ EVIDENCE="$REPO/artifacts"
 BUILD=1
 while [ "$#" -gt 0 ]; do case "$1" in --skip-build) BUILD=0; shift ;; *) echo "Unknown: $1" >&2; exit 2 ;; esac; done
 [ "$(uname -s)" = "Darwin" ] || { echo "macOS required." >&2; exit 1; }
-[ "$BUILD" -eq 1 ] && { echo "Building..."; npm --prefix "$REPO/src/desktop" run tauri -- build; }
+[ "$BUILD" -eq 1 ] && { echo "Building (PROOF profile)..."; npm --prefix "$REPO/src/desktop" run tauri -- build --config src-tauri/tauri.proof.conf.json; }
 [ -x "$BIN" ] || { echo "Binary not found: $BIN" >&2; exit 1; }
 mkdir -p "$EVIDENCE"
 
