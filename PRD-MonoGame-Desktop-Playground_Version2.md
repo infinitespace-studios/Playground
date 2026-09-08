@@ -17,6 +17,19 @@ The key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, and **MAY** ar
 
 All MVP acceptance criteria and Phase 1 feasibility criteria are mandatory regardless of capitalization elsewhere in this document.
 
+### Architecture amendment — embedded preview (September 8, 2026)
+
+The product preview runs inside the Workbench preview panel as an opaque-origin,
+sandboxed iframe. The previously explored separate visible preview window and
+forced-termination requirement are superseded by this amendment and ADR 0003.
+Stop is cooperative and is guaranteed only for supported user code that returns
+control to the MonoGame/browser frame loop. Synchronous non-yielding code—such
+as an unbounded `while (true)`, `for (;;)`, blocking recursion, or equivalent
+work inside construction, `LoadContent`, `Update`, or `Draw`—is unsupported. It
+may freeze the shared WebView and require the user to terminate and relaunch the
+application. General finite `while`/`for` loops remain supported; the restriction
+is on monopolizing the WebView thread, not on a particular C# keyword.
+
 ---
 
 ## 1. Product summary
@@ -426,23 +439,21 @@ When the user presses **Run**:
 When the user presses **Stop**:
 
 1. Request cooperative termination of the current preview.
-2. If cooperative termination succeeds, release its WebGL, audio, and communication resources.
-3. If cooperative termination does not respond, force-terminate the isolated preview.
-4. Remove the preview iframe or isolated context.
+2. Cancel the Emscripten main loop.
+3. Release WebGL, audio, and communication resources.
+4. Close message ports, revoke generated object URLs, and remove the preview iframe.
 5. Leave source and compiler state intact.
 
-For the MVP, normal Stop may finish by destroying the preview iframe after cooperative cleanup. An unresponsive preview must use the forced path.
+For supported user code that yields between frames, Stop must return the editor
+to an interactive state within 2 seconds on the reference machine.
 
-Stop must:
-
-- Return the editor to an interactive state within 2 seconds on the reference machine.
-
-If user code monopolizes the WebView thread and the editor cannot meet this requirement, the architecture must use a separately terminable WebView or process before Phase 2.
-
-The lifecycle must support two stop paths:
-
-- **Cooperative stop:** cancel the Emscripten main loop, explicitly release WebGL and audio, close message ports, revoke generated object URLs, and then remove the preview.
-- **Forced stop:** terminate the isolated preview WebView or process when cooperative cleanup cannot run, then verify that its renderer/process, audio, animation, WebGL context, message channels, and user state no longer exist.
+The MVP intentionally does not host the preview in a separate visible OS window
+and does not promise forced recovery from code that monopolizes the shared
+WebView thread. Synchronous non-yielding code, including an unbounded loop inside
+a game callback, is unsupported and may require terminating and relaunching the
+application. Because arbitrary non-termination cannot be detected reliably by
+static analysis, this is a documented execution constraint rather than a claim
+that every possible infinite loop will be rejected before Run.
 
 ## 8.4 Compilation failure
 
@@ -988,7 +999,6 @@ The preview lifecycle must define these states:
 
 ```text
 stopped → starting → running → stopping → stopped
-                     │            └──→ forced-stopping → stopped
                      └──────→ failed → stopped
 ```
 
@@ -1218,7 +1228,7 @@ For a small project of up to five source files:
 
 - Preview visibly active within 3 seconds after successful compilation at p95.
 - A loading indicator must be shown.
-- Stop must return control to the editor within 2 seconds.
+- For supported user code that yields between frames, Stop must return control to the editor within 2 seconds.
 
 ### Memory and lifecycle
 
@@ -1296,7 +1306,7 @@ The feasibility phase must answer:
 15. What is the resulting package size and startup time?
 16. Does a Release-packaged build preserve the full supported dynamic-code API surface after trimming?
 17. Does `Game.Exit()` cancel the WebGL loop and notify the host?
-18. Can a hung game be terminated while keeping the editor responsive?
+18. Does cooperative Stop reliably clean up yielding games, and is the unsupported behavior of synchronous non-yielding user code documented clearly?
 19. Can portable PDBs map a runtime exception to the correct source file and line?
 20. Can Web-profile content be validated and mounted before runtime startup?
 21. Does the compiler meet the editor input-responsiveness budget?
@@ -1340,7 +1350,7 @@ The spike is successful if:
 - A generated `Game` subclass can be executed without being disposed when `Run()` returns.
 - `Game.Exit()` cancels the game loop and returns the preview to stopped state.
 - An exception in user code reports the correct source file and line from the portable PDB.
-- Stop recovers from an infinite `Update` within 2 seconds or the architecture moves the preview to a separately terminable WebView or process.
+- Stop returns control within 2 seconds for supported user code that yields between frames; synchronous non-yielding user code is explicitly documented as unsupported and may require application relaunch.
 - Stop and Run work at least twenty consecutive times within the memory and lifecycle limits in section 17.
 - Compiler diagnostics return to TypeScript.
 - Compiler work meets the editor responsiveness requirement.
@@ -1360,7 +1370,7 @@ The architecture should be reconsidered if:
 - The candidate shell cannot support the required non-threaded runtime, or the runtime unexpectedly requires shared memory that is incompatible with the isolation boundary.
 - Roslyn cannot run or consumes unacceptable memory.
 - Dynamic assemblies cannot be loaded.
-- Preview contexts cannot be terminated reliably.
+- Supported, cooperatively yielding preview contexts cannot be stopped and cleaned up reliably.
 - Required isolation is incompatible with the runtime.
 - The compressed release artifact exceeds 100 MB without an approved waiver.
 
@@ -1432,14 +1442,14 @@ Test:
 - Game construction
 - Runtime exceptions
 - `Game.Exit()`
-- Stop by iframe removal
-- Infinite `Update` termination
+- Cooperative Stop followed by iframe removal
+- Clear warning/documentation for unsupported synchronous non-yielding callbacks
 - Twenty consecutive Run/Stop cycles
 - Static-state reset
 - Console output capture
 - Native Emscripten output capture
 - WebGL, audio, message-port, and object-URL cleanup
-- Forced termination of an unresponsive isolated preview
+- Recovery by application relaunch after an intentionally non-yielding preview test
 
 ## 22.3 Rendering tests
 
@@ -1503,7 +1513,8 @@ Test:
 - Preview denial of shell IPC and project filesystem access
 - Host navigation and arbitrary network denial
 - Forged, unknown-version, oversized, and malformed protocol messages
-- Cooperative and forced Stop paths
+- Cooperative Stop and cleanup for yielding games
+- Documented unsupported behavior for synchronous non-yielding user code
 
 ---
 
@@ -1522,7 +1533,7 @@ The MVP is complete when:
 9. `Console.WriteLine` appears in Output.
 10. Native MonoGame and Emscripten output appears in Output.
 11. A runtime exception reports the correct user source file and line without terminating the editor.
-12. `Game.Exit()` and Stop terminate rendering and audio within 2 seconds.
+12. For supported user code that yields between frames, `Game.Exit()` and Stop terminate rendering and audio within 2 seconds.
 13. Running again starts with clean state and twenty cycles stay within the lifecycle and memory limits.
 14. A local project can be opened, saved, and protected from accidental loss of unsaved changes.
 15. A known-good Web-profile `.xnb` texture and sound can be loaded.
@@ -1570,7 +1581,7 @@ Deliver:
 - Multi-file Roslyn compilation and portable PDB proof
 - Dynamic assembly-loading proof under final trimming/interpreter settings
 - Enforced preview isolation and protocol validation
-- `Game.Exit()`, Stop, hung-game recovery, and twenty-cycle lifecycle proof
+- `Game.Exit()`, cooperative Stop, documented non-yielding-code limitation, and twenty-cycle lifecycle proof
 - Required general-purpose MonoGame submodule changes
 - Shell-selection architectural decision record
 - Size, timing, and memory report
@@ -1659,10 +1670,10 @@ Deliver:
 
 **Mitigation:**
 
-- Run each game in a replaceable iframe.
+- Run each game in a replaceable, sandboxed iframe embedded in the Workbench.
 - Use cooperative Stop to cancel the Emscripten loop, release resources, and destroy the iframe.
-- Use forced termination when cooperative cleanup cannot execute.
-- Use a separately terminable WebView or process before Phase 2 if the editor cannot recover from hung code within 2 seconds.
+- Treat synchronous non-yielding user code as unsupported and warn users that it can freeze the shared WebView.
+- Recover from a frozen WebView by terminating and relaunching the application; do not reintroduce a separate visible preview window solely for forced termination.
 
 ### User code reaches privileged desktop APIs
 
@@ -1763,7 +1774,7 @@ Create the standalone playground repository and complete the feasibility spike.
 14. Verify correct user source mapping for runtime exceptions.
 15. Mount nested Web-profile assets before runtime startup and reject incompatible content.
 16. Stop the game by cancelling the loop, releasing audio and WebGL, and destroying the preview.
-17. Verify recovery from infinite `Update`; move to a terminable WebView or process if required.
+17. Verify cooperative Stop for yielding games and document that a synchronous non-yielding `Update` is unsupported and may require application relaunch.
 18. Repeat the lifecycle at least twenty times and enforce the memory limits.
 19. Verify representative MonoGame APIs survive Release trimming and interpreter settings.
 20. Produce the single normative feasibility report required by section 20.

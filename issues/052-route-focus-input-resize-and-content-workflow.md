@@ -65,7 +65,7 @@ any single-threaded renderer/game loop in any environment; maintaining a
 separate-window force-terminate apparatus just to recover from a user writing
 such a loop is disproportionate for a learning playground. We accept the frozen
 preview (and editor) as the outcome, consistent with the Option B trade above.
-This formally SUPERSEDES the PRD 8.3 force-terminate requirement and issue 038's
+This formally SUPERSEDES the former PRD 8.3 force-terminate requirement and issue 038's
 product guarantee (issue 038 itself remains a valid record that the isolated
 mechanism WAS proven; it is superseded, not invalidated).
 

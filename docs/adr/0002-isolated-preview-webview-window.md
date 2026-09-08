@@ -2,7 +2,10 @@
 
 ## Status
 
-Accepted (issue 038)
+Superseded by [ADR 0003](0003-embedded-preview-and-non-yielding-code.md)
+(2026-09-08). This document remains the historical record of issue 038's
+successful technical proof; the separate visible preview window is no longer
+the production architecture or an MVP requirement.
 
 ## Context
 

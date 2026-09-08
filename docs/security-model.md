@@ -113,7 +113,8 @@ inventory is maintained and cross-checked in four places:
 proof inventory. It consists of
 the issue 009–037 proof enable/checkpoint/report commands,
 `prepare_packaged_proof_window`, the issue-034 marker commands, and the
-issue-038 isolated preview window management commands. No
+issue-038 isolated-window commands retained for the historical proof harness.
+Those issue-038 commands are not used by the production Run path. No
 filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
 arbitrary command-forwarding command is registered.
 The structured policy validator requires exactly one permission table with
@@ -293,10 +294,10 @@ an iframe from its containing webview remains true.
 
 Sandbox, CSP, shell navigation hooks, API analyzers, opaque origin, and
 private ports are defense-in-depth product boundaries, not a complete security
-sandbox for arbitrary hostile code. They do not by themselves provide process,
-OS, CPU, or memory isolation. Issues 037–038 add process boundary, resource
-limits, and further adversarial validation. No claim here supersedes those
-remaining controls.
+sandbox for arbitrary hostile code. They do not provide process, OS, CPU, or
+memory isolation. Per ADR 0003, production user code runs in an iframe sharing
+the Workbench WebView thread. Synchronous non-yielding code is unsupported and
+can freeze the editor until the application is terminated and relaunched.
 
 ## Protocol message validation (issue 036)
 
@@ -344,8 +345,10 @@ not been previously acknowledged, a blocking modal warns that this application
 is intended primarily for running the user's own local code, provides
 defence-in-depth protections against accidental or opportunistic desktop
 privilege access, but does not provide a complete sandbox against deliberately
-malicious code.  The user must explicitly confirm before the first compilation
-begins.  Cancel or Escape dismisses the modal without side effects.
+malicious code. The modal also warns that synchronous code which never yields
+can freeze the preview and editor and require an application relaunch. The user
+must explicitly confirm before the first compilation begins. Cancel or Escape
+dismisses the modal without side effects.
 
 ### Storage ownership and isolation
 
@@ -430,11 +433,24 @@ All eight are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
 and `ISSUE034_APPROVED_COMMANDS`.  They are inaccessible from the opaque
 preview under the existing ACL/invoke-key boundary.
 
-## Issue 038: isolated preview WebviewWindow (force-stop)
+## Production preview execution and non-yielding code
+
+ADR 0003 makes the opaque-origin in-page iframe the production preview. Normal
+Run/Stop uses cooperative loop cancellation and iframe replacement. Finite
+loops are supported, but synchronous user code that never yields can block the
+shared WebView thread; in that case in-app Stop cannot execute and the user must
+terminate and relaunch the application. This is an accepted product limitation,
+not a process-isolation guarantee.
+
+## Historical issue 038 isolated-window proof harness
+
+The following architecture was proven by issue 038 and remains temporarily in
+the repository for older packaged proofs. It is not used by the production Run
+path and must not be presented as the product UX.
 
 ### Architecture
 
-When a preview runs user-compiled WASM code that may contain a deliberately
+When the historical proof runs user-compiled WASM code that may contain a deliberately
 or accidentally infinite synchronous loop (`while(true){}`), the in-page
 iframe architecture cannot force-stop it because:
 

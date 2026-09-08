@@ -16,7 +16,8 @@ single-threaded renderer/game loop; maintaining a separate-window
 force-terminate apparatus solely to recover from that is disproportionate for a
 learning playground. Issue 052 Option B renders the live preview in the in-page
 sandboxed iframe and explicitly accepts a frozen preview/editor as the outcome,
-formally superseding the PRD 8.3 force-terminate requirement.
+formally superseding the former PRD 8.3 force-terminate requirement. The PRD
+has now been amended and the product decision is recorded in ADR 0003.
 
 This record remains VALID as evidence that the isolated-window force-stop
 mechanism WAS proven (it passed); it is superseded, not invalidated. The

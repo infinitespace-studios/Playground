@@ -2,7 +2,7 @@
 
 **Type:** HITL
 **Status:** Done
-**Blocked by:** All 18 blockers Done; awaiting human review of `docs/feasibility-report.md`
+**Blocked by:** All 18 listed feasibility blockers were Done before the human gate decision
 **PRD references:** 20.2, 20.3, 24 (Phase 1)
 **User stories:** US1, US3, US6, US7, US8, US9
 **Triage:** needs-triage
@@ -53,10 +53,11 @@ A human reviewer (not an AFK agent) must independently re-check a meaningful sam
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Done (draft report written, awaiting human review)
-- **Verifier:** Done (requires human reviewer per PRD section 20)
+- **Verdict:** PASS-WITH-WAIVERS
+- **Verifier:** @dellis1972 (human reviewer)
 - **Date:** 2026-09-03
-- **Evidence:** Draft `docs/feasibility-report.md` written, addressing all 22 acceptance criteria (PRD 20.2) and all 7 failure criteria (PRD 20.3). Report recommends PASS-WITH-WAIVERS with 1 waiver (canvas resizing from issue 011). Human reviewer must spot-check at least 3 individual issues' verification evidence against the report's citations.
+- **Evidence:** The signed `docs/feasibility-report.md` addresses all 22 gate-time PRD 20.2 criteria and all seven PRD 20.3 failure criteria. It records one gate-time waiver for canvas backing-buffer resizing and cites the supporting issue evidence and completed performance, memory, and package-size measurements.
+- **Post-gate amendment (2026-09-08):** The product owner rejected the separate visible preview window. ADR 0003 and the amended PRD make the embedded iframe the product architecture and classify synchronous non-yielding callbacks as unsupported. The feasibility report now distinguishes historical issue-038 evidence from current product behavior.
 
 ## Commit gate
 

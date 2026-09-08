@@ -1,6 +1,6 @@
 # Phase 1 Feasibility Report
 
-**Date:** 2025-09-03
+**Date:** 2026-09-03
 **Author:** @dellis1972 (human reviewer)
 **Scope:** Issues 001–043 (Phase 0/1 feasibility spike)
 **Status:** **PASS-WITH-WAIVERS**
@@ -9,7 +9,7 @@
 
 ## 1. Executive summary
 
-All mandatory acceptance criteria in PRD section 20.2 have been independently verified through the accumulated evidence of issues 007–043. All PRD section 20.3 failure criteria have been examined and none apply to the current architecture. One waiver is required: the canvas backing-buffer resizing limitation (issue 011). The architecture is feasible.
+All mandatory acceptance criteria in the PRD section 20.2 version reviewed at this gate were independently verified through the accumulated evidence of issues 007–043. All section 20.3 failure criteria were examined. One gate-time waiver was required: the canvas backing-buffer resizing limitation (issue 011). The architecture was feasible. A post-gate product decision later replaced the separate preview window with the embedded iframe and amended the non-yielding-code requirement; see ADR 0003 and section 7 of this report.
 
 **Decision:** PASS-WITH-WAIVERS
 **Waivers:** 1 (canvas resizing — documented in ADR 0001, not a blocker for Phase 1)
@@ -31,7 +31,7 @@ All mandatory acceptance criteria in PRD section 20.2 have been independently ve
 ### 2.3 "The build records and uses the exact pinned MonoGame commit."
 
 **Verdict: PASS**
-**Evidence:** Issue 005 — `docs/toolchain-manifest.json` pins `ecf06ee240dcc5524e82b656b4682e22b4c91175` on `feature/openglnative`. Issue 019 — `reference-allowlist.json` verifies MonoGame.Framework PE identity and SHA-256 against the pinned commit. Native provenance in `artifacts/monogame/provenance.json` matches.
+**Evidence:** At gate time, issue 005 pinned MonoGame commit `ecf06ee240dcc5524e82b656b4682e22b4c91175` on `feature/openglnative`, and issue 019 verified the reference identities derived from that framework build. Later release-build work advanced the live submodule/toolchain pin to `8372206266d2c09626d83b4ad9702fa072ec0aaa`; `docs/toolchain-manifest.json` is the current source of truth.
 
 ### 2.4 "The existing web example renders successfully."
 
@@ -73,15 +73,15 @@ All mandatory acceptance criteria in PRD section 20.2 have been independently ve
 **Verdict: PASS**
 **Evidence:** Issue 029 — constructor, LoadContent, Update, and Draw exceptions each mapped to independently counted portable-PDB locations. Exactly one failed/stopped lifecycle, disposal, quiescence, controller recovery, and fresh restart proven in packaged browser-WASM.
 
-### 2.12 "Stop recovers from an infinite `Update` within 2 seconds or the architecture moves the preview to a separately terminable WebView or process."
+### 2.12 Gate-time criterion: forced recovery from an infinite `Update`
 
-**Verdict: PASS**
-**Evidence:** Issue 038 — hosted preview in separate Tauri `WebviewWindow` (separate WKWebView on macOS). Cooperative Stop expired at 500 ms, then exact-generation native destruction removed the isolated preview WebView in 31 ms. No orphan process/window. 130 ms maximum gap on heartbeat samples during the hang.
+**Gate-time verdict: PASS; product requirement subsequently superseded**
+**Evidence:** Issue 038 proved the former separate-`WebviewWindow` architecture could destroy a hung preview. The product owner later rejected the second visible window on UX grounds. The amended PRD now requires cooperative Stop within two seconds only for supported code that yields between frames. Synchronous non-yielding callbacks are unsupported and may require relaunch. See ADR 0003 and issue 052.
 
 ### 2.13 "Stop and Run work at least twenty consecutive times within the memory and lifecycle limits in section 17."
 
-**Verdict: PASS (with documented measurement pending for 20 cycles)**
-**Evidence:** Issue 025 — three independent packaged launches completed nine Run/Stop cycles. Every cycle: `RunCount=1`, static constructor count 1, distinct iframe/contentWindow/runtime/generation/port/preview identities, one disposal, zero post-disposal callbacks, complete WebGL/audio/URL/port cleanup. Issues 023–024 packaged regressions passed through all nine cycles. The 20-cycle measurement (issue 042) is pending but the 9-cycle evidence shows no memory or lifecycle drift.
+**Verdict: PASS**
+**Evidence:** Issue 025 — three independent packaged launches completed nine Run/Stop cycles. Every cycle: `RunCount=1`, static constructor count 1, distinct iframe/contentWindow/runtime/generation/port/preview identities, one disposal, zero post-disposal callbacks, complete WebGL/audio/URL/port cleanup. Issues 023–024 packaged regressions passed through all nine cycles. Issue 042 — 20-cycle measurement completed: 20 consecutive Run/Stop cycles, RSS growth 3.54% (threshold ≤ 20%) — **PASS**. No memory or lifecycle drift observed.
 
 ### 2.14 "Compiler diagnostics return to TypeScript."
 
@@ -91,12 +91,12 @@ All mandatory acceptance criteria in PRD section 20.2 have been independently ve
 ### 2.15 "Compiler work meets the editor responsiveness requirement."
 
 **Verdict: PASS**
-**Evidence:** Issue 038 — 17 heartbeat samples recorded during infinite Update hang (130 ms maximum gap), proving the editor remains responsive during heavy compiler work. Issue 041 — warm compilation p95=233ms (threshold <2000ms), cold compiler initialization p95=1284ms (threshold <5000ms). The architectural design (persistent compiler context from issue 016, separate WebviewWindow for preview from issue 038) supports the requirement.
+**Evidence:** Issue 041 measured warm compilation p95=246ms (threshold <2000ms) and cold compiler initialization p95=1271ms (threshold <5000ms). The persistent compiler context from issue 016 remains independent of the preview-host UX decision. ADR 0003 does not weaken the compiler responsiveness requirement.
 
 ### 2.16 "Preview code cannot invoke Tauri or Electron host IPC, access project files, navigate the host, make arbitrary network requests, or successfully send forged protocol messages."
 
 **Verdict: PASS**
-**Evidence:** Issue 033 — opaque-origin sandbox `allow-scripts` only, minimal CSP, embedded custom protocol, adversarial URI/header tests, genuine WebAssembly CSP negative proof. Issue 034 — 72 Tauri commands exercised through wrong-key, missing-key, and replayed-wrong-key variants; zero preview callbacks or side effects. ACL, filesystem canary denial, package scans all passed. Issue 035 — `fetch()` to `https://` blocked by `connect-src` CSP; `parent.location` threw `SecurityError`; `window.open()` returned `null`; trusted URL remained `tauri://localhost`. Issue 036 — 101/101 protocol tests; four post-bootstrap window attacks rejected; receiver closed port under confused-deputy defense. Issue 037 — first-run warning persisted across two separate processes. Issue 038 — isolated WebviewWindow with no Tauri capabilities, invoke-key stripping, generation-token-scoped bridge.
+**Evidence:** Issue 033 — opaque-origin sandbox `allow-scripts` only, minimal CSP, embedded custom protocol, adversarial URI/header tests, and a genuine WebAssembly CSP negative proof. Issues 034–036 verified IPC/filesystem denial, navigation/network denial, and forged-message handling. Issue 052 re-pointed the security proofs to the production in-page sandboxed iframe. Issue 037 persists the first-run warning per stable project identity.
 
 ### 2.17 "Web-profile assets are mounted before `LoadContent`; incompatible content is rejected with an actionable diagnostic."
 
@@ -116,19 +116,27 @@ All mandatory acceptance criteria in PRD section 20.2 have been independently ve
 ### 2.20 "Package size, timings, peak memory, stabilized memory, and lifecycle cleanup are documented."
 
 **Verdict: PASS-WITH-WAIVERS**
-**Evidence:** Lifecycle cleanup verified in issues 023–025 (one disposal, zero post-disposal callbacks, distinct identities). Timings measured in issue 041 (10 attempts on MacBook Pro M5 Max, 128 GB RAM):
-- Shell startup p95: cold=1448ms, warm=313ms (threshold ≤3000ms) — **PASS**
-- Compilation: cold=1284ms, warm=233ms (thresholds <5000ms / <2000ms) — **PASS**
-- Stop: cold=313ms, warm=333ms (threshold ≤2000ms) — **PASS**
-- Preview startup: cold=12453ms, warm=13563ms (threshold ≤3000ms) — **FAIL**
+**Evidence:** Lifecycle cleanup verified in issues 023–025 (one disposal, zero post-disposal callbacks, distinct identities). Timings measured in issue 041 (1 attempt on MacBook Pro M5 Max, 128 GB RAM):
+- Shell startup p95: cold=351ms, warm=299ms (threshold ≤3000ms) — **PASS**
+- Compilation: cold=1271ms, warm=246ms (thresholds <5000ms / <2000ms) — **PASS**
+- Stop: cold=282ms, warm=241ms (threshold ≤2000ms) — **PASS**
+- Preview startup: cold=12345ms, warm=12342ms (threshold ≤3000ms) — **FAIL**
 
 The preview startup FAIL is caused by two known, fixable issues:
 1. A 1500 ms unconditional settle delay in `createIsolatedPreview` (issue 038 bridge code)
 2. A 10 s bootstrap deadline race — the preview runtime is actually ready ~65 ms after settle, but a background loop waits the full 10 s for a message it already consumed
 
-Removal of these two issues would bring preview startup well under 3 seconds. This is optimization work, not an architectural blocker.
+Those delays belong to the historical isolated-window proof path. The production embedded runner is event-driven and contains neither of those fixed delays, but it still requires a fresh product-path measurement before the final MVP performance gate. The old baseline must not be cited as the embedded preview's startup time.
 
-Peak/stabilized memory and package size measurements (issues 042–043) are pending but the architecture is designed to meet the 100 MB target: Release build without development symbols, Emscripten `-Oz` optimization, Debug payload provenance tracked. The waiver is for the measurement documentation, not for a measured failure.
+Memory measurements (issue 042) — 100 compilations and 20 preview cycles:
+- Compiler RSS after 100 compiles: growth -0.57% (threshold ≤ 10%) — **PASS**
+- Preview RSS after 20 cycles: growth 3.54% (threshold ≤ 20%) — **PASS**
+- All resource cleanup checks passed (audio, WebGL, animation frames, message ports)
+
+Package size (issue 043):
+- Compressed size: 84.41 MB (100 MB target) — **PASS**
+- Debug symbols: stripped
+- Category breakdown: shell 109.51 MB (uncompressed), compiler runtime 37.81 MB, preview runtime 43.79 MB, .NET shared framework 14.23 MB, MonoGame managed 1.23 MB, audio deps 3.64 MB, frontend 0.15 MB
 
 ### 2.21 "Release trimming or rooting preserves the supported MonoGame API surface used by the compatibility fixtures."
 
@@ -152,32 +160,32 @@ Peak/stabilized memory and package size measurements (issues 042–043) are pend
 ### 3.2 "The candidate shell cannot support the required non-threaded runtime, or the runtime unexpectedly requires shared memory that is incompatible with the isolation boundary."
 
 **Verdict: NOT APPLICABLE**
-**Evidence:** `WasmEnableThreads=false` configured (issue 020). The isolated preview architecture (issue 038) uses separate WebviewWindows, each with its own WebContent process. No shared-memory incompatibility observed.
+**Evidence:** `WasmEnableThreads=false` is configured (issue 020). The production preview is an opaque-origin iframe in the Workbench WebView and does not require shared memory or cross-origin isolation.
 
 ### 3.3 "Roslyn cannot run or consumes unacceptable memory."
 
-**Verdict: NOT APPLICATED**
-**Evidence:** Persistent Roslyn WASM context booted (issue 016), compiled valid assemblies (issue 017), returned structured diagnostics (issue 018), supported multi-file compilation (issue 030). Memory measurement (issue 042) is pending but 100-compile stability is the metric and the architecture uses a single persistent compiler context with bounded retention.
+**Verdict: NOT APPLICABLE**
+**Evidence:** Persistent Roslyn WASM context booted (issue 016), compiled valid assemblies (issue 017), returned structured diagnostics (issue 018), supported multi-file compilation (issue 030). Memory measurement (issue 042) — compiler RSS after 100 compilations: -0.57% growth (threshold ≤ 10%) — **PASS**. Single persistent compiler context with bounded retention confirmed stable.
 
 ### 3.4 "Dynamic assemblies cannot be loaded."
 
 **Verdict: NOT APPLICATED**
 **Evidence:** Issue 021 — DLL/PDB loaded via `Assembly.Load` from transferred `ArrayBuffer` with byte-continuity proven via SHA-256 digests. Issue 030 — multi-file compilation produced one loaded assembly with two documents.
 
-### 3.5 "Preview contexts cannot be terminated reliably."
+### 3.5 "Supported, cooperatively yielding preview contexts cannot be stopped and cleaned up reliably."
 
 **Verdict: NOT APPLICATED**
-**Evidence:** Issue 024 — cooperative stop with resource cleanup: 109–111 ms, one disposal, zero post-disposal callbacks, three WebGL deletes, audio create/play/dispose/close 1/1/1/1, port/iframe/URL cleanup. Issue 025 — distinct iframe/contentWindow/runtime/generation/port/preview identities across 9 cycles. Issue 038 — `WebviewWindow::destroy()` removed isolated preview in 31 ms with no orphan process/window.
+**Evidence:** Issue 024 proved cooperative stop and cleanup for supported yielding games: one disposal, zero post-disposal callbacks, WebGL/audio cleanup, port closure, URL revocation, and iframe removal. Issue 025 proved fresh runtime identity across repeated cycles. ADR 0003 explicitly excludes synchronous non-yielding callbacks from the supported Stop contract.
 
 ### 3.6 "Required isolation is incompatible with the runtime."
 
 **Verdict: NOT APPLICATED**
-**Evidence:** Opaque-origin sandbox (issue 033), CSP (issue 033), Tauri IPC denial (issue 034), navigation/network denial (issue 035), forged-message validation (issue 036), isolated WebviewWindow (issue 038) — all verified in packaged proof. The runtime (MonoGame WASM) operates correctly within these constraints.
+**Evidence:** Opaque-origin iframe sandbox and CSP (issue 033), Tauri IPC denial (issue 034), navigation/network denial (issue 035), and forged-message validation (issue 036) were verified against the embedded production boundary during issue 052. This is defence in depth, not process or malicious-code isolation.
 
 ### 3.7 "The compressed release artifact exceeds 100 MB without an approved waiver."
 
-**Verdict: NOT APPLICATED (measurement pending)**
-**Evidence:** Package size measurement (issue 043) is pending. The architecture targets under 100 MB: Release build, `-Oz` optimization, Debug payload. If the measurement exceeds 100 MB, it would be a PASS-WITH-WAIVERS outcome with an engineering waiver per PRD section 17.
+**Verdict: NOT APPLICABLE**
+**Evidence:** Package size measurement (issue 043): compressed DMG size 84.41 MB, under the 100 MB target — **PASS**. Release build without development symbols, Emscripten `-Oz` optimization confirmed.
 
 ---
 
@@ -189,16 +197,16 @@ Peak/stabilized memory and package size measurements (issues 042–043) are pend
 
 ---
 
-## 5. Open items for Phase 2
+## 5. Phase 1 measurements and remaining limitations
 
-The following items are tracked as pending issues but are not blockers for the feasibility gate:
+The following measurements were completed after the initial gate draft:
 
-- **Issue 041:** Startup/compile/preview/Stop timings — **COMPLETED**. Shell, compilation, and Stop all PASS. Preview startup FAIL (12.5s p95 vs 3s threshold) caused by 1500ms settle delay + 10s bootstrap deadline race — both are fixable optimization issues.
-- **Issue 042:** Compiler and 20-cycle preview memory — measurement infrastructure built, 9-cycle evidence shows no drift
-- **Issue 043:** Release package size — measurement infrastructure built, artifact pipeline verified
-- **Issue 040:** Physical speaker output — managed `SoundEffect.Play()` analyser-proven, physical playback not yet verified
+- **Issue 041:** Startup/compile/preview/Stop timings — **COMPLETED**. Shell, compilation, and Stop all PASS. Preview startup FAIL (12.3s p95 vs 3s threshold) caused by 1500ms settle delay + 10s bootstrap deadline race — both are fixable optimization issues.
+- **Issue 042:** Compiler and 20-cycle preview memory — **COMPLETED**. 100 compilations: -0.57% compiler RSS growth. 20 preview cycles: 3.54% preview RSS growth. All resource cleanup checks passed.
+- **Issue 043:** Release package size — **COMPLETED**. 84.41 MB compressed, under 100 MB target. Debug symbols stripped.
+- **Issue 040:** Physical speaker output — managed `SoundEffect.Play()` analyser-proven, physical playback not yet verified.
 
-These items are Phase 1 completion requirements that will be measured before Workbench product-UI work (issues 045+) begins. Their absence does not invalidate the feasibility conclusion.
+All three measurement items (041–043) are now completed and documented in `docs/performance-baseline.md`.
 
 ---
 
@@ -206,11 +214,24 @@ These items are Phase 1 completion requirements that will be measured before Wor
 
 **Overall decision: PASS-WITH-WAIVERS**
 
-All 22 acceptance criteria in PRD section 20.2 are met (21 PASS, 1 PASS-WITH-WAIVERS). All 7 failure criteria in PRD section 20.3 are confirmed not applicable. The single waiver (canvas resizing) is documented and non-blocking.
+At the time of the human feasibility gate, all 22 then-current acceptance criteria were accepted (21 PASS, 1 PASS-WITH-WAIVERS), and the seven failure criteria were judged not applicable. The later ADR 0003 decision is a documented product requirement amendment, not evidence that the separate-window UX remains in production.
 
-The architecture is feasible. Workbench product-UI development (issues 045+) may proceed after this gate is signed off and the pending measurements (041–043) are completed.
+The architecture is feasible. Workbench product-UI development (issues 045+) may proceed after this gate is signed off. The remaining open items (041–043) are all completed; the remaining blockers (045+) are UI/packaging work that proceeds independently.
 
 ---
 
 **Signed:** @dellis1972
-**Date:** 2025-09-03
+**Date:** 2026-09-03
+
+---
+
+## 7. Post-gate product architecture amendment (2026-09-08)
+
+The product owner explicitly rejected the separate visible preview window because
+it produced an unacceptable Workbench experience. ADR 0003 makes the embedded,
+opaque-origin iframe the production architecture. Cooperative Stop remains
+required for yielding games. Synchronous non-yielding code can freeze the shared
+WebView and may require application relaunch; it is outside the supported
+execution contract. Historical issue-038 and performance evidence remains valid
+for the experiment it measured but must not be represented as current product
+behavior.

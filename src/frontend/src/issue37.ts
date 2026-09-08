@@ -64,7 +64,9 @@ function createWarningModal(): {
     "This application is intended primarily for running your own local code. " +
     "It provides defence-in-depth protections against accidental or opportunistic " +
     "access to desktop privileges, but it does not provide a complete sandbox " +
-    "against deliberately malicious code.";
+    "against deliberately malicious code. Synchronous code that never yields " +
+    "(for example, an unbounded loop inside Update or Draw) can freeze both the " +
+    "preview and editor and may require you to relaunch the application.";
 
   const note = document.createElement("p");
   note.className = "issue037-note";
