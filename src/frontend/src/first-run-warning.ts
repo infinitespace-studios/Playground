@@ -11,7 +11,8 @@
 // user's filesystem path.
 //
 // This module is production-neutral: no proof markers, no auto-proof entry. The
-// two-phase packaged first-run PROOF stays in issue37.ts, which re-exports
+// two-phase packaged first-run PROOF lives in the Stage-4 scenario suite
+// `proof-project-lifecycle.ts`, which re-exports
 // `gateFirstRun` / `SCRATCH_PROJECT_IDENTITY` from here.
 
 // Stable identity for the built-in scratch buffer. Opened folder projects use

@@ -12,6 +12,7 @@ import {
   gateFirstRun,
   isAcknowledged,
 } from "./first-run-warning";
+import { runScenario, type SubProof } from "./scenario-runner";
 
 // Re-export the production gate/identity for historical import paths.
 export { SCRATCH_PROJECT_IDENTITY, gateFirstRun } from "./first-run-warning";
@@ -300,4 +301,19 @@ export async function runIssue037AutoProof(): Promise<void> {
       }),
     });
   }
+}
+
+// Single durable-scenario entrypoint (packaged first-run phase of durable
+// scenario 7). The complementary project open/save/dirty-state/identity feature
+// tests live in `project-lifecycle.test.ts` (node --test, mocked). This driver
+// owns failure reporting for the packaged first-run warning proof.
+export async function runProjectLifecycleScenario(): Promise<void> {
+  const subProofs: SubProof[] = [
+    {
+      label: "first-run warning + persisted acknowledgement (issue037)",
+      reportCommand: "issue037_emit_report",
+      run: runIssue037AutoProof,
+    },
+  ];
+  await runScenario(subProofs);
 }

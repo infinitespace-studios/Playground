@@ -38,6 +38,29 @@ import {
   type Issue23RunningPreview,
 } from "./issue21";
 import { createIssue024RunStopController } from "./issue24-controller";
+import { runScenario, type SubProof } from "./scenario-runner";
+
+// Single durable-scenario entrypoint. Performance & memory (former issue041).
+// Reports shell readiness FIRST (so the startup sample is never delayed by the
+// later measurement phases) and then runs the benchmark. Both self-gate on the
+// benchmark env flag; this driver owns failure reporting for the benchmark
+// phase. `reportIssue041ShellReady`/`runIssue041Benchmark` stay exported for the
+// existing packaged harness.
+export async function runPerformanceScenario(): Promise<void> {
+  // Shell readiness is not a report-emitting sub-proof; run it directly so the
+  // startup timing sample fires as early as possible.
+  await reportIssue041ShellReady().catch((error: unknown) => {
+    console.error("Issue 041 shell-ready instrumentation failed", error);
+  });
+  const subProofs: SubProof[] = [
+    {
+      label: "startup/compile/preview/stop timing + memory baseline (issue041)",
+      reportCommand: "issue041_emit_report",
+      run: runIssue041Benchmark,
+    },
+  ];
+  await runScenario(subProofs);
+}
 
 const FIXTURE_ROOT = "tests/integration/fixtures/perf-benchmark";
 
@@ -435,7 +458,7 @@ async function runPreviewCycle(cycle: number, kind: "cold" | "warm"): Promise<Pr
         (marks["preview.window.invoked"] ?? Number.NaN),
       previewRuntimeBootstrapMs: bootstrappedAt - settledAt,
       // Real preview-runtime work: settle → the instant the bridge readiness
-      // promise resolved, observed passively inside createIsolatedPreview.
+      // promise resolved, observed passively inside createEmbeddedProofPreview.
       previewRuntimeReadyMs: readyObservedAt - settledAt,
       // Everything the bootstrap loop spent after the runtime was already
       // ready: the fixed deadline it could not leave early.
@@ -689,7 +712,7 @@ async function verifyCleanup(): Promise<MemoryBaselineReport["cleanupVerificatio
   const allCleared = audioContextOk && webglContextOk && animationFrameCount <= 3 && messagePortOk;
 
   detailParts.push(
-    `AudioContext: ${audioContextOk ? "ok (state=${audioContextState})" : "failed"}`,
+    `AudioContext: ${audioContextOk ? `ok (state=${audioContextState})` : "failed"}`,
     `WebGL: ${webglContextOk ? "ok" : "failed"}`,
     `Animation frames observed: ${animationFrameCount}`,
     `MessagePort objects created/closed: ${messagePortCount} (${messagePortOk ? "ok" : "failed"})`,

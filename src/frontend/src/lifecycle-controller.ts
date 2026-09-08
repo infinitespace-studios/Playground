@@ -3,7 +3,8 @@
 // start-throw recovery, stop coalescing, restart queueing, failure observation,
 // and the optional preview-panel lifecycle indicator. It is production-neutral:
 // no proof markers, no issue-numbered behaviour. Both the product run/stop
-// control (run-stop.ts) and the historical proof control (issue24.ts) drive it.
+// control (run-stop.ts) and the historical proof control
+// (`proof-compile-run-stop.ts`, via the issue24-controller.ts façade) drive it.
 //
 // `issue24-controller.ts` re-exports these symbols under their historical names
 // as a compatibility façade for proof callers and the protocol test.

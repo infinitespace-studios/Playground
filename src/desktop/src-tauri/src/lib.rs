@@ -1880,12 +1880,120 @@ mod tests {
     }
 
     #[test]
-    fn issue040_dispatch_requires_proof_active_generation_and_preview_label() {
-        let label = super::issue038_preview_label("gen-1");
-        assert!(super::issue040_dispatch_allowed(true, &label, true));
-        assert!(!super::issue040_dispatch_allowed(false, &label, true));
-        assert!(!super::issue040_dispatch_allowed(true, &label, false));
-        assert!(!super::issue040_dispatch_allowed(true, "main", true));
+    fn issue040_dispatch_target_routes_isolated_and_embedded_fail_closed() {
+        // Active issue 038 generation → its isolated preview window (legacy path).
+        // Isolated activity takes precedence and does not require embedded
+        // registration.
+        let active = super::issue040_dispatch_target(true, "gen-1", true, false);
+        assert_eq!(
+            active,
+            Some(super::Issue040DispatchTarget::IsolatedPreview(
+                super::issue038_preview_label("gen-1")
+            ))
+        );
+        // Well-formed generation, no live isolated window, EXPLICITLY REGISTERED
+        // as the embedded generation → the main window that hosts the Stage-4
+        // embedded opaque-origin preview iframe.
+        assert_eq!(
+            super::issue040_dispatch_target(true, "gen-1", false, true),
+            Some(super::Issue040DispatchTarget::EmbeddedMain)
+        );
+        // Fail-closed: a well-formed but UNREGISTERED / random / stale-after-retire
+        // generation with no live isolated window is never dispatchable.
+        assert_eq!(
+            super::issue040_dispatch_target(true, "gen-1", false, false),
+            None
+        );
+        // Fail-closed: proof gate off is never dispatchable, on any path.
+        assert_eq!(
+            super::issue040_dispatch_target(false, "gen-1", true, false),
+            None
+        );
+        assert_eq!(
+            super::issue040_dispatch_target(false, "gen-1", false, true),
+            None
+        );
+        // Fail-closed: malformed / empty / oversized generations are rejected
+        // before any window is addressed, even when "registered" is asserted.
+        assert_eq!(super::issue040_dispatch_target(true, "", false, true), None);
+        assert_eq!(
+            super::issue040_dispatch_target(true, "../escape", false, true),
+            None
+        );
+        assert_eq!(
+            super::issue040_dispatch_target(true, "bad gen", false, true),
+            None
+        );
+        assert_eq!(
+            super::issue040_dispatch_target(true, &"a".repeat(65), false, true),
+            None
+        );
+        // The embedded target is pinned to exactly the main window label.
+        assert_eq!(super::ISSUE040_MAIN_WINDOW_LABEL, "main");
+        // The caller gate admits only the trusted main window.
+        assert!(super::issue040_caller_is_main("main"));
+        assert!(!super::issue040_caller_is_main("preview-isolated-gen-1"));
+        assert!(!super::issue040_caller_is_main(
+            "embedded-proof-preview-gen-1"
+        ));
+        assert!(!super::issue040_caller_is_main(""));
+    }
+
+    #[test]
+    fn issue040_embedded_registration_is_bounded_and_exact() {
+        let mut state = super::Issue040EmbeddedState { active: None };
+        // Nothing is registered initially.
+        assert!(!super::issue040_embedded_is_registered(&state, "gen-a"));
+        // Malformed ids are rejected on registration, fail-closed.
+        for bad in ["", "../escape", "bad gen", &"a".repeat(65)] {
+            assert!(super::issue040_register_embedded(&mut state, bad).is_err());
+            assert!(state.active.is_none(), "{bad} must not register");
+        }
+        // A well-formed id registers as the single active generation.
+        assert!(super::issue040_register_embedded(&mut state, "gen-a").is_ok());
+        assert!(super::issue040_embedded_is_registered(&state, "gen-a"));
+        // Bounded to one: a DIFFERENT generation cannot overwrite the active one
+        // (confused-generation guard).
+        assert!(super::issue040_register_embedded(&mut state, "gen-b").is_err());
+        assert!(super::issue040_embedded_is_registered(&state, "gen-a"));
+        assert!(!super::issue040_embedded_is_registered(&state, "gen-b"));
+        // Duplicate re-registration of the SAME id is also rejected.
+        assert!(super::issue040_register_embedded(&mut state, "gen-a").is_err());
+        // A stale/foreign id can never retire the live registration.
+        assert!(!super::issue040_retire_embedded(&mut state, "gen-b"));
+        assert!(super::issue040_embedded_is_registered(&state, "gen-a"));
+        // Retiring the EXACT active id clears membership.
+        assert!(super::issue040_retire_embedded(&mut state, "gen-a"));
+        assert!(!super::issue040_embedded_is_registered(&state, "gen-a"));
+        assert!(state.active.is_none());
+        // Stale-after-retire: the id is no longer dispatchable in the target
+        // resolver either.
+        assert_eq!(
+            super::issue040_dispatch_target(true, "gen-a", false, false),
+            None
+        );
+        // Retire is idempotent / non-throwing on an already-cleared slot, so it
+        // is safe on every cleanup/error path.
+        assert!(!super::issue040_retire_embedded(&mut state, "gen-a"));
+        // Once retired, a fresh generation may register into the freed slot.
+        assert!(super::issue040_register_embedded(&mut state, "gen-c").is_ok());
+        assert!(super::issue040_embedded_is_registered(&state, "gen-c"));
+    }
+
+    #[test]
+    fn issue040_embedded_registration_is_isolated_from_legacy_active_set() {
+        // Registering an embedded generation must not touch the issue 038
+        // isolated active-generation set, and vice versa (compatibility).
+        let mut embedded = super::Issue040EmbeddedState { active: None };
+        assert!(super::issue040_register_embedded(&mut embedded, "gen-x").is_ok());
+        // An isolated-active generation routes to the isolated window even when a
+        // different generation is the registered embedded one.
+        assert_eq!(
+            super::issue040_dispatch_target(true, "gen-y", true, false),
+            Some(super::Issue040DispatchTarget::IsolatedPreview(
+                super::issue038_preview_label("gen-y")
+            ))
+        );
     }
 
     #[test]
@@ -1910,7 +2018,7 @@ mod tests {
     fn issue041_commands_are_registered_in_every_inventory() {
         let build = include_str!("../build.rs");
         let permission = include_str!("../permissions/main.toml");
-        let frontend = include_str!("../../../frontend/src/issue34.ts");
+        let frontend = include_str!("../../../frontend/src/proof-preview-security.ts");
         for command in [
             "issue041_is_benchmark_enabled",
             "issue041_benchmark_mode",
@@ -3265,10 +3373,11 @@ fn issue041_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
-/// One real platform input event the issue 040 proof may deliver to an isolated
-/// preview window. Nothing here fabricates DOM events: the AppKit event is
-/// handed to `NSApplication::sendEvent`, so WebKit routes it through its normal
-/// input path and marks the resulting DOM event trusted and user-activating.
+/// One real platform input event the issue 040 proof may deliver to the window
+/// that hosts the addressed preview. Nothing here fabricates DOM events: the
+/// AppKit event is handed to `NSApplication::sendEvent`, so WebKit routes it
+/// through its normal input path and marks the resulting DOM event trusted and
+/// user-activating.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Issue040Input {
     LeftMouseClick,
@@ -3306,46 +3415,231 @@ fn issue040_input_kind(kind: &str) -> Option<Issue040Input> {
     }
 }
 
-fn issue040_dispatch_allowed(proof_enabled: bool, label: &str, generation_active: bool) -> bool {
-    proof_enabled && generation_active && label.starts_with(ISSUE038_PREVIEW_LABEL_PREFIX)
+/// The exact native window label of the main Workbench shell that hosts the
+/// Stage-4 embedded opaque-origin preview iframe. Pinned so a gesture routed to
+/// the embedded preview can only ever land on this one known window.
+const ISSUE040_MAIN_WINDOW_LABEL: &str = "main";
+
+/// A gesture may only be requested by the trusted `main` window that hosts the
+/// embedded preview iframe (and drives the legacy isolated harness). This is
+/// enforced in the command as defense-in-depth atop the ACL, which already
+/// excludes the preview window from every capability.
+fn issue040_caller_is_main(label: &str) -> bool {
+    label == ISSUE040_MAIN_WINDOW_LABEL
 }
 
-/// Deliver one trusted platform input event to an isolated preview window so the
-/// packaged issue 040 proof can unlock audio and drive play/stop exactly as a
-/// person pressing Space and Escape would.
+/// Shared well-formedness gate for an issue 040 generation identifier: 1–64
+/// bytes of ASCII alphanumeric or hyphen. Rejects empty, oversized, and any id
+/// carrying path or whitespace characters before it can address a window.
+fn issue040_generation_is_well_formed(generation: &str) -> bool {
+    !generation.is_empty()
+        && generation.len() <= 64
+        && generation
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// Rust-managed authorization state for issue 040 embedded (in-page) preview
+/// input dispatch. Holds at most ONE active embedded generation at a time — the
+/// audio proof only ever drives a single embedded preview — scoped to the
+/// trusted `main` window (see [`issue040_caller_is_main`]) and the issue 040
+/// proof gate. The trusted host must explicitly REGISTER the exact generation
+/// of the embedded opaque-origin preview iframe before any Space/Escape/click
+/// gesture can be routed to the main window that hosts it, and RETIRE it on
+/// every iframe cleanup/error path. This closes the confused-deputy gap where a
+/// random/stale/unknown well-formed generation could otherwise steer a
+/// synthetic native input event at the main Workbench window, and bounds the
+/// state to a single entry.
+struct Issue040EmbeddedState {
+    /// The single currently-registered embedded preview generation, if any.
+    active: Option<String>,
+}
+
+static ISSUE040_EMBEDDED: std::sync::LazyLock<Mutex<Issue040EmbeddedState>> =
+    std::sync::LazyLock::new(|| Mutex::new(Issue040EmbeddedState { active: None }));
+
+/// Register the exact embedded preview generation as the single active one.
+/// Fails closed on a malformed id, refuses to overwrite a DIFFERENT active
+/// generation (confused-generation guard), and rejects a duplicate
+/// re-registration of the same id so a stale caller cannot silently "refresh"
+/// state. The slot must be retired before a fresh generation can register.
+fn issue040_register_embedded(
+    state: &mut Issue040EmbeddedState,
+    generation: &str,
+) -> Result<(), String> {
+    if !issue040_generation_is_well_formed(generation) {
+        return Err("generation must be 1-64 alphanumeric/hyphen chars".into());
+    }
+    match state.active.as_deref() {
+        Some(existing) if existing == generation => {
+            Err("embedded generation is already registered".into())
+        }
+        Some(_) => Err("another embedded generation is already active; retire it first".into()),
+        None => {
+            state.active = Some(generation.to_owned());
+            Ok(())
+        }
+    }
+}
+
+/// Retire an embedded generation. Only clears the registration when it matches
+/// the exact active generation, so a stale/foreign id can never retire the live
+/// one. Idempotent and non-throwing so it is safe to call on every cleanup and
+/// error path. Returns whether an active registration was actually cleared.
+fn issue040_retire_embedded(state: &mut Issue040EmbeddedState, generation: &str) -> bool {
+    if state.active.as_deref() == Some(generation) {
+        state.active = None;
+        true
+    } else {
+        false
+    }
+}
+
+/// Whether `generation` is the exact, currently-registered embedded generation.
+fn issue040_embedded_is_registered(state: &Issue040EmbeddedState, generation: &str) -> bool {
+    state.active.as_deref() == Some(generation)
+}
+
+/// The exact, known window one issue 040 gesture may target. The proof never
+/// names an arbitrary window: a gesture is delivered either to the isolated
+/// issue 038 preview `WebviewWindow` that owns an active generation (retained
+/// for isolated-window compatibility until Stage 5), or to the main Workbench
+/// window that hosts the Stage-4 embedded opaque-origin preview iframe — and the
+/// embedded case is permitted ONLY for the exact generation the trusted host
+/// has explicitly registered. Any other shape is rejected before a native event
+/// is created.
+#[derive(Clone, PartialEq, Eq, Debug)]
+enum Issue040DispatchTarget {
+    /// Deliver to the isolated issue 038 preview window addressed by label.
+    IsolatedPreview(String),
+    /// Deliver to the main window that hosts the embedded preview iframe the
+    /// trusted host has focused and explicitly registered.
+    EmbeddedMain,
+}
+
+/// Resolve which exact window a gesture targets, fail-closed. The proof gate
+/// must be on and the generation must be a well-formed issue 038/040 generation
+/// id. An active issue 038 generation resolves to its isolated preview window
+/// (the unchanged legacy path). Otherwise the gesture may only resolve to the
+/// main window's embedded preview when `embedded_registered` is true — i.e. the
+/// trusted host has explicitly registered this exact generation as its single
+/// active embedded preview. An unknown, random, or stale-after-retire
+/// generation matches neither the active isolated set nor the registered
+/// embedded slot and resolves to `None`. This never yields a generic "any
+/// window" target: the isolated label is derived from the fixed preview prefix,
+/// and the embedded case is pinned to the single `main` window label.
+fn issue040_dispatch_target(
+    proof_enabled: bool,
+    generation: &str,
+    isolated_active: bool,
+    embedded_registered: bool,
+) -> Option<Issue040DispatchTarget> {
+    if !proof_enabled {
+        return None;
+    }
+    if !issue040_generation_is_well_formed(generation) {
+        return None;
+    }
+    if isolated_active {
+        Some(Issue040DispatchTarget::IsolatedPreview(
+            issue038_preview_label(generation),
+        ))
+    } else if embedded_registered {
+        Some(Issue040DispatchTarget::EmbeddedMain)
+    } else {
+        None
+    }
+}
+
+/// Deliver one trusted platform input event — or manage the embedded-preview
+/// authorization lifecycle — for the packaged issue 040 proof. This is the ONLY
+/// issue 040 input command; it supports three narrowly scoped operations via
+/// `op` (defaulting to `"dispatch"` for the legacy isolated call shape):
+///
+/// * `"register"` — the trusted host records the exact generation of the
+///   embedded opaque-origin preview iframe it just created as the single active
+///   embedded generation. Required before any embedded gesture is accepted.
+/// * `"retire"` — the trusted host clears that registration; called on every
+///   iframe cleanup/error path. Idempotent and scoped to the exact generation.
+/// * `"dispatch"` — deliver one trusted Space/Escape/click event so the proof
+///   can unlock audio and drive play/stop exactly as a person would. The
+///   gesture lands on the window that owns the addressed preview: an active
+///   issue 038 generation targets its isolated preview window (legacy path);
+///   otherwise the gesture targets the main Workbench window that hosts the
+///   embedded preview iframe, but ONLY when this exact generation was
+///   registered. Unknown/random/stale generations fail closed. In the embedded
+///   case the trusted host focuses the sandboxed preview iframe before dispatch,
+///   so WebKit routes the trusted event to the focused embedded preview
+///   document rather than the Monaco editor or the host shell.
+///
+/// Every operation refuses to run unless the issue 040 proof gate is set and the
+/// caller is the trusted `main` window (defense-in-depth atop the ACL, which
+/// already excludes the preview window from every capability). This command is
+/// not a generic injection primitive: the opaque preview itself has no IPC.
 #[tauri::command]
 async fn issue040_dispatch_preview_input(
     app: tauri::AppHandle,
+    webview: tauri::WebviewWindow,
     generation: String,
-    kind: String,
+    kind: Option<String>,
+    op: Option<String>,
 ) -> Result<String, String> {
     use tauri::Manager;
 
     if !issue040_proof_enabled() {
         return Err("issue 040 proof instrumentation is disabled".into());
     }
-    if generation.is_empty()
-        || generation.len() > 64
-        || !generation
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    {
+    if !issue040_caller_is_main(webview.label()) {
+        return Err("issue 040 input dispatch is only available to the main window".into());
+    }
+    if !issue040_generation_is_well_formed(&generation) {
         return Err("generation must be 1-64 alphanumeric/hyphen chars".into());
     }
-    let input =
-        issue040_input_kind(&kind).ok_or_else(|| format!("unsupported input kind: {kind}"))?;
-    let label = issue038_preview_label(&generation);
-    let generation_active = {
-        let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
-        state.active_generations.contains(&generation)
-    };
-    if !issue040_dispatch_allowed(issue040_proof_enabled(), &label, generation_active) {
-        return Err("issue 040 input dispatch target is not an active preview window".into());
+
+    match op.as_deref().unwrap_or("dispatch") {
+        "register" => {
+            let mut embedded = ISSUE040_EMBEDDED.lock().map_err(|e| e.to_string())?;
+            issue040_register_embedded(&mut embedded, &generation)?;
+            Ok(serde_json::json!({ "registered": true, "generation": generation }).to_string())
+        }
+        "retire" => {
+            let mut embedded = ISSUE040_EMBEDDED.lock().map_err(|e| e.to_string())?;
+            let cleared = issue040_retire_embedded(&mut embedded, &generation);
+            Ok(serde_json::json!({ "retired": true, "cleared": cleared }).to_string())
+        }
+        "dispatch" => {
+            let kind = kind.ok_or_else(|| "dispatch requires an input kind".to_string())?;
+            let input = issue040_input_kind(&kind)
+                .ok_or_else(|| format!("unsupported input kind: {kind}"))?;
+            let isolated_active = {
+                let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
+                state.active_generations.contains(&generation)
+            };
+            let embedded_registered = {
+                let embedded = ISSUE040_EMBEDDED.lock().map_err(|e| e.to_string())?;
+                issue040_embedded_is_registered(&embedded, &generation)
+            };
+            let target = issue040_dispatch_target(
+                issue040_proof_enabled(),
+                &generation,
+                isolated_active,
+                embedded_registered,
+            )
+            .ok_or_else(|| "issue 040 input dispatch target is not permitted".to_string())?;
+            let window = match &target {
+                Issue040DispatchTarget::IsolatedPreview(label) => app
+                    .get_webview_window(label)
+                    .ok_or_else(|| format!("preview window not found: {label}"))?,
+                Issue040DispatchTarget::EmbeddedMain => app
+                    .get_webview_window(ISSUE040_MAIN_WINDOW_LABEL)
+                    .ok_or_else(|| {
+                        format!("main window not found: {ISSUE040_MAIN_WINDOW_LABEL}")
+                    })?,
+            };
+            issue040_send_native_input(&window, input).await
+        }
+        other => Err(format!("unsupported issue 040 op: {other}")),
     }
-    let window = app
-        .get_webview_window(&label)
-        .ok_or_else(|| format!("preview window not found: {label}"))?;
-    issue040_send_native_input(&window, input).await
 }
 
 #[cfg(target_os = "macos")]

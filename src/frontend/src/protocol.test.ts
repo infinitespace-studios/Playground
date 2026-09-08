@@ -2210,7 +2210,7 @@ test("issue 034 commands are scoped to the local main webview", async () => {
       readFile(new URL("src/lib.rs", root), "utf8"),
       readFile(new URL("Cargo.toml", root), "utf8"),
       readFile(new URL("../package.json", import.meta.url), "utf8"),
-      readFile(new URL("./issue34.ts", import.meta.url), "utf8"),
+      readFile(new URL("./proof-preview-security.ts", import.meta.url), "utf8"),
       readdir(new URL("capabilities/", root), { withFileTypes: true }),
       readdir(new URL("permissions/", root), { withFileTypes: true }),
     ]);

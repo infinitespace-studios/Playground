@@ -533,20 +533,29 @@ WebView2 renderer process.
 | `issue040_is_proof_enabled` | Check proof env gate | No |
 | `issue040_emit_checkpoint` | Emit proof checkpoint line (4KB limit) | Yes |
 | `issue040_emit_report` | Emit packaged proof report and exit | Yes |
-| `issue040_dispatch_preview_input` | Deliver one trusted Space/Escape/click AppKit event to an active isolated preview window | Yes |
+| `issue040_dispatch_preview_input` | Register/retire the single embedded-preview input target and deliver one trusted Space/Escape/click AppKit event to the authorized preview | Yes |
 
 All twenty-one are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
 and `ISSUE034_APPROVED_COMMANDS`.  They are accessible only from the trusted
 `main` window and inaccessible from the isolated preview.
 
-`issue040_dispatch_preview_input` is the only command that synthesises input.
-It refuses to run unless `MONOGAME_ISSUE040_PROOF=1` is set, only accepts the
-five fixed gestures the audio proof needs (`click`, `space-down`, `space-up`,
-`escape-down`, `escape-up`), and only addresses a window whose label carries the
-isolated-preview prefix for a generation that is still active. The event is
-handed to that window's AppKit responder chain, so WebKit routes it through its
-normal trusted-input path; nothing fabricates DOM events or bypasses the
-autoplay policy.
+`issue040_dispatch_preview_input` is the only command that synthesises input,
+and it also owns the embedded-preview input-authorization lifecycle. It refuses
+to run unless `MONOGAME_ISSUE040_PROOF=1` is set and the caller is the trusted
+`main` window. Beyond the legacy isolated path (an active issue 038 generation
+targets its own isolated preview window), the command exposes two narrowly
+scoped lifecycle operations: the trusted host `register`s the exact generation
+of the embedded opaque-origin preview iframe it created as the single active
+embedded input target, and `retire`s it on every iframe cleanup/error path.
+Rust-managed state holds at most one active embedded generation. A
+`dispatch` only accepts the five fixed gestures the audio proof needs (`click`,
+`space-down`, `space-up`, `escape-down`, `escape-up`) and only reaches the main
+Workbench window when its generation is exactly the registered one; unknown,
+random, and stale-after-retire generations fail closed. The isolated path still
+requires a generation that is still active under the isolated-preview prefix.
+The event is handed to the addressed window's AppKit responder chain, so WebKit
+routes it through its normal trusted-input path; nothing fabricates DOM events,
+bypasses the autoplay policy, or gives the opaque preview any IPC.
 
 ## Content asset validation (issues 039 and 040)
 

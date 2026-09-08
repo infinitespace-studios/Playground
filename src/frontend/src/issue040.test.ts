@@ -187,7 +187,7 @@ test("issue040 validator expectations cover both texture and sound content", () 
 });
 
 test("issue040 validator expectations agree with the issue 039 proof harness", async () => {
-  const issue039Source = await repositoryFile("src/frontend/src/issue039.ts");
+  const issue039Source = await repositoryFile("src/frontend/src/proof-content.ts");
   const text = issue039Source.toString("utf8");
   for (const [name, [valid, diagnostic]] of Object.entries(ISSUE040_EXPECTED_VALIDATOR_CASES)) {
     const quoted = /^[a-z0-9-]+$/.test(name) && name.includes("-") ? `"${name}"` : name;
@@ -223,9 +223,8 @@ test("issue040 proof commands are gated and registered in every ACL inventory", 
   const buildRs = (await repositoryFile("src/desktop/src-tauri/build.rs")).toString("utf8");
   const permission = (await repositoryFile("src/desktop/src-tauri/permissions/main.toml")).toString("utf8");
   const lib = (await repositoryFile("src/desktop/src-tauri/src/lib.rs")).toString("utf8");
-  const issue34 = (await repositoryFile("src/frontend/src/issue34.ts")).toString("utf8");
-  const approvedCommands = issue34
-    .slice(issue34.indexOf("ISSUE034_APPROVED_COMMANDS"), issue34.indexOf("] as const;"));
+  const issue34 = (await repositoryFile("src/frontend/src/proof-preview-security.ts")).toString("utf8");
+  const approvedCommands = issue34.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[0] ?? "";
   for (const command of commands) {
     assert.ok(buildRs.includes(`"${command}"`), `${command} missing from build.rs`);
     assert.ok(permission.includes(`"${command}"`), `${command} missing from main.toml`);

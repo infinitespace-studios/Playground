@@ -3,10 +3,12 @@
 // neutral run/stop lifecycle controller (lifecycle-controller.ts) driving the
 // in-page live preview (live-preview.ts). It is production-neutral: no proof
 // markers and no auto-proof entry. The historical cooperative-stop AUTO-PROOF
-// (`runIssue024AutoProof`) stays in issue24.ts.
+// (`runIssue024AutoProof`) lives in the Stage-4 scenario suite
+// `proof-compile-run-stop.ts`.
 //
-// `issue24.ts` re-exports `installRunStopControl` under its historical name
-// `installIssue024RunStopControl` for entry.proof.ts.
+// Production installs run/stop via `installRunStopControl` directly (see
+// `app.ts`); the historical `installIssue024RunStopControl` re-export was
+// dropped in Stage 4 as it had no remaining caller.
 
 import { createRunStopController, type PreviewLifecycleState } from "./lifecycle-controller";
 import { runLivePreviewInPage } from "./live-preview";

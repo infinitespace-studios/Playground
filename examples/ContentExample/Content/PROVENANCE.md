@@ -30,7 +30,8 @@ hand-assembled byte-for-byte to match the exact output format:
 - Reader type string format verified against `ContentWriter.WriteTypeWriters()`
 - 7-bit encoded integers match `BinaryWriter.Write7BitEncodedInt()`
 - The fixture is proven by actual MonoGame `Content.Load<Texture2D>()` in
-  the packaged proof (issue039.ts), which exercises the real
+  the packaged proof (`src/frontend/src/proof-content.ts`, the Stage-4
+  consolidation of the former `issue039.ts` driver), which exercises the real
   `Texture2DReader.Read()` code path in the pinned MonoGame runtime DLL.
 
 ### XNB binary layout

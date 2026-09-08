@@ -10,26 +10,23 @@
 // so the auto-proof environment markers below (MONOGAME_ISSUE0xx_PROOF) stay
 // out of the shipping product dist.
 import "./style.css";
-import { runIssue021AutoProof } from "./issue21";
-import { runIssue022AutoProof } from "./issue22";
-import { runIssue023AutoProof } from "./issue23";
-import { installIssue024RunStopControl, runIssue024AutoProof } from "./issue24";
-import { runIssue025AutoProof } from "./issue25";
-import { runIssue027AutoProof } from "./issue27";
-import { runIssue028AutoProof } from "./issue28";
-import { issue029PartialEvidence, runIssue029AutoProof } from "./issue29";
-import { runIssue030AutoProof } from "./issue30";
-import { runIssue031AutoProof } from "./issue31";
-import { runIssue032AutoProof } from "./issue32";
-import { runIssue033AutoProof, runIssue033NoWasmEvalProof } from "./issue33";
-import { runIssue034AutoProof } from "./issue34";
-import { runIssue035AutoProof } from "./issue35";
-import { runIssue036AutoProof } from "./issue36";
-import { gateFirstRun, runIssue037AutoProof } from "./issue37";
+// Stage-4 durable scenario suite. `entry.proof.ts` no longer imports fifteen-plus
+// per-issue `runIssueNN` runners; it dispatches the EIGHT responsibility-named
+// durable scenario entrypoints below (plus the retained top-level-shell inline
+// proofs 009/010/011/020 and the isolated-window issue038 force-stop harness,
+// which are not per-issue driver modules). Each scenario driver owns its own
+// sub-proof selection and failure reporting; the existing Rust env gates and
+// report command names are preserved internally by the drivers for Stage-6
+// compatibility. PRODUCT (`entry.product.ts`) must NEVER import this module.
+import { runCompileRunStopScenario } from "./proof-compile-run-stop";
+import { runCompilerDiagnosticsScenario } from "./proof-compiler-diagnostics";
+import { runRuntimeExceptionScenario } from "./proof-runtime-exception";
+import { runOutputCaptureScenario } from "./proof-output";
+import { runContentWorkflowScenario } from "./proof-content";
+import { runPreviewSecurityScenario } from "./proof-preview-security";
+import { runProjectLifecycleScenario } from "./proof-project-lifecycle";
+import { runPerformanceScenario } from "./proof-performance";
 import { runIssue038ForceStopProof } from "./issue38";
-import { runIssue039ContentProof } from "./issue039";
-import { runIssue040AudioProof } from "./issue040";
-import { reportIssue041ShellReady, runIssue041Benchmark } from "./issue041";
 import { initTheme } from "./theme-controller";
 
 interface RuntimeDiagnostics {
@@ -1172,204 +1169,24 @@ void runIssue020Proof().catch((error: unknown) => {
   console.error("Issue 020 proof instrumentation failed", error);
 });
 
-void runIssue021AutoProof().catch((error: unknown) => {
-  const message = error instanceof Error ? error.stack ?? error.message : String(error);
-  void window.__TAURI_INTERNALS__?.invoke("issue021_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: {
-        name: error instanceof Error ? error.name : "Error",
-        message: error instanceof Error ? error.message : String(error),
-        stack: message,
-      },
-      diagnostics,
-    }),
-  });
-  console.error("Issue 021 proof instrumentation failed", error);
-});
+// ── Durable scenario dispatch (Stage 4) ──────────────────────────────────────
+// Each of the eight responsibility-named scenario entrypoints internally selects
+// and reports its own sub-proofs. Scenarios are dispatched concurrently (each
+// self-gates on its Rust env flag, so only the requested one does work in a
+// packaged run); this preserves the previous per-issue concurrency and timing
+// while collapsing fifteen-plus per-issue dispatch/report blocks into eight.
+void runCompileRunStopScenario();
+void runCompilerDiagnosticsScenario();
+void runRuntimeExceptionScenario();
+void runOutputCaptureScenario();
+void runContentWorkflowScenario();
+void runPreviewSecurityScenario();
+void runProjectLifecycleScenario();
 
-void runIssue022AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue022_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 022 proof instrumentation failed", error);
-});
-
-void runIssue023AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue023_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 023 proof instrumentation failed", error);
-});
-void runIssue024AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue024_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 024 proof instrumentation failed", error);
-});
-void runIssue025AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue025_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 025 proof instrumentation failed", error);
-});
-void runIssue027AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue027_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 027 proof instrumentation failed", error);
-});
-void runIssue028AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue028_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 028 proof instrumentation failed", error);
-});
-void runIssue029AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue029_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      partialEvidence: issue029PartialEvidence,
-      diagnostics,
-    }),
-  });
-  console.error("Issue 029 proof instrumentation failed", error);
-});
-void runIssue030AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue030_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 030 proof instrumentation failed", error);
-});
-void runIssue031AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue031_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 031 proof instrumentation failed", error);
-});
-void runIssue032AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue032_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 032 proof instrumentation failed", error);
-});
-void runIssue033AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue033_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 033 proof instrumentation failed", error);
-});
-void runIssue033NoWasmEvalProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue033_emit_no_wasm_eval_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 033 no-wasm proof instrumentation failed", error);
-});
-void runIssue034AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue034_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 034 proof instrumentation failed", error);
-});
-void runIssue035AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue035_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 035 proof instrumentation failed", error);
-});
-
-void runIssue036AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue036_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 036 proof instrumentation failed", error);
-});
-
-void runIssue037AutoProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue037_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 037 proof instrumentation failed", error);
-});
-
+// Retained isolated-window force-stop harness (issue038). Stage 5 retires it;
+// until then it stays runnable for regression. `issue38.ts` is now the ONLY
+// module that imports `issue38-bridge` (proof-content.ts and issue21.ts were
+// migrated to the embedded in-page preview path).
 void runIssue038ForceStopProof().catch((error: unknown) => {
   void window.__TAURI_INTERNALS__?.invoke("issue038_emit_report", {
     report: JSON.stringify({
@@ -1382,46 +1199,13 @@ void runIssue038ForceStopProof().catch((error: unknown) => {
   console.error("Issue 038 proof instrumentation failed", error);
 });
 
-void runIssue039ContentProof().catch((error: unknown) => {
-  void (window as any).__TAURI_INTERNALS__?.invoke("issue039_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-    }),
-  });
-  console.error("Issue 039 proof instrumentation failed", error);
-});
-
-void runIssue040AudioProof().catch((error: unknown) => {
-  void (window as any).__TAURI_INTERNALS__?.invoke("issue040_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-    }),
-  });
-  console.error("Issue 040 proof instrumentation failed", error);
-});
-
 // Workbench application controller wiring (imported after main module)
 import "./app";
 
 // Issue 046: persistent theme + accessibility
 initTheme();
 
-// Issue 041: benchmark instrumentation. Shell readiness is reported first so the
-// startup sample is never delayed by the later measurement phases.
-void reportIssue041ShellReady()
-  .then(() => runIssue041Benchmark())
-  .catch((error: unknown) => {
-    void window.__TAURI_INTERNALS__?.invoke("issue041_emit_report", {
-      report: JSON.stringify({
-        schemaVersion: 1,
-        generatedAt: new Date().toISOString(),
-        failure: error instanceof Error ? error.message : String(error),
-        diagnostics,
-      }),
-    });
-    console.error("Issue 041 benchmark instrumentation failed", error);
-  });
+// Performance & memory scenario (former issue041). Its driver reports shell
+// readiness first (so the startup sample is never delayed) and then runs the
+// benchmark; both self-gate on the benchmark env flag.
+void runPerformanceScenario();

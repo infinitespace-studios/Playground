@@ -3,6 +3,7 @@ import {
   preparePackagedProofRuntime,
 } from "./issue21";
 import { createIssue024RunStopController } from "./issue24-controller";
+import { runScenario, type SubProof } from "./scenario-runner";
 
 export const issue029PartialEvidence: Record<string, unknown> = {};
 
@@ -542,4 +543,24 @@ export async function runIssue029AutoProof(): Promise<void> {
       },
     }),
   });
+}
+
+// Single durable-scenario entrypoint. Runtime exception + portable-PDB mapping
+// (former issue029) with its partial-evidence channel preserved on failure.
+export async function runRuntimeExceptionScenario(): Promise<void> {
+  const subProofs: SubProof[] = [
+    {
+      label: "runtime exception + portable-PDB mapping (issue029)",
+      reportCommand: "issue029_emit_report",
+      run: runIssue029AutoProof,
+      buildFailure: error => ({
+        schemaVersion: 1,
+        generatedAt: new Date().toISOString(),
+        failure: error instanceof Error ? error.message : String(error),
+        partialEvidence: issue029PartialEvidence,
+        diagnostics: window.__MONOGAME_DIAGNOSTICS__,
+      }),
+    },
+  ];
+  await runScenario(subProofs);
 }

@@ -87,12 +87,22 @@ empty/malformed module inventory, or the wrong entry source.
 Beyond the manifest it asserts, per profile:
 
 - **PRODUCT (`dist/`)** — `src/entry.proof.ts` and every proof-only module
-  (`issue21/22/23/24/25/27..37/38/039/040/041`) are absent from the emitted
-  module graph, and **zero** auto-proof markers (`MONOGAME_ISSUE0xx_PROOF...`)
-  appear in any emitted `.js/.html/.css` artifact. **Any** marker is a **hard
-  failure** (no warnings, no downgrades). The checker additionally asserts that
-  the Stage-2 extracted production domain modules (`compiler-context`,
-  `live-preview`, `run-stop`, `lifecycle-controller`, `first-run-warning`) **are**
+  are absent from the emitted module graph, and **zero** auto-proof markers
+  (`MONOGAME_ISSUE0xx_PROOF...`) appear in any emitted `.js/.html/.css`
+  artifact. **Any** marker is a **hard failure** (no warnings, no downgrades).
+  The proof-only set enumerated in the checker's `PROOF_ONLY_MODULES` is the
+  shared proof runtime toolkit (`issue21`), the retained isolated-window
+  force-stop harness (`issue38`, pending Stage 5), and the eight Stage-4
+  scenario suites (`proof-compile-run-stop`, `proof-compiler-diagnostics`,
+  `proof-output`, `proof-runtime-exception`, `proof-preview-security`,
+  `proof-content`, `proof-project-lifecycle`, `proof-performance`); each is a
+  hard failure if it leaks into the product graph. Separately, **any**
+  issue-numbered source module (`issueNN*.ts`) in the product graph is a hard
+  failure via a generic regex guard, so `issue21`/`issue38` are caught by that
+  guard too even though they are also enumerated explicitly. The checker
+  additionally asserts that the Stage-2 extracted production domain modules
+  (`compiler-context`, `live-preview`, `run-stop`, `lifecycle-controller`,
+  `first-run-warning`, plus the Stage-3 responsibility-named UI modules) **are**
   present in the product graph, so the extraction is proven real rather than a
   dead re-export.
 - **PROOF (`dist-proof/`)** — `src/entry.proof.ts` and every proof-only module
@@ -166,31 +176,145 @@ auto-proof entries):
 | `src/first-run-warning.ts` | ADR-0003 non-yielding first-run warning modal, per-folder-identity acknowledgement store client, and `gateFirstRun`. | `issue37.ts` |
 
 Compatibility strategy (proof/tests unchanged, product never imports the
-façades):
+façades) — **as of Stage 2**; several of the issue-numbered proof modules named
+here were subsequently consolidated or renamed in Stage 4 (see the Stage-4
+boundary below for where each moved):
 
-- `issue24-controller.ts` is now a **compatibility façade** that re-exports
+- `issue24-controller.ts` is a **compatibility façade** that re-exports
   `createRunStopController` (as `createIssue024RunStopController`) and the
   `PreviewLifecycleState` / `Issue052PreviewLifecycle` types from
-  `lifecycle-controller.ts`, so proof modules (`issue24/25/29/30/041`),
-  `issue052`'s type import, and the protocol test resolve unchanged.
-- `issue24.ts` keeps only the cooperative-stop AUTO-PROOF and re-exports
-  `installRunStopControl` under its historical name
-  `installIssue024RunStopControl` for `entry.proof.ts`.
-- `issue37.ts` keeps only the two-phase packaged first-run PROOF and re-exports
-  `gateFirstRun` / `SCRATCH_PROJECT_IDENTITY` from `first-run-warning.ts`.
+  `lifecycle-controller.ts`. It is **retained** through Stage 4 and still
+  resolves for its current importers: `lifecycle-controller.ts`,
+  `protocol.test.ts`, and the Stage-4 scenario suites
+  (`proof-compile-run-stop.ts`, `proof-runtime-exception.ts`,
+  `proof-performance.ts`).
+- `issue24.ts` (which kept only the cooperative-stop AUTO-PROOF and re-exported
+  `installRunStopControl` as `installIssue024RunStopControl` for
+  `entry.proof.ts`) was **removed in Stage 4**: its cooperative-stop proof body
+  was folded into `proof-compile-run-stop.ts`. The
+  `installIssue024RunStopControl` re-export was **dropped** as dead code —
+  `entry.proof.ts` never called it and the production control lives in
+  `app.ts` via `run-stop.ts`.
+- `issue37.ts` (which kept only the two-phase packaged first-run PROOF and
+  re-exported `gateFirstRun` / `SCRATCH_PROJECT_IDENTITY` from
+  `first-run-warning.ts`) was **renamed in Stage 4** to
+  `proof-project-lifecycle.ts`, which preserves that two-phase proof and the
+  same `gateFirstRun` / `SCRATCH_PROJECT_IDENTITY` re-exports.
 - `issue21.ts` keeps its proof-only compile/load/preview functions and injects
   its proof context closures via `registerContextSetup`; its shared compiler
-  context now comes from `compiler-context.ts`.
+  context now comes from `compiler-context.ts`. It remains proof-only through
+  Stage 4.
 
 `app.ts` imports `installRunStopControl` from `run-stop.ts` and `gateFirstRun` /
 `SCRATCH_PROJECT_IDENTITY` from `first-run-warning.ts` — no issue-numbered
 module is on the product Run/first-run path. Shared protocol validation stays in
 `protocol.ts` / `ProtocolRuntime`; it is not forked.
 
-Remaining issue-numbered modules still in the **product** graph (Stage-3 UI
-rename scope, not Stage 2): `issue046` (theme), `issue047` (editor), `issue048`
-(problems), `issue049` (output), `issue050` (dirty tracker), `issue051` (project
-manager), `issue052` / `issue052-content` (preview panel + content).
+Remaining issue-numbered modules still in the **product** graph **at the end of
+Stage 2** (Stage-3 UI rename scope, not Stage 2): `issue046` (theme), `issue047`
+(editor), `issue048` (problems), `issue049` (output), `issue050` (dirty
+tracker), `issue051` (project manager), `issue052` / `issue052-content` (preview
+panel + content). Stage 3 subsequently renamed all of these to the
+responsibility-named product UI modules listed above, so the current product
+graph contains **no** issue-numbered modules (enforced by
+`ISSUE_NUMBERED_MODULE_REGEX` in the checker).
+
+## Stage-4 boundary (durable scenario suite, done)
+
+Stage 4 replaced the many permanent per-issue **frontend proof drivers** with a
+durable suite of **exactly eight** responsibility/scenario-named proof modules.
+Each module exposes a **single scenario entrypoint** that orchestrates its
+constituent sub-proofs and owns their failure reporting; `entry.proof.ts`
+dispatches those eight entrypoints (plus the retained top-level-shell inline
+proofs 009/010/011/020 and the issue038 force-stop harness) instead of the
+former fifteen-plus per-issue `runIssueNN` runners. The former per-issue driver
+bodies were merged into module scope with shared helpers deduplicated (not left
+as verbatim per-issue namespaces), and each module's issue-specific env
+selection + report emission is encapsulated inside its scenario driver. Every
+packaged proof marker (`MONOGAME_ISSUE0xx_PROOF…`) and Tauri report command name
+is unchanged (their renames are Stage 6). PRODUCT is untouched (still 21 modules,
+zero markers).
+
+A shared driver, `scenario-runner.ts` (deliberately **not** `proof-*`-named so
+the checker's structural `proof-*` rule stays reserved for the eight scenario
+suites), provides the `runScenario`/`SubProof` orchestration each scenario uses.
+
+| Scenario entrypoint | Module | Durable scenario | Absorbed sub-proofs |
+| --- | --- | --- | --- |
+| `runCompileRunStopScenario` | `proof-compile-run-stop.ts` | compile → Run → Stop → rerun | issue021/023/024/025/030 |
+| `runCompilerDiagnosticsScenario` | `proof-compiler-diagnostics.ts` | compiler diagnostics + policy rejection | issue022/031/032 |
+| `runRuntimeExceptionScenario` | `proof-runtime-exception.ts` | runtime exception + portable-PDB mapping | issue029 |
+| `runOutputCaptureScenario` | `proof-output.ts` | managed / native output | issue027/028 |
+| `runContentWorkflowScenario` | `proof-content.ts` | texture / audio content workflow | issue039/040 |
+| `runPreviewSecurityScenario` | `proof-preview-security.ts` | embedded preview security boundary | issue033/034/035/036 |
+| `runProjectLifecycleScenario` | `proof-project-lifecycle.ts` | project open/save/dirty-state/identity | project-lifecycle feature tests + issue037 |
+| `runPerformanceScenario` | `proof-performance.ts` | performance + memory | issue041 |
+
+Genuine dedup performed: `proof-compiler-diagnostics.ts` hoisted one shared
+`Diagnostic`/`Compilation` type and one persistent-compiler `compile` helper
+(issue31 and issue32 previously declared identical copies); `proof-output.ts`,
+`proof-compile-run-stop.ts`, `proof-preview-security.ts`, and `proof-content.ts`
+hoisted their duplicated `wait`/`assert`/`createUuid`/`PROTOCOL_VERSION` helpers
+to module scope. The dead `installIssue023RunControl` proof Run-wiring (a
+duplicate of the production control in `app.ts`) was removed, as was the unused
+`installIssue024RunStopControl` re-export.
+
+**Scenario 7 (project open/save/dirty-state/identity)** is explicitly two
+layers: (1) durable, responsibility-named FEATURE TESTS with mocks
+(`project-lifecycle.test.ts`, `node --test`) that consolidate and REPLACE the
+historical `issue051.test.ts` + `project-identity.test.ts` coverage AND add the
+previously-missing open→edit→**Save-All** (atomic, dirty-clear) behavior against
+the production `project-manager.ts`; plus (2) the packaged two-phase FIRST-RUN
+warning proof (former issue037, in `proof-project-lifecycle.ts`).
+`proof-project-lifecycle.ts` does NOT claim to test save/dirty behavior — the
+feature tests do.
+
+Retained by genuine necessity: the shared proof runtime toolkit (`issue21.ts` +
+`issue21-controller.ts`), the neutral lifecycle façades (`issue23-controller.ts`,
+`issue24-controller.ts`, also imported by `protocol.test.ts`), the content
+fixtures/contract (`issue040-fixture.ts`, `issue040-contract.ts`), the Stage-3
+output/project façades (`issue049.ts`, `issue051.ts`), and — **intentionally,
+pending Stage 5, now the sole `issue38-bridge` importer** — the isolated-window
+force-stop harness (`issue38.ts`, `issue38-bridge.ts`).
+
+**Stage-5 readiness (issue38-bridge migration) — complete:** the intended end
+state is now reached — **only `issue38.ts`** imports `issue38-bridge`, so Stage 5
+can delete the isolated-window harness cleanly. The embedded preview security
+scenario (`proof-preview-security.ts`, issues 33–36) already ran entirely in the
+EMBEDDED opaque-origin sandboxed iframe (`runInPagePreviewForProof`) required by
+ADR 0003 and never imported `issue38-bridge`. In Stage 4 the shared toolkit's
+`compileLoadStartIssue23` (`issue21.ts`) and the texture/audio content proofs
+(`proof-content.ts`, issues 039/040) were migrated off `issue38-bridge` onto the
+same embedded in-page opaque-origin iframe via the shared
+`createEmbeddedProofPreview` helper in `issue21.ts`; compiled binaries and
+content assets now transfer **INLINE** over the in-page protocol port instead of
+the isolated window. The one native-input dependency was resolved by narrowly
+adapting the EXISTING `issue040_dispatch_preview_input` command to fail-closed
+resolve an explicit target (active isolated preview *or* the pinned `main`
+window hosting the embedded iframe) so the trusted Space/Escape gesture that
+unlocks AudioContext autoplay reaches the embedded preview — **no Tauri command
+renamed/added/removed, no Cargo proof feature/boundary changed, no `issue038_*`
+asset/window/command touched**. `issue038` remains runnable for regression
+during Stage 4; Stage 5 only deletes the now-sole `issue38.ts` importer and its
+bridge.
+
+The checker (`check-profile-artifacts.mjs`) now: structurally rejects **any**
+`src/proof-*.ts` module in the PRODUCT graph (prefix regex, independent of the
+enumerated list); requires **exactly the eight** scenario modules in PROOF and
+rejects any unexpected `proof-*` module; retains explicit `issue21`/`issue38`
+presence checks in PROOF; and keeps the marker anti-drift floors unchanged. The
+issue034 ACL rejection inventory (`ISSUE034_APPROVED_COMMANDS`) lives at module
+scope in `proof-preview-security.ts`; the Rust `build.rs` / `lib.rs` source path
+that scans it points there (no command renamed, no Cargo proof feature/boundary
+changed).
+
+**Canonical packaged verification path:** `scripts/prove-scenarios-macos.sh`
+orchestrates the eight durable scenarios BY NAME while internally translating
+each to the existing per-issue env gates and report keys. Operators no longer
+think in per-issue ordering; `scripts/prove-issue03x/04x-macos.sh` and
+`prove-packaged-offline-macos.sh` remain as compatibility wrappers. See
+[`stage4-proof-consolidation.md`](stage4-proof-consolidation.md) for the full
+inventory→scenario mapping and verification matrix.
 
 ## Manifest schema
 

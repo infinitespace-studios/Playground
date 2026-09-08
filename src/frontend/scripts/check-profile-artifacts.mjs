@@ -16,11 +16,13 @@
 //     * manifest present, schema known, profile === "product",
 //       entrySource === src/entry.product.ts, non-empty module/chunk inventory.
 //     * src/entry.product.ts present in the emitted module graph.
-//     * src/entry.proof.ts and every proof-only module
-//       (issue21/22/23/24/25/27..37/38/039/040/041) ABSENT from the module
-//       graph. As of Stage 2 the former mixed modules issue21/issue24/issue37
-//       are fully extracted, so their presence in the product graph is a HARD
-//       FAILURE (no transitional allowance).
+//     * src/entry.proof.ts and every proof-only module (issue21 shared
+//       toolkit, the retained issue38 isolated-window force-stop harness, and
+//       the eight proof-* scenario suites) ABSENT from the module graph. Any
+//       issue-numbered source module in the product graph is a HARD FAILURE via
+//       ISSUE_NUMBERED_MODULE_REGEX; the scenario proof-* modules AND the
+//       retained issue38 harness are enumerated in PROOF_ONLY_MODULES so they
+//       are also a HARD FAILURE if they leak into PRODUCT.
 //     * the extracted production domain modules (compiler-context, live-preview,
 //       run-stop, lifecycle-controller, first-run-warning, plus the Stage-3
 //       responsibility-named UI modules: theme-controller, monaco-editor,
@@ -74,42 +76,61 @@ const MIN_MODULES = 10;
 // excluded from the "must appear in the proof output" expectation. They are
 // still forbidden in the product output like every other marker.
 const COMMENT_ONLY_MARKERS = new Set([
-  // issue37.ts references `MONOGAME_ISSUE037_PROOF_PHASE=1/2` only in comments;
-  // the phase env var is read by scripts/prove-issue037-macos.sh in Rust/shell,
-  // not emitted as a frontend string literal.
+  // proof-project-lifecycle.ts (former issue37.ts) references
+  // `MONOGAME_ISSUE037_PROOF_PHASE=1/2` only in comments; the phase env var is
+  // read by scripts/prove-issue037-macos.sh in Rust/shell, not emitted as a
+  // frontend string literal.
   "MONOGAME_ISSUE037_PROOF_PHASE",
 ]);
 
 // Proof-only source modules: modules that carry auto-proof instrumentation and
 // must NEVER be linked into the product graph. Present in the proof graph,
-// absent from the product graph. As of Stage 2 this includes the former mixed
-// modules issue21/issue24/issue37: their production code paths were extracted
-// into the domain modules listed in PRODUCT_DOMAIN_MODULES, so what remains in
-// issue21/24/37 is proof-only (auto-proof entries + proof scenario code) plus
-// compatibility re-exports that the product build never imports.
+// absent from the product graph.
+//
+// Stage 4 consolidated the many permanent per-issue frontend proof drivers into
+// EXACTLY EIGHT durable, responsibility/scenario-named proof suites, each
+// exposing a single scenario entrypoint that `entry.proof.ts` dispatches. The
+// old issue-numbered drivers (issue22/23/24/25/27/28/29/30/31/32/33/34/35/36/
+// 37/039/040/041) were folded into these eight `proof-*` scenario modules,
+// preserving every packaged proof marker and Tauri report command verbatim. The
+// shared proof runtime toolkit (issue21), the shared scenario driver
+// (scenario-runner.ts), and the retained isolated-window force-stop harness
+// (issue38, plus its issue38-bridge helper) remain proof-only. issue21 and
+// issue38 are still issue-numbered, so ISSUE_NUMBERED_MODULE_REGEX also forbids
+// them in PRODUCT; they are additionally enumerated here (and issue38 is thus
+// proven PRESENT in the proof graph, not merely tolerated). Any src/proof-*.ts
+// module is structurally forbidden in PRODUCT by PROOF_MODULE_PREFIX_REGEX
+// below, independently of this list.
+//
+// SCENARIO_MODULES is the CANONICAL, EXACT set of eight durable scenario
+// suites: PROOF must contain all eight, PROOF must contain NO other proof-*
+// module, and PRODUCT must contain none of them.
+const SCENARIO_MODULES = [
+  "src/proof-compile-run-stop.ts",
+  "src/proof-compiler-diagnostics.ts",
+  "src/proof-runtime-exception.ts",
+  "src/proof-output.ts",
+  "src/proof-content.ts",
+  "src/proof-preview-security.ts",
+  "src/proof-project-lifecycle.ts",
+  "src/proof-performance.ts",
+];
+const EXPECTED_SCENARIO_COUNT = 8;
+
 const PROOF_ONLY_MODULES = [
   "src/entry.proof.ts",
   "src/issue21.ts",
-  "src/issue22.ts",
-  "src/issue23.ts",
-  "src/issue24.ts",
-  "src/issue25.ts",
-  "src/issue27.ts",
-  "src/issue28.ts",
-  "src/issue29.ts",
-  "src/issue30.ts",
-  "src/issue31.ts",
-  "src/issue32.ts",
-  "src/issue33.ts",
-  "src/issue34.ts",
-  "src/issue35.ts",
-  "src/issue36.ts",
-  "src/issue37.ts",
   "src/issue38.ts",
-  "src/issue039.ts",
-  "src/issue040.ts",
-  "src/issue041.ts",
+  "src/scenario-runner.ts",
+  ...SCENARIO_MODULES,
 ];
+
+// Structural rule (Stage 4): ANY first-party module whose basename matches
+// `proof-*.ts` is proof scenario architecture and must NEVER appear in the
+// PRODUCT Rollup graph, even if a future proof-* module is added and someone
+// forgets to enumerate it. This is a prefix/regex guard independent of
+// SCENARIO_MODULES.
+const PROOF_MODULE_PREFIX_REGEX = /(^|\/)proof-[a-z0-9-]*\.ts$/i;
 
 // Stage-2 extracted production domain modules. These carry the REAL production
 // compiler context, embedded live preview, run/stop lifecycle + control, and
@@ -303,6 +324,18 @@ function checkProduct() {
     fail(`PRODUCT module graph LEAKS proof-only modules: ${leakedModules.join(", ")}`);
   }
 
+  // Structural Stage-4 guard: NO src/proof-*.ts scenario module may appear in
+  // the PRODUCT graph, whether or not it is enumerated above.
+  const leakedProofPrefixModules = manifest.modules.filter((m) =>
+    PROOF_MODULE_PREFIX_REGEX.test(m),
+  );
+  if (leakedProofPrefixModules.length > 0) {
+    fail(
+      `PRODUCT module graph contains proof-* scenario modules (structurally ` +
+        `forbidden): ${leakedProofPrefixModules.join(", ")}`,
+    );
+  }
+
   // Generic issue-numbered-module guard: no historical issue-numbered source
   // module may remain in the product graph after Stage 3.
   const issueNumberedModules = manifest.modules.filter((m) =>
@@ -338,13 +371,14 @@ function checkProduct() {
   }
   if (
     leakedModules.length === 0 &&
+    leakedProofPrefixModules.length === 0 &&
     issueNumberedModules.length === 0 &&
     missingDomainModules.length === 0 &&
     emitted.size === 0 &&
     !modules.has(PROOF_ENTRY_MODULE)
   ) {
     console.log(
-      "  PASS: product graph clean, no issue-numbered/proof-only modules, domain modules present, no proof markers.",
+      "  PASS: product graph clean, no issue-numbered/proof-only/proof-* modules, domain modules present, no proof markers.",
     );
   }
 }
@@ -370,6 +404,44 @@ function checkProof() {
   const missingModules = PROOF_ONLY_MODULES.filter((m) => !modules.has(m));
   if (missingModules.length > 0) {
     fail(`PROOF module graph is missing expected proof-only modules: ${missingModules.join(", ")}`);
+  }
+
+  // Stage-4: PROOF must contain EXACTLY the eight durable scenario modules — all
+  // eight present, and NO other src/proof-*.ts module (a stray/duplicate proof-*
+  // scenario module is a drift failure).
+  const scenarioModulesPresent = SCENARIO_MODULES.filter((m) => modules.has(m));
+  const missingScenarioModules = SCENARIO_MODULES.filter((m) => !modules.has(m));
+  if (missingScenarioModules.length > 0) {
+    fail(
+      `PROOF module graph is missing required scenario modules: ${missingScenarioModules.join(", ")}`,
+    );
+  }
+  const proofPrefixModules = manifest.modules.filter((m) =>
+    PROOF_MODULE_PREFIX_REGEX.test(m),
+  );
+  const unexpectedScenarioModules = proofPrefixModules.filter(
+    (m) => !SCENARIO_MODULES.includes(m),
+  );
+  if (unexpectedScenarioModules.length > 0) {
+    fail(
+      `PROOF module graph contains unexpected proof-* modules (only the eight ` +
+        `SCENARIO_MODULES are allowed): ${unexpectedScenarioModules.join(", ")}`,
+    );
+  }
+  if (scenarioModulesPresent.length !== EXPECTED_SCENARIO_COUNT) {
+    fail(
+      `PROOF module graph has ${scenarioModulesPresent.length} scenario modules, ` +
+        `expected exactly ${EXPECTED_SCENARIO_COUNT}.`,
+    );
+  }
+
+  // Explicit retained-harness assertions (Stage 4 keeps issue21 shared toolkit +
+  // issue38 isolated-window force-stop harness in PROOF; Stage 5 retires issue38).
+  if (!modules.has("src/issue21.ts")) {
+    fail("PROOF module graph is missing the shared proof toolkit src/issue21.ts.");
+  }
+  if (!modules.has("src/issue38.ts")) {
+    fail("PROOF module graph is missing the retained issue038 force-stop harness src/issue38.ts.");
   }
 
   const emitted = markersEmittedIn(distDir);

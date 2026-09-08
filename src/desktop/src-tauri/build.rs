@@ -360,7 +360,11 @@ fn validate_acl_source(root: &Path) {
     ] {
         println!("cargo:rerun-if-changed={}", root.join(relative).display());
     }
-    let frontend_inventory = root.join("../../frontend/src/issue34.ts");
+    // Stage-4 consolidation: the issue034 ACL rejection inventory
+    // (ISSUE034_APPROVED_COMMANDS) moved from issue34.ts into the durable
+    // embedded-preview security scenario suite. The marker strings and array
+    // shape are unchanged, so the split-based parse below still binds.
+    let frontend_inventory = root.join("../../frontend/src/proof-preview-security.ts");
     println!("cargo:rerun-if-changed={}", frontend_inventory.display());
     println!(
         "cargo:rerun-if-changed={}",
