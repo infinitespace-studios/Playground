@@ -380,12 +380,11 @@ fn relay_packaged_proof_through_launch_services() -> Result<bool, String> {
     cmd.args(["--env", &format!("{RELAY}={relay}")]);
     // Forward all active MONOGAME_ISSUE* proof environment variables
     for (key, value) in std::env::vars_os() {
-        if let Some(key_str) = key.to_str() {
-            if key_str.starts_with("MONOGAME_ISSUE") {
-                if let Some(val_str) = value.to_str() {
-                    cmd.args(["--env", &format!("{key_str}={val_str}")]);
-                }
-            }
+        if let Some(key_str) = key.to_str()
+            && key_str.starts_with("MONOGAME_ISSUE")
+            && let Some(val_str) = value.to_str()
+        {
+            cmd.args(["--env", &format!("{key_str}={val_str}")]);
         }
     }
     cmd.arg(bundle);
@@ -756,9 +755,7 @@ async fn issue050_save_dialog(
 /// Returns Ok(Some((path, content))) when a file is chosen, Ok(None) when the
 /// dialog is cancelled.
 #[tauri::command]
-async fn issue050_open_dialog(
-    app: tauri::AppHandle,
-) -> Result<Option<(String, String)>, String> {
+async fn issue050_open_dialog(app: tauri::AppHandle) -> Result<Option<(String, String)>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let chosen = app
@@ -788,8 +785,7 @@ async fn issue050_open_dialog(
 /// sync. Only the trusted main webview can invoke that command (ACL-gated,
 /// like every other `issue050_*` command), so the sandboxed preview can never
 /// forge the dirty state.
-static ISSUE050_DIRTY: std::sync::atomic::AtomicBool =
-    std::sync::atomic::AtomicBool::new(false);
+static ISSUE050_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Issue 050: Record whether the trusted frontend currently has unsaved
 /// changes. Called by the frontend whenever its dirty indicator flips.
@@ -821,8 +817,7 @@ async fn issue050_write_file(
     let had_backup = if path_buf.exists() {
         // Keep only one backup: overwrite any stale .bak.
         let _ = std::fs::remove_file(&bak_path);
-        std::fs::copy(&path_buf, &bak_path)
-            .map_err(|e| format!("failed to create backup: {e}"))?;
+        std::fs::copy(&path_buf, &bak_path).map_err(|e| format!("failed to create backup: {e}"))?;
         true
     } else {
         false
@@ -873,8 +868,7 @@ const ISSUE052_CONTENT_EXTENSIONS: &[&str] = &["xnb", "png", "jpg", "jpeg", "bmp
 /// to avoid adding a crate (the desktop shell pins `tauri = { features = [] }`
 /// for the issue-034 supply-chain guard).
 fn issue052_base64_encode(bytes: &[u8]) -> String {
-    const TABLE: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
         let b0 = chunk[0] as u32;
@@ -1126,15 +1120,14 @@ mod tests {
     #[cfg(target_os = "macos")]
     use super::packaged_app_bundle;
     use super::{
+        ISSUE037_MAX_ENTRIES, ISSUE037_MAX_IDENTITY_BYTES, ISSUE037_SCHEMA_VERSION,
         MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_TOTAL_BYTES, PREVIEW_ASSET_INVENTORY,
-        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, navigation_allowed, preview_asset,
+        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, chrono_free_iso8601, issue037_read_store,
+        issue037_validate_identity, issue037_write_store_atomic, issue041_mode_value,
+        issue041_preview_cycle_count_value, issue041_warm_compile_iterations,
+        issue052_base64_encode, issue052_discover_content, navigation_allowed, preview_asset,
         preview_content_type, preview_protocol_response, proof_activation_target_allowed,
         proof_window_ready, require_packaged_pipeline_proof,
-        issue037_validate_identity, issue037_read_store, issue037_write_store_atomic,
-        chrono_free_iso8601, ISSUE037_SCHEMA_VERSION, ISSUE037_MAX_IDENTITY_BYTES,
-        ISSUE037_MAX_ENTRIES,
-        issue052_base64_encode, issue052_discover_content,
-        issue041_mode_value, issue041_preview_cycle_count_value, issue041_warm_compile_iterations,
     };
     use tauri::http::{Method, Response};
 
@@ -1173,7 +1166,10 @@ mod tests {
         assert_eq!(issue041_mode_value(None), Ok("full"));
         assert_eq!(issue041_mode_value(Some("full")), Ok("full"));
         assert_eq!(issue041_mode_value(Some("shell-only")), Ok("shell-only"));
-        assert_eq!(issue041_mode_value(Some("memory-baseline")), Ok("memory-baseline"));
+        assert_eq!(
+            issue041_mode_value(Some("memory-baseline")),
+            Ok("memory-baseline")
+        );
         assert!(issue041_mode_value(Some("")).is_err());
         assert!(issue041_mode_value(Some("Full")).is_err());
         assert!(issue041_mode_value(Some("everything")).is_err());
@@ -1203,15 +1199,17 @@ mod tests {
         let parse = |s: &str| s.parse::<tauri::Url>().unwrap();
         assert!(navigation_allowed(&parse("tauri://localhost")));
         assert!(navigation_allowed(&parse("tauri://localhost/index.html")));
-        assert!(navigation_allowed(
-            &parse("playground-preview://localhost/preview.js")
-        ));
+        assert!(navigation_allowed(&parse(
+            "playground-preview://localhost/preview.js"
+        )));
         assert!(navigation_allowed(&parse("about:blank")));
         assert!(navigation_allowed(&parse("about:srcdoc")));
         // The Vite dev server origin is allowed so `tauri dev` can load the
         // frontend; all other http/https hosts stay denied (issue 035).
         assert!(navigation_allowed(&parse("http://127.0.0.1:5173/")));
-        assert!(navigation_allowed(&parse("http://127.0.0.1:5173/index.html")));
+        assert!(navigation_allowed(&parse(
+            "http://127.0.0.1:5173/index.html"
+        )));
         assert!(!navigation_allowed(&parse("http://127.0.0.1:9999/")));
         assert!(!navigation_allowed(&parse("https://127.0.0.1:5173/")));
         assert!(!navigation_allowed(&parse("https://example.com")));
@@ -1246,7 +1244,7 @@ mod tests {
         // Supported assets (bytes are arbitrary here — discovery does not validate
         // format; that is the preview mount gate's job).
         std::fs::write(content.join("blip.wav"), b"RIFF....WAVE").unwrap();
-        std::fs::write(nested.join("player.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        std::fs::write(nested.join("player.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
         std::fs::write(content.join("tile.xnb"), b"XNB").unwrap();
         // Unsupported + hidden entries must be ignored.
         std::fs::write(content.join("notes.txt"), b"ignore me").unwrap();
@@ -1263,7 +1261,10 @@ mod tests {
         let wav = &files[0];
         assert_eq!(wav["extension"].as_str().unwrap(), "wav");
         assert_eq!(wav["byteLength"].as_u64().unwrap(), 12);
-        assert_eq!(wav["base64"].as_str().unwrap(), issue052_base64_encode(b"RIFF....WAVE"));
+        assert_eq!(
+            wav["base64"].as_str().unwrap(),
+            issue052_base64_encode(b"RIFF....WAVE")
+        );
 
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1513,10 +1514,12 @@ mod tests {
             serde_json::json!({ "acknowledgedAt": "2026-01-01T00:00:00Z" });
         issue037_write_store_atomic(&path, &store).unwrap();
         let reloaded = issue037_read_store(&path).unwrap();
-        assert!(reloaded["acknowledged"]["builtin-scratch-v1"]["acknowledgedAt"]
-            .as_str()
-            .unwrap()
-            .starts_with("2026"));
+        assert!(
+            reloaded["acknowledged"]["builtin-scratch-v1"]["acknowledgedAt"]
+                .as_str()
+                .unwrap()
+                .starts_with("2026")
+        );
 
         // No .tmp file left behind
         assert!(!path.with_extension("json.tmp").exists());
@@ -1541,18 +1544,14 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("wrong-version.json");
-        std::fs::write(
-            &path,
-            r#"{"schemaVersion":99,"acknowledged":{}}"#,
-        )
-        .unwrap();
+        std::fs::write(&path, r#"{"schemaVersion":99,"acknowledged":{}}"#).unwrap();
         assert!(issue037_read_store(&path).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
     fn issue037_entry_limit_is_enforced() {
-        assert!(ISSUE037_MAX_ENTRIES == 1024);
+        const { assert!(ISSUE037_MAX_ENTRIES == 1024) };
     }
 
     #[test]
@@ -1623,7 +1622,8 @@ mod tests {
 
     #[test]
     fn issue038_bridge_post_rejects_missing_generation() {
-        let response = super::issue038_handle_bridge_request(&tauri::http::Method::POST,
+        let response = super::issue038_handle_bridge_request(
+            &tauri::http::Method::POST,
             "playground-preview://localhost/_bridge/send",
             b"{}",
         );
@@ -1633,7 +1633,8 @@ mod tests {
 
     #[test]
     fn issue038_bridge_post_rejects_oversize_body() {
-        let response = super::issue038_handle_bridge_request(&tauri::http::Method::POST,
+        let response = super::issue038_handle_bridge_request(
+            &tauri::http::Method::POST,
             "playground-preview://localhost/_bridge/send?generation=test",
             &vec![b'x'; 2 * 1024 * 1024],
         );
@@ -1650,7 +1651,8 @@ mod tests {
                 .pending_messages
                 .insert("unit-test-gen".into(), Vec::new());
         }
-        let response = super::issue038_handle_bridge_request(&tauri::http::Method::POST,
+        let response = super::issue038_handle_bridge_request(
+            &tauri::http::Method::POST,
             "playground-preview://localhost/_bridge/send?generation=unit-test-gen",
             b"{\"type\":\"test\"}",
         );
@@ -1768,21 +1770,28 @@ mod tests {
     #[test]
     fn issue038_stale_generation_cannot_access_newer_messages() {
         let mut state = super::ISSUE038_BRIDGE.lock().unwrap();
-        state.pending_messages.insert("gen-old".into(), vec!["old".into()]);
-        state.pending_messages.insert("gen-new".into(), vec!["new".into()]);
+        state
+            .pending_messages
+            .insert("gen-old".into(), vec!["old".into()]);
+        state
+            .pending_messages
+            .insert("gen-new".into(), vec!["new".into()]);
         // A stale generation can only access its own messages
         assert_eq!(state.pending_messages.get("gen-old").unwrap(), &["old"]);
         assert_eq!(state.pending_messages.get("gen-new").unwrap(), &["new"]);
         // Removing old doesn't affect new
         state.pending_messages.remove("gen-old");
-        assert!(state.pending_messages.get("gen-old").is_none());
+        assert!(!state.pending_messages.contains_key("gen-old"));
         assert_eq!(state.pending_messages.get("gen-new").unwrap(), &["new"]);
         state.pending_messages.remove("gen-new");
     }
 
     #[test]
     fn issue038_percent_decode_handles_edge_cases() {
-        assert_eq!(super::percent_decode("hello%20world"), Some("hello world".into()));
+        assert_eq!(
+            super::percent_decode("hello%20world"),
+            Some("hello world".into())
+        );
         assert_eq!(super::percent_decode("a%2Fb"), Some("a/b".into()));
         assert_eq!(super::percent_decode("plain"), Some("plain".into()));
         assert_eq!(super::percent_decode("%"), None); // truncated
@@ -1810,7 +1819,10 @@ mod tests {
         let n1 = normalized_normal.replace("Preview runtime (isolated)", "Preview");
         let n2 = no_wasm
             .replace("Preview runtime (no wasm eval)", "Preview")
-            .replace("Booting isolated preview (no wasm-eval)...", "Booting isolated preview...");
+            .replace(
+                "Booting isolated preview (no wasm-eval)...",
+                "Booting isolated preview...",
+            );
         assert_eq!(n1, n2, "HTML differs by more than wasm-unsafe-eval + title");
     }
 
@@ -1931,7 +1943,10 @@ mod tests {
         let gated = source
             .matches("return Err(\"issue 041 benchmark instrumentation is disabled\".into());")
             .count();
-        assert_eq!(gated, 7, "every gated issue 041 command must check the flag");
+        assert_eq!(
+            gated, 7,
+            "every gated issue 041 command must check the flag"
+        );
     }
 
     #[test]
@@ -1972,7 +1987,10 @@ mod tests {
             state.asset_transfers.contains_key("token-b"),
             "gen-2 transfer should be preserved"
         );
-        assert_eq!(state.asset_transfers["token-b"].assets[0].bytes, vec![4, 5, 6]);
+        assert_eq!(
+            state.asset_transfers["token-b"].assets[0].bytes,
+            vec![4, 5, 6]
+        );
     }
 
     #[test]
@@ -2339,10 +2357,7 @@ fn issue037_write_store_atomic(
 }
 
 #[tauri::command]
-fn issue037_check_acknowledgement(
-    app: tauri::AppHandle,
-    identity: String,
-) -> Result<bool, String> {
+fn issue037_check_acknowledgement(app: tauri::AppHandle, identity: String) -> Result<bool, String> {
     issue037_validate_identity(&identity)?;
     let path = issue037_store_path(&app)?;
     let store = issue037_read_store(&path)?;
@@ -2353,10 +2368,7 @@ fn issue037_check_acknowledgement(
 }
 
 #[tauri::command]
-fn issue037_write_acknowledgement(
-    app: tauri::AppHandle,
-    identity: String,
-) -> Result<(), String> {
+fn issue037_write_acknowledgement(app: tauri::AppHandle, identity: String) -> Result<(), String> {
     issue037_validate_identity(&identity)?;
     let path = issue037_store_path(&app)?;
     let mut store = issue037_read_store(&path)?;
@@ -2485,7 +2497,7 @@ fn issue037_proof_phase() -> Result<u32, String> {
         .unwrap_or_else(|_| "1".into())
         .parse::<u32>()
         .map_err(|error| format!("invalid proof phase: {error}"))?;
-    if phase < 1 || phase > 2 {
+    if !(1..=2).contains(&phase) {
         return Err(format!("proof phase must be 1 or 2, got {phase}"));
     }
     Ok(phase)
@@ -2578,7 +2590,10 @@ fn issue038_store_transfer(token: String, assembly: Vec<u8>, pdb: Vec<u8>) -> Re
     if token.is_empty() || token.len() > 128 {
         return Err("transfer token must be 1–128 bytes".into());
     }
-    if !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+    if !token
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
         return Err("transfer token must be alphanumeric or hyphen".into());
     }
     if assembly.is_empty() || pdb.is_empty() {
@@ -2589,10 +2604,9 @@ fn issue038_store_transfer(token: String, assembly: Vec<u8>, pdb: Vec<u8>) -> Re
         return Err("transfer exceeds 32 MiB limit".into());
     }
     let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
-    state.transfers.insert(
-        token,
-        Issue038TransferEntry { assembly, pdb },
-    );
+    state
+        .transfers
+        .insert(token, Issue038TransferEntry { assembly, pdb });
     Ok(())
 }
 
@@ -2644,17 +2658,19 @@ fn store_issue039_asset_validated(
     if !state.active_generations.contains(generation) {
         return Err("generation is not active or already retired".into());
     }
-    let transfer = state.asset_transfers.entry(token.to_owned()).or_insert_with(|| {
-        Issue039AssetTransfer {
+    let transfer = state
+        .asset_transfers
+        .entry(token.to_owned())
+        .or_insert_with(|| Issue039AssetTransfer {
             token: token.to_owned(),
             generation: generation.to_owned(),
             assets: Vec::new(),
-        }
-    });
+        });
     if transfer.generation != generation {
         return Err("generation mismatch".into());
     }
-    let aggregate: usize = transfer.assets.iter().map(|a| a.bytes.len()).sum::<usize>() + bytes.len();
+    let aggregate: usize =
+        transfer.assets.iter().map(|a| a.bytes.len()).sum::<usize>() + bytes.len();
     if aggregate > 24 * 1024 * 1024 {
         return Err("aggregate assets exceed 24 MiB".into());
     }
@@ -2684,7 +2700,10 @@ async fn issue038_create_preview_window(
     if generation.is_empty() || generation.len() > 64 {
         return Err("generation must be 1–64 chars".into());
     }
-    if !generation.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-') {
+    if !generation
+        .bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    {
         return Err("generation must be alphanumeric or hyphen".into());
     }
     let label = issue038_preview_label(&generation);
@@ -2694,7 +2713,9 @@ async fn issue038_create_preview_window(
     {
         let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
         state.generation_counter += 1;
-        state.pending_messages.insert(generation.clone(), Vec::new());
+        state
+            .pending_messages
+            .insert(generation.clone(), Vec::new());
         state.active_generations.insert(generation.clone());
     }
     let url = tauri::WebviewUrl::External(
@@ -2707,7 +2728,7 @@ async fn issue038_create_preview_window(
         .inner_size(640.0, 400.0)
         .visible(true)
         .resizable(true)
-        .on_navigation(|url| navigation_allowed(url))
+        .on_navigation(navigation_allowed)
         .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
         .build();
     if let Err(e) = build_result {
@@ -2734,7 +2755,10 @@ fn issue038_destroy_preview_window(
     let window = app.get_webview_window(&label);
     let existed = window.is_some();
     let destroy_result = window
-        .map(|win| win.destroy().map_err(|e| format!("failed to destroy preview window: {e}")))
+        .map(|win| {
+            win.destroy()
+                .map_err(|e| format!("failed to destroy preview window: {e}"))
+        })
         .transpose();
 
     // Retire native state even if destroying the platform window fails.
@@ -2772,7 +2796,7 @@ fn issue038_relay_to_preview(
     // JSON-encode the message string so it's safe to inject into JS
     let json_payload = serde_json::to_string(&message).map_err(|e| e.to_string())?;
     window
-        .eval(&format!(
+        .eval(format!(
             "if(typeof window.__bridge038Receive==='function')window.__bridge038Receive({json_payload})"
         ))
         .map_err(|e| format!("failed to relay to preview: {e}"))
@@ -2862,7 +2886,7 @@ fn issue038_bootstrap_preview(
         .ok_or_else(|| format!("preview window not found: {label}"))?;
     let escaped = serde_json::to_string(&bootstrap_json).map_err(|e| e.to_string())?;
     window
-        .eval(&format!(
+        .eval(format!(
             "if(typeof window.__bridge038Bootstrap==='function')window.__bridge038Bootstrap(JSON.parse({escaped}))"
         ))
         .map_err(|e| format!("failed to bootstrap preview: {e}"))
@@ -2937,11 +2961,11 @@ fn issue039_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 /// Uses Tauri 2 raw IPC: frontend sends Uint8Array body with metadata in headers.
 /// No JSON byte array serialization — bytes arrive as InvokeBody::Raw.
 #[tauri::command]
-fn issue039_store_asset(
-    request: tauri::ipc::Request<'_>,
-) -> Result<tauri::ipc::Response, String> {
+fn issue039_store_asset(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
     let get = |name: &str| -> Result<String, String> {
-        request.headers().get(name)
+        request
+            .headers()
+            .get(name)
             .and_then(|v| v.to_str().ok())
             .map(String::from)
             .ok_or_else(|| format!("missing header: {name}"))
@@ -2957,8 +2981,11 @@ fn issue039_store_asset(
         _ => return Err("expected raw binary body".into()),
     };
 
-    if token.is_empty() || token.len() > 128
-        || !token.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+    if token.is_empty()
+        || token.len() > 128
+        || !token
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
     {
         return Err("bad token".into());
     }
@@ -2975,15 +3002,7 @@ fn issue039_store_asset(
         return Err("asset exceeds 16 MiB".into());
     }
     let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
-    store_issue039_asset_validated(
-        &mut state,
-        &token,
-        &generation,
-        index,
-        path,
-        sha256,
-        bytes,
-    )?;
+    store_issue039_asset_validated(&mut state, &token, &generation, index, path, sha256, bytes)?;
     Ok(tauri::ipc::Response::new(b"OK".to_vec()))
 }
 
@@ -2991,16 +3010,23 @@ fn issue039_store_asset(
 #[tauri::command]
 fn issue039_asset_manifest(token: String) -> Result<String, String> {
     let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
-    let transfer = state.asset_transfers.get(&token)
+    let transfer = state
+        .asset_transfers
+        .get(&token)
         .ok_or_else(|| "no such transfer".to_string())?;
-    let manifest: Vec<serde_json::Value> = transfer.assets.iter().enumerate().map(|(i, a)| {
-        serde_json::json!({
-            "index": i,
-            "path": a.path,
-            "sha256": a.sha256,
-            "byteLength": a.bytes.len(),
+    let manifest: Vec<serde_json::Value> = transfer
+        .assets
+        .iter()
+        .enumerate()
+        .map(|(i, a)| {
+            serde_json::json!({
+                "index": i,
+                "path": a.path,
+                "sha256": a.sha256,
+                "byteLength": a.bytes.len(),
+            })
         })
-    }).collect();
+        .collect();
     serde_json::to_string(&manifest).map_err(|e| e.to_string())
 }
 
@@ -3173,7 +3199,7 @@ fn issue041_rss_bytes() -> Result<u64, String> {
     #[cfg(target_os = "macos")]
     {
         let output = std::process::Command::new("ps")
-            .args(&["-o", "rss=", "-p", &std::process::id().to_string()])
+            .args(["-o", "rss=", "-p", &std::process::id().to_string()])
             .output()
             .map_err(|e| format!("failed to run ps: {e}"))?;
         let kb = String::from_utf8_lossy(&output.stdout)
@@ -3246,8 +3272,14 @@ fn issue041_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum Issue040Input {
     LeftMouseClick,
-    KeyDown { key_code: u16, characters: &'static str },
-    KeyUp { key_code: u16, characters: &'static str },
+    KeyDown {
+        key_code: u16,
+        characters: &'static str,
+    },
+    KeyUp {
+        key_code: u16,
+        characters: &'static str,
+    },
 }
 
 /// Space (49) plays and Escape (53) stops, matching the issue 040 test game.
@@ -3300,7 +3332,8 @@ async fn issue040_dispatch_preview_input(
     {
         return Err("generation must be 1-64 alphanumeric/hyphen chars".into());
     }
-    let input = issue040_input_kind(&kind).ok_or_else(|| format!("unsupported input kind: {kind}"))?;
+    let input =
+        issue040_input_kind(&kind).ok_or_else(|| format!("unsupported input kind: {kind}"))?;
     let label = issue038_preview_label(&generation);
     let generation_active = {
         let state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
@@ -3316,6 +3349,9 @@ async fn issue040_dispatch_preview_input(
 }
 
 #[cfg(target_os = "macos")]
+type Issue040NativeInputObservation = (isize, f64, f64, bool, bool, bool, String);
+
+#[cfg(target_os = "macos")]
 async fn issue040_send_native_input(
     window: &tauri::WebviewWindow,
     input: Issue040Input,
@@ -3323,7 +3359,9 @@ async fn issue040_send_native_input(
     use objc2::MainThreadMarker;
     use objc2::Message;
     use objc2::rc::Retained;
-    use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow};
+    use objc2_app_kit::{
+        NSApplication, NSEvent, NSEventModifierFlags, NSEventType, NSView, NSWindow,
+    };
     use objc2_foundation::{NSPoint, NSString};
     use std::sync::mpsc;
     use std::time::Duration;
@@ -3349,7 +3387,7 @@ async fn issue040_send_native_input(
     let (sender, receiver) = mpsc::sync_channel(1);
     window
         .run_on_main_thread(move || {
-            let result: Result<(isize, f64, f64, bool, bool, bool, String), String> = (|| {
+            let result: Result<Issue040NativeInputObservation, String> = (|| {
                 let mtm = MainThreadMarker::new()
                     .ok_or_else(|| "issue 040 input dispatch did not run on the main thread".to_string())?;
                 let app = NSApplication::sharedApplication(mtm);
@@ -3499,7 +3537,9 @@ async fn issue038_create_no_wasm_eval_window(
     }
     {
         let mut state = ISSUE038_BRIDGE.lock().map_err(|e| e.to_string())?;
-        state.pending_messages.insert(generation.clone(), Vec::new());
+        state
+            .pending_messages
+            .insert(generation.clone(), Vec::new());
     }
     let url = tauri::WebviewUrl::External(
         "playground-preview://localhost/_isolated-no-wasm-eval.html"
@@ -3511,7 +3551,7 @@ async fn issue038_create_no_wasm_eval_window(
         .inner_size(640.0, 400.0)
         .visible(true)
         .resizable(false)
-        .on_navigation(|url| navigation_allowed(url))
+        .on_navigation(navigation_allowed)
         .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
         .build()
         .map_err(|e| format!("failed to create no-wasm-eval window: {e}"))?;
@@ -3528,7 +3568,7 @@ fn issue038_handle_bridge_request(
 ) -> Option<tauri::http::Response<Vec<u8>>> {
     let uri = raw_uri.parse::<tauri::http::Uri>().ok()?;
     let path = uri.path();
-    if path == "/_transfer/store" && method == &tauri::http::Method::POST {
+    if path == "/_transfer/store" && method == tauri::http::Method::POST {
         return Some(issue038_handle_transfer_store(&uri, body));
     }
     if path != "/_bridge/send" {
@@ -3547,7 +3587,7 @@ fn issue038_handle_bridge_request(
         ));
     };
     // Extract message from query param (GET) or body (POST)
-    let message = if method == &tauri::http::Method::GET {
+    let message = if method == tauri::http::Method::GET {
         let encoded = query
             .split('&')
             .find_map(|pair| pair.strip_prefix("msg="))
@@ -3559,7 +3599,7 @@ fn issue038_handle_bridge_request(
                     400,
                     "text/plain; charset=utf-8",
                     b"Invalid encoding",
-                ))
+                ));
             }
         }
     } else {
@@ -3570,7 +3610,7 @@ fn issue038_handle_bridge_request(
                     400,
                     "text/plain; charset=utf-8",
                     b"Invalid UTF-8",
-                ))
+                ));
             }
         }
     };
@@ -3581,29 +3621,26 @@ fn issue038_handle_bridge_request(
             b"Message too large",
         ));
     }
-    if let Ok(mut state) = ISSUE038_BRIDGE.lock() {
-        if let Some(queue) = state.pending_messages.get_mut(&generation_id) {
-            queue.push(message);
-        }
+    if let Ok(mut state) = ISSUE038_BRIDGE.lock()
+        && let Some(queue) = state.pending_messages.get_mut(&generation_id)
+    {
+        queue.push(message);
     }
     let mut response = tauri::http::Response::new(b"OK".to_vec());
     *response.status_mut() = tauri::http::StatusCode::OK;
-    response.headers_mut().insert(
-        "content-type",
-        "text/plain; charset=utf-8".parse().unwrap(),
-    );
-    response.headers_mut().insert(
-        "access-control-allow-origin",
-        "null".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("content-type", "text/plain; charset=utf-8".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("access-control-allow-origin", "null".parse().unwrap());
     response.headers_mut().insert(
         "cross-origin-resource-policy",
         "cross-origin".parse().unwrap(),
     );
-    response.headers_mut().insert(
-        "cache-control",
-        "no-store".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
     Some(response)
 }
 
@@ -3654,14 +3691,12 @@ fn issue038_handle_transfer_store(
     }
     let mut response = tauri::http::Response::new(b"OK".to_vec());
     *response.status_mut() = tauri::http::StatusCode::OK;
-    response.headers_mut().insert(
-        "access-control-allow-origin",
-        "null".parse().unwrap(),
-    );
-    response.headers_mut().insert(
-        "cache-control",
-        "no-store".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("access-control-allow-origin", "null".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
     response
 }
 
@@ -3689,55 +3724,70 @@ fn issue038_handle_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<V
     let state = ISSUE038_BRIDGE.lock().ok()?;
     // Check for asset transfer: _transfer/{token}/asset/{index}
     if let Some(asset_rest) = file.strip_prefix("asset/") {
-        if let Ok(index) = asset_rest.parse::<usize>() {
-            if let Some(transfer) = state.asset_transfers.get(token) {
-                if let Some(asset) = transfer.assets.get(index) {
-                    let body = asset.bytes.clone();
-                    let mut response = tauri::http::Response::new(body);
-                    *response.status_mut() = tauri::http::StatusCode::OK;
-                    response.headers_mut().insert(
-                        "content-type",
-                        "application/octet-stream".parse().unwrap(),
-                    );
-                    response.headers_mut().insert(
-                        "access-control-allow-origin",
-                        "null".parse().unwrap(),
-                    );
-                    response.headers_mut().insert(
-                        "cross-origin-resource-policy",
-                        "cross-origin".parse().unwrap(),
-                    );
-                    response.headers_mut().insert(
-                        "cache-control",
-                        "no-store".parse().unwrap(),
-                    );
-                    return Some(response);
-                }
-            }
+        if let Ok(index) = asset_rest.parse::<usize>()
+            && let Some(transfer) = state.asset_transfers.get(token)
+            && let Some(asset) = transfer.assets.get(index)
+        {
+            let body = asset.bytes.clone();
+            let mut response = tauri::http::Response::new(body);
+            *response.status_mut() = tauri::http::StatusCode::OK;
+            response
+                .headers_mut()
+                .insert("content-type", "application/octet-stream".parse().unwrap());
+            response
+                .headers_mut()
+                .insert("access-control-allow-origin", "null".parse().unwrap());
+            response.headers_mut().insert(
+                "cross-origin-resource-policy",
+                "cross-origin".parse().unwrap(),
+            );
+            response
+                .headers_mut()
+                .insert("cache-control", "no-store".parse().unwrap());
+            return Some(response);
         }
-        return Some(preview_response(404, "text/plain; charset=utf-8", b"Not Found"));
+        return Some(preview_response(
+            404,
+            "text/plain; charset=utf-8",
+            b"Not Found",
+        ));
     }
     // Check for asset manifest: _transfer/{token}/asset-manifest
     if file == "asset-manifest" {
         if let Some(transfer) = state.asset_transfers.get(token) {
-            let manifest: Vec<serde_json::Value> = transfer.assets.iter().enumerate().map(|(i, a)| {
-                serde_json::json!({
-                    "index": i,
-                    "path": a.path,
-                    "sha256": a.sha256,
-                    "byteLength": a.bytes.len(),
-                    "generation": transfer.generation,
+            let manifest: Vec<serde_json::Value> = transfer
+                .assets
+                .iter()
+                .enumerate()
+                .map(|(i, a)| {
+                    serde_json::json!({
+                        "index": i,
+                        "path": a.path,
+                        "sha256": a.sha256,
+                        "byteLength": a.bytes.len(),
+                        "generation": transfer.generation,
+                    })
                 })
-            }).collect();
+                .collect();
             let json = serde_json::to_vec(&manifest).unwrap_or_default();
             let mut response = tauri::http::Response::new(json);
             *response.status_mut() = tauri::http::StatusCode::OK;
-            response.headers_mut().insert("content-type", "application/json".parse().unwrap());
-            response.headers_mut().insert("access-control-allow-origin", "null".parse().unwrap());
-            response.headers_mut().insert("cache-control", "no-store".parse().unwrap());
+            response
+                .headers_mut()
+                .insert("content-type", "application/json".parse().unwrap());
+            response
+                .headers_mut()
+                .insert("access-control-allow-origin", "null".parse().unwrap());
+            response
+                .headers_mut()
+                .insert("cache-control", "no-store".parse().unwrap());
             return Some(response);
         }
-        return Some(preview_response(404, "text/plain; charset=utf-8", b"Not Found"));
+        return Some(preview_response(
+            404,
+            "text/plain; charset=utf-8",
+            b"Not Found",
+        ));
     }
     let entry = state.transfers.get(token)?;
     let body = match file {
@@ -3748,31 +3798,27 @@ fn issue038_handle_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<V
                 404,
                 "text/plain; charset=utf-8",
                 b"Not Found",
-            ))
+            ));
         }
     };
     let mut response = tauri::http::Response::new(body);
     *response.status_mut() = tauri::http::StatusCode::OK;
-    response.headers_mut().insert(
-        "content-type",
-        "application/octet-stream".parse().unwrap(),
-    );
-    response.headers_mut().insert(
-        "access-control-allow-origin",
-        "null".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("content-type", "application/octet-stream".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("access-control-allow-origin", "null".parse().unwrap());
     response.headers_mut().insert(
         "cross-origin-resource-policy",
         "cross-origin".parse().unwrap(),
     );
-    response.headers_mut().insert(
-        "x-content-type-options",
-        "nosniff".parse().unwrap(),
-    );
-    response.headers_mut().insert(
-        "cache-control",
-        "no-store".parse().unwrap(),
-    );
+    response
+        .headers_mut()
+        .insert("x-content-type-options", "nosniff".parse().unwrap());
+    response
+        .headers_mut()
+        .insert("cache-control", "no-store".parse().unwrap());
     Some(response)
 }
 
@@ -3798,11 +3844,7 @@ fn percent_decode(input: &str) -> Option<String> {
             let hi = chars.next()?;
             let lo = chars.next()?;
             let hex = [hi, lo];
-            let decoded = u8::from_str_radix(
-                std::str::from_utf8(&hex).ok()?,
-                16,
-            )
-            .ok()?;
+            let decoded = u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?;
             bytes.push(decoded);
         } else if byte == b'+' {
             bytes.push(b' ');
@@ -3833,7 +3875,7 @@ fn issue050_build_macos_menu<R: tauri::Runtime>(
     app_handle: &tauri::AppHandle<R>,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
     use tauri::menu::{
-        AboutMetadata, Menu, MenuItem, PredefinedMenuItem, Submenu, HELP_SUBMENU_ID,
+        AboutMetadata, HELP_SUBMENU_ID, Menu, MenuItem, PredefinedMenuItem, Submenu,
         WINDOW_SUBMENU_ID,
     };
 
@@ -3843,7 +3885,11 @@ fn issue050_build_macos_menu<R: tauri::Runtime>(
         name: Some(pkg_info.name.clone()),
         version: Some(pkg_info.version.to_string()),
         copyright: config.bundle.copyright.clone(),
-        authors: config.bundle.publisher.clone().map(|publisher| vec![publisher]),
+        authors: config
+            .bundle
+            .publisher
+            .clone()
+            .map(|publisher| vec![publisher]),
         ..Default::default()
     };
 
@@ -3916,8 +3962,7 @@ fn issue050_build_macos_menu<R: tauri::Runtime>(
         ],
     )?;
 
-    let help_menu =
-        Submenu::with_id_and_items(app_handle, HELP_SUBMENU_ID, "Help", true, &[])?;
+    let help_menu = Submenu::with_id_and_items(app_handle, HELP_SUBMENU_ID, "Help", true, &[])?;
 
     Menu::with_items(
         app_handle,
@@ -3986,8 +4031,7 @@ pub fn run() {
                     ))
                     .show(move |discard| {
                         if discard {
-                            ISSUE050_DIRTY
-                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            ISSUE050_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
                             app_handle.exit(0);
                         }
                     });
@@ -4027,8 +4071,7 @@ pub fn run() {
                             // destroying the last window cascades into an
                             // app-level ExitRequested, it short-circuits
                             // instead of prompting a second time.
-                            ISSUE050_DIRTY
-                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            ISSUE050_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
                             // Force the window to close without re-emitting
                             // CloseRequested (destroy emits no events).
                             let _ = window.destroy();
@@ -4039,17 +4082,15 @@ pub fn run() {
         .register_uri_scheme_protocol("playground-preview", |_context, request| {
             let uri_string = request.uri().to_string();
             // Issue 038: route bridge messages and transfer requests before the static handler
-            if let Some(response) = issue038_handle_bridge_request(
-                request.method(),
-                &uri_string,
-                request.body(),
-            ) {
+            if let Some(response) =
+                issue038_handle_bridge_request(request.method(), &uri_string, request.body())
+            {
                 return response;
             }
-            if request.method() == &tauri::http::Method::GET {
-                if let Some(response) = issue038_handle_transfer_get(&uri_string) {
-                    return response;
-                }
+            if request.method() == tauri::http::Method::GET
+                && let Some(response) = issue038_handle_transfer_get(&uri_string)
+            {
+                return response;
             }
             preview_protocol_response(request.method(), &uri_string)
         })
@@ -4065,7 +4106,7 @@ pub fn run() {
             )
             .title("MonoGame Playground")
             .inner_size(1280.0, 800.0)
-            .on_navigation(|url| navigation_allowed(url))
+            .on_navigation(navigation_allowed)
             .on_new_window(|_url, _features| tauri::webview::NewWindowResponse::Deny)
             .build()?;
             window.show()?;
@@ -4218,7 +4259,10 @@ pub fn run() {
             // user/OS-initiated exits and `Some` only for our own programmatic
             // `AppHandle::exit` below — gating on `None` means the confirmed
             // re-exit is never re-intercepted (no prompt loop).
-            if let tauri::RunEvent::ExitRequested { code: None, api, .. } = event {
+            if let tauri::RunEvent::ExitRequested {
+                code: None, api, ..
+            } = event
+            {
                 if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
                     return; // clean — allow the quit to proceed
                 }
@@ -4239,8 +4283,7 @@ pub fn run() {
                             // Clear the mirror so the programmatic exit's own
                             // ExitRequested (code = Some) short-circuits, then
                             // quit for real.
-                            ISSUE050_DIRTY
-                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                            ISSUE050_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
                             app_handle.exit(0);
                         }
                     });
@@ -4655,13 +4698,10 @@ fn preview_content_type(path: &str) -> &'static str {
         "application/json"
     } else if path.ends_with(".wasm") {
         "application/wasm"
-    } else if path.ends_with(".dll") {
-        "application/octet-stream"
-    } else if path.ends_with(".pdb") {
-        "application/octet-stream"
-    } else if path.ends_with(".dat") {
-        "application/octet-stream"
-    } else if path.ends_with(".br") {
+    } else if [".dll", ".pdb", ".dat", ".br"]
+        .iter()
+        .any(|extension| path.ends_with(extension))
+    {
         "application/octet-stream"
     } else if path.ends_with(".gz") {
         "application/gzip"
