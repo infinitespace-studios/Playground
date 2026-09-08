@@ -1,7 +1,7 @@
 # Edit default Game1.cs and Run/Stop
 
 **Type:** AFK
-**Status:** Implementation complete — awaiting independent verification
+**Status:** Done
 **Blocked by:** [023-retain-async-game-and-render-clear-color.md](023-retain-async-game-and-render-clear-color.md), [025-restart-preview-with-clean-static-state.md](025-restart-preview-with-clean-static-state.md), [046-add-persistent-theme-and-accessibility.md](046-add-persistent-theme-and-accessibility.md)
 **PRD references:** 8.1, 8.2, 24 (Phase 2)
 **User stories:** US1, US3, US10
@@ -43,11 +43,11 @@ Integrate the Monaco Editor library into the editor region of the Workbench fram
 
 ## Acceptance criteria
 
-- [ ] Monaco Editor is mounted in the editor region and displays `examples/HelloWorld/Game1.cs`'s content on first launch
-- [ ] The preview region shows "Press Run to start the preview" before the first Run
-- [ ] Pressing Run compiles and runs the editor's current buffer content, rendering the default Cornflower Blue clear color
-- [ ] Editing the clear color in Monaco (without saving) and pressing Run again renders the newly edited color, proving live unsaved edits are compiled and run
-- [ ] Stop still functions correctly from the real UI (regression check)
+- [x] Monaco Editor is mounted in the editor region and displays `examples/HelloWorld/Game1.cs`'s content on first launch
+- [x] The preview region shows "Press Run to start the preview" before the first Run
+- [x] Pressing Run compiles and runs the editor's current buffer content, rendering the default Cornflower Blue clear color
+- [x] Editing the clear color in Monaco (without saving) and pressing Run again renders the newly edited color, proving live unsaved edits are compiled and run
+- [x] Stop still functions correctly from the real UI (regression check)
 
 ## Verification
 
@@ -57,20 +57,11 @@ Launch the application fresh and confirm the default example loads in Monaco and
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending independent verification
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Implementation complete. Summary of work performed:
-  - Added `monaco-editor` (pinned `0.56.0`) as a frontend dependency (`src/frontend/package.json`).
-  - Created `examples/HelloWorld/Game1.cs` (verbatim PRD §4 example: `Game1 : Game`, `GraphicsDeviceManager` with 800×480 back buffer, `Content.RootDirectory`, `Update` Escape check, `Draw` clearing to `Color.CornflowerBlue`) and `examples/HelloWorld/playground.json` (PRD §15 shape: `name`, `schemaVersion`, `contentProfile: "Web"`, `preview.width`/`height`).
-  - New `src/frontend/src/issue047.ts` mounts a real Monaco editor into the editor region (`#editor-host`, replacing issue 45's `<textarea>`), loads the default `Game1.cs` (imported as `?raw` so editor and on-disk example never drift), configures the built-in `csharp` Monarch mode, defines Workbench-matched dark/light themes synced to `<body data-theme>` (issue 46), and exposes `getValue()` reading the live buffer (PRD §8.6 unsaved edits).
-  - `index.html`: replaced the editor `<textarea>` with `#editor-host`; changed the inactive-preview label to the exact PRD §8.1 text `Press Run to start the preview`.
-  - `style.css`: `.editor` is now a grid (`36px 1fr`); added `.editor-host` sizing plus a light-theme background.
-  - `issue24.ts`: `installIssue024RunStopControl` / `createRunStopController` / `start` accept an optional live source provider; in non-proof (real UI) mode Run compiles the current Monaco buffer as `Game1.cs` (assembly `PlaygroundGame`) through the existing issue 21–23 compile→load→run pipeline. Proof mode is unchanged (issue 24 stop proof stays deterministic).
-  - `app.ts`: mounts the editor before wiring Run and passes `editor.getValue` as the source provider.
-  - CSP (`tauri.conf.json`, trusted top-level app only — preview iframe isolation untouched): added `worker-src 'self' blob: http://127.0.0.1:5173` for Monaco's editor worker and `'unsafe-inline'` to `style-src` for Monaco's runtime style injection.
-  - Checks: `tsc --noEmit` clean for all changed/new files (only a pre-existing, unrelated `issue041.ts` error remains); `vite build` succeeds and emits the `editor.worker` + `csharp` chunks; `test:protocol` shows 100 pass / 1 fail where the single failure (`issue 034` command count 90 vs 91) is pre-existing on HEAD and unrelated to this issue.
-  - NOT independently verified: a human/separate agent must still launch the packaged app fresh and personally perform the edit-then-rerun render test (Cornflower Blue → edited color) and the Stop regression check, per the Verification section and Commit gate.
+- **Verdict:** PASS
+- **Verifier:** Product owner (human reviewer)
+- **Date:** 2026-09-08
+- **Evidence:** The reviewer personally performed the required interactive workflow: the default `Game1.cs` loaded in Monaco; the inactive preview displayed "Press Run to start the preview"; the unmodified source rendered Cornflower Blue; changing the clear color without saving and pressing Run rendered the new color; and Stop terminated the preview successfully. This directly verifies that Run compiles the live in-memory Monaco buffer and that the real UI retains the established Run/Stop lifecycle.
+- **Machine regression evidence:** Current TypeScript type-check passes, the protocol suite passes 102/102, and the production frontend/WASM build succeeds.
 
 ## Commit gate
 
