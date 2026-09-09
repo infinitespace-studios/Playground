@@ -900,7 +900,7 @@ async function main() {
     throw new Error(
       `packaged proof binary not found: ${BINARY}\n` +
       "build it first: npm --prefix src/desktop run tauri -- build " +
-      "--config src-tauri/tauri.proof.conf.json");
+      "--config src-tauri/tauri.proof.conf.json --features proof-harness");
   }
 
   const preexisting = applicationPids();
@@ -1395,7 +1395,7 @@ async function main() {
     reproduction: {
       commands: [
         "npm --prefix src/desktop run tauri -- build --config " +
-          "src-tauri/tauri.proof.conf.json",
+          "src-tauri/tauri.proof.conf.json --features proof-harness",
         `caffeinate -di node scripts/measure-performance.mjs --runs ${options.runs} ` +
         `${options.memoryBaseline
           ? `--memory-baseline --warm-compiles-baseline ${options.warmCompilesBaseline} ` +
@@ -1407,7 +1407,7 @@ async function main() {
       notes: [
         "The driver requires the macOS proof-profile release binary at " +
         "`src/desktop/src-tauri/target/release/monogame-playground`; build it with " +
-        "`src-tauri/tauri.proof.conf.json` immediately before measuring because the raw " +
+        "`src-tauri/tauri.proof.conf.json --features proof-harness` immediately before measuring because the raw " +
         "Cargo target path is shared by product and proof builds.",
         "Run it under `caffeinate -di` on an unlocked console session: the measured Run path " +
         "requires the application window to activate and paint, which macOS suppresses while " +

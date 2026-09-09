@@ -12,10 +12,10 @@ export {
   folderProjectIdentity,
   parseManifest,
   serializeManifest,
-  ISSUE051_SCHEMA_VERSION,
+  PROJECT_SCHEMA_VERSION as ISSUE051_SCHEMA_VERSION,
 } from "./project-manager.ts";
 export type {
-  Issue051Manifest,
-  Issue051Hooks,
-  Issue051Api,
+  ProjectManifest as Issue051Manifest,
+  ProjectManagerHooks as Issue051Hooks,
+  ProjectManagerApi as Issue051Api,
 } from "./project-manager.ts";

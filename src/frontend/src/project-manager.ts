@@ -2,10 +2,10 @@
 // editing, and manifest persistence. (Formerly issue051.ts.)
 //
 // Extends the single-scratch-file model (issues 47/50) into a folder-based
-// project: a native folder picker (issue051_pick_folder), recursive .cs file
-// discovery + manifest read (issue051_read_project), a file explorer, Monaco
+// project: a native folder picker (project_pick_folder), recursive .cs file
+// discovery + manifest read (project_read), a file explorer, Monaco
 // switching with per-file dirty tracking, Save All (atomic per file via
-// issue050_write_file), and playground.json schema handling (create default /
+// workspace_write_file), and playground.json schema handling (create default /
 // migrate older / reject newer).
 //
 // PRD §15: a project folder holds multiple .cs files + a playground.json
@@ -44,16 +44,16 @@ export async function folderProjectIdentity(canonicalRoot: string): Promise<stri
 }
 
 // Current manifest schema version this application understands.
-export const ISSUE051_SCHEMA_VERSION = 1;
+export const PROJECT_SCHEMA_VERSION = 1;
 
-export interface Issue051Manifest {
+export interface ProjectManifest {
   name: string;
   schemaVersion: number;
   contentProfile: string;
   preview: { width: number; height: number };
 }
 
-interface Issue051File {
+interface ProjectFile {
   /** Path relative to the project root, forward-slashed (explorer label). */
   relativePath: string;
   /** Absolute path on disk (atomic Save All target). */
@@ -85,9 +85,9 @@ interface ProjectReadResult {
 let projectRoot: string | null = null;
 let currentProjectIdentity: string | null = null;
 let projectFolderName = "";
-let files: Issue051File[] = [];
+let files: ProjectFile[] = [];
 let activePath: string | null = null;
-let manifest: Issue051Manifest | null = null;
+let manifest: ProjectManifest | null = null;
 /** Issue 052: raw Content/ assets discovered at Open (base64), for pre-Run mount. */
 let contentFiles: ProjectContentFile[] = [];
 /** True when the manifest existed on disk at Open (vs. created-on-first-Save). */
@@ -103,10 +103,10 @@ function invoke<T = unknown>(command: string, args?: Record<string, unknown>): P
   return internals.invoke(command, args ?? {});
 }
 
-function defaultManifest(name: string): Issue051Manifest {
+function defaultManifest(name: string): ProjectManifest {
   return {
     name,
-    schemaVersion: ISSUE051_SCHEMA_VERSION,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     contentProfile: "Web",
     preview: { width: 800, height: 480 },
   };
@@ -118,7 +118,7 @@ function defaultManifest(name: string): Issue051Manifest {
  * reject the Open without touching disk). Older recognized versions are
  * migrated here (none exist yet: current schema is version 1).
  */
-export function parseManifest(text: string, folderName: string): Issue051Manifest {
+export function parseManifest(text: string, folderName: string): ProjectManifest {
   let raw: unknown;
   try {
     raw = JSON.parse(text);
@@ -133,13 +133,13 @@ export function parseManifest(text: string, folderName: string): Issue051Manifes
   if (typeof version !== "number" || !Number.isInteger(version) || version < 1) {
     throw new Error(`playground.json has an invalid schemaVersion: ${String(version)}`);
   }
-  if (version > ISSUE051_SCHEMA_VERSION) {
+  if (version > PROJECT_SCHEMA_VERSION) {
     throw new Error(
       `playground.json schemaVersion ${version} is newer than this application supports ` +
-        `(max ${ISSUE051_SCHEMA_VERSION}). The project was not modified.`,
+        `(max ${PROJECT_SCHEMA_VERSION}). The project was not modified.`,
     );
   }
-  // version === ISSUE051_SCHEMA_VERSION (1) today. Future: migrate older
+  // version === PROJECT_SCHEMA_VERSION (1) today. Future: migrate older
   // recognized versions here before returning.
   const preview =
     typeof obj.preview === "object" && obj.preview !== null
@@ -147,7 +147,7 @@ export function parseManifest(text: string, folderName: string): Issue051Manifes
       : {};
   return {
     name: typeof obj.name === "string" ? obj.name : folderName,
-    schemaVersion: ISSUE051_SCHEMA_VERSION,
+    schemaVersion: PROJECT_SCHEMA_VERSION,
     contentProfile: typeof obj.contentProfile === "string" ? obj.contentProfile : "Web",
     preview: {
       width: typeof preview.width === "number" ? preview.width : 800,
@@ -157,13 +157,13 @@ export function parseManifest(text: string, folderName: string): Issue051Manifes
 }
 
 /** Serialize the manifest for on-disk storage (stable, pretty-printed). */
-export function serializeManifest(m: Issue051Manifest): string {
+export function serializeManifest(m: ProjectManifest): string {
   return `${JSON.stringify(m, null, 2)}\n`;
 }
 
 // ----- Public API -----
 
-export interface Issue051Hooks {
+export interface ProjectManagerHooks {
   /** Load content into Monaco (switching the visible file). */
   setEditorContent: (content: string) => void;
   /** Read the live Monaco buffer (current visible file's edits). */
@@ -176,7 +176,7 @@ export interface Issue051Hooks {
   showError: (title: string, message: string) => void;
 }
 
-export interface Issue051Api {
+export interface ProjectManagerApi {
   /** Native folder picker → read project → populate explorer + editor. */
   openFolder: () => Promise<boolean>;
   /** Switch the editor to a file by relative path (persists the current buffer first). */
@@ -204,7 +204,7 @@ export interface Issue051Api {
    * Issue 052: the project's discovered Content/ assets + the manifest's
    * declared contentProfile, for pre-Run mounting. Returns null when no folder
    * project is open. `contentFiles` is the raw discovery (base64, disk paths);
-   * preparation (base64 decode, .wav->.xnb rename) happens in issue052-content.
+   * preparation (base64 decode, .wav->.xnb rename) happens in project-content.
    */
   getContent: () => {
     contentProfile: string;
@@ -212,12 +212,12 @@ export interface Issue051Api {
   } | null;
 }
 
-export function installProjectManager(hooks: Issue051Hooks): Issue051Api {
+export function installProjectManager(hooks: ProjectManagerHooks): ProjectManagerApi {
   function anyDirty(): boolean {
     return files.some(f => f.dirty);
   }
 
-  function activeFile(): Issue051File | null {
+  function activeFile(): ProjectFile | null {
     return files.find(f => f.relativePath === activePath) ?? null;
   }
 
@@ -267,7 +267,7 @@ export function installProjectManager(hooks: Issue051Hooks): Issue051Api {
     renderExplorer();
   }
 
-  const api: Issue051Api = {
+  const api: ProjectManagerApi = {
     hasProject: () => projectRoot !== null,
     identity: () => currentProjectIdentity,
     closeProject,
@@ -292,12 +292,12 @@ export function installProjectManager(hooks: Issue051Hooks): Issue051Api {
     syncActiveBuffer,
     switchTo,
     openFolder: async () => {
-      const picked = await invoke<string | null>("issue051_pick_folder");
+      const picked = await invoke<string | null>("project_pick_folder");
       if (!picked) return false;
 
       let project: ProjectReadResult;
       try {
-        project = await invoke<ProjectReadResult>("issue051_read_project", { path: picked });
+        project = await invoke<ProjectReadResult>("project_read", { path: picked });
       } catch (error) {
         hooks.showError("Could not open folder", error instanceof Error ? error.message : String(error));
         return false;
@@ -311,7 +311,7 @@ export function installProjectManager(hooks: Issue051Hooks): Issue051Api {
       // Parse manifest BEFORE mutating any module state, so a rejected
       // (newer/unrecognized) schemaVersion leaves everything untouched and
       // never writes to disk.
-      let parsedManifest: Issue051Manifest;
+      let parsedManifest: ProjectManifest;
       let existedOnDisk: boolean;
       if (project.manifestText !== null) {
         try {
@@ -377,13 +377,13 @@ export function installProjectManager(hooks: Issue051Hooks): Issue051Api {
       // and leave ALL dirty flags set (PRD 8.6 atomicity across Save All).
       try {
         for (const file of dirtyFiles) {
-          await invoke("issue050_write_file", {
+          await invoke("workspace_write_file", {
             path: file.absolutePath,
             content: file.currentContent,
           });
         }
         if (manifestNeedsWrite && manifest) {
-          await invoke("issue050_write_file", {
+          await invoke("workspace_write_file", {
             path: manifestPath,
             content: serializeManifest(manifest),
           });

@@ -860,7 +860,7 @@ body[data-theme="light"] .theme-switch span::after {
 
 /* ---------- Issue 037: first-run warning modal ---------- */
 
-.issue037-backdrop {
+.first-run-backdrop {
   position: fixed;
   inset: 0;
   z-index: 9000;
@@ -873,14 +873,14 @@ body[data-theme="light"] .theme-switch span::after {
   transition: opacity 0.18s ease, background 0.18s ease, backdrop-filter 0.18s ease;
 }
 
-.issue037-backdrop.issue037-visible {
+.first-run-backdrop.first-run-visible {
   background: rgb(0 0 0 / 62%);
   backdrop-filter: blur(6px);
   opacity: 1;
   pointer-events: auto;
 }
 
-.issue037-dialog {
+.first-run-dialog {
   position: relative;
   width: min(480px, calc(100vw - 40px));
   border: 1px solid var(--line);
@@ -889,14 +889,14 @@ body[data-theme="light"] .theme-switch span::after {
   box-shadow: 0 24px 80px rgb(0 0 0 / 60%), 0 0 0 1px rgb(255 255 255 / 4%) inset;
 }
 
-.issue037-marker {
+.first-run-marker {
   margin-bottom: 10px;
   color: var(--amber);
   font-size: 22px;
   line-height: 1;
 }
 
-.issue037-title {
+.first-run-title {
   margin: 0 0 12px;
   color: var(--text);
   font-size: 18px;
@@ -904,14 +904,14 @@ body[data-theme="light"] .theme-switch span::after {
   letter-spacing: -0.02em;
 }
 
-.issue037-desc {
+.first-run-desc {
   margin: 0 0 10px;
   color: #bdc8c3;
   font-size: 13px;
   line-height: 1.55;
 }
 
-.issue037-note {
+.first-run-note {
   margin: 0 0 20px;
   color: var(--muted);
   font-family: "SFMono-Regular", monospace;
@@ -919,14 +919,14 @@ body[data-theme="light"] .theme-switch span::after {
   letter-spacing: 0.04em;
 }
 
-.issue037-actions {
+.first-run-actions {
   display: flex;
   gap: 10px;
   justify-content: flex-end;
 }
 
-.issue037-cancel,
-.issue037-confirm {
+.first-run-cancel,
+.first-run-confirm {
   border: 1px solid var(--line);
   padding: 8px 14px;
   font: 700 11px "SFMono-Regular", monospace;
@@ -934,29 +934,29 @@ body[data-theme="light"] .theme-switch span::after {
   letter-spacing: 0.02em;
 }
 
-.issue037-cancel {
+.first-run-cancel {
   color: var(--muted);
   background: transparent;
 }
 
-.issue037-cancel:hover {
+.first-run-cancel:hover {
   color: var(--text);
   border-color: var(--muted);
 }
 
-.issue037-confirm {
+.first-run-confirm {
   color: #10130d;
   border-color: var(--amber);
   background: var(--amber);
 }
 
-.issue037-confirm:hover {
+.first-run-confirm:hover {
   background: #ffc955;
   border-color: #ffc955;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .issue037-backdrop {
+  .first-run-backdrop {
     transition: none;
   }
 

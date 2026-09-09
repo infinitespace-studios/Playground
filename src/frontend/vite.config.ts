@@ -138,6 +138,13 @@ function emitManifestPlugin(): Plugin {
 export default defineConfig({
   clearScreen: false,
   publicDir: ".generated-public",
+  // Expose the build profile to first-party modules as a statically-replaced
+  // boolean. preview-frame.ts uses it to emit a proof-only preview srcdoc
+  // (extension module + proof DOM + negative observer) for the PROOF build
+  // only; the PRODUCT build's srcdoc references none of them.
+  define: {
+    __MONOGAME_PREVIEW_PROOF__: JSON.stringify(profile === "proof"),
+  },
   plugins: [selectEntryPlugin(), emitManifestPlugin()],
   build: {
     outDir,

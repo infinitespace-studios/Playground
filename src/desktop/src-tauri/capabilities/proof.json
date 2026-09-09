@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "proof",
+  "description": "Packaged proof-harness commands for the trusted main webview (proof build only).",
+  "local": true,
+  "windows": ["main"],
+  "permissions": ["proof-commands"]
+}

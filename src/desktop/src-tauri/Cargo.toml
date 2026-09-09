@@ -9,6 +9,10 @@ edition = "2024"
 name = "monogame_playground_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
+[features]
+default = []
+proof-harness = []
+
 [build-dependencies]
 serde_json = "1"
 tauri-build = { version = "2", features = [] }

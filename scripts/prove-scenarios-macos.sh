@@ -34,8 +34,12 @@ while [ "$#" -gt 0 ]; do
     esac
 done
 [ "$(uname -s)" = "Darwin" ] || { echo "macOS required." >&2; exit 1; }
-[ "$BUILD" -eq 1 ] && { echo "Building (PROOF profile)..."; npm --prefix "$REPO/src/desktop" run tauri -- build --config src-tauri/tauri.proof.conf.json; }
+[ "$BUILD" -eq 1 ] && { echo "Building (PROOF profile)..."; npm --prefix "$REPO/src/desktop" run tauri -- build --config src-tauri/tauri.proof.conf.json --features proof-harness; }
 [ -x "$BIN" ] || { echo "Binary not found: $BIN" >&2; exit 1; }
+# Stage 6 slice 6: prove the packaged PROOF binary/runtime actually carries the
+# harness (all 78 commands + proof symbols/assets + exactly eight scenarios).
+echo "Verifying PROOF binary/runtime command inventory..."
+node "$REPO/scripts/check-binary-command-inventory.mjs" proof
 mkdir -p "$EVIDENCE"
 
 # PID-specific stale check

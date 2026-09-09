@@ -4,7 +4,13 @@
   "version": "0.1.0",
   "type": "module",
   "scripts": {
-    "tauri": "npm --prefix ../frontend install --no-audit --no-fund && tauri"
+    "tauri": "npm --prefix ../frontend install --no-audit --no-fund && tauri",
+    "tauri:proof": "npm --prefix ../frontend install --no-audit --no-fund && tauri build --config src-tauri/tauri.proof.conf.json --features proof-harness",
+    "check:binary:product": "node ../../scripts/check-binary-command-inventory.mjs product",
+    "check:binary:proof": "node ../../scripts/check-binary-command-inventory.mjs proof",
+    "check:binary:self-test": "node ../../scripts/check-binary-command-inventory.mjs --self-test",
+    "package:product": "npm run tauri -- build && node ../../scripts/check-binary-command-inventory.mjs product",
+    "package:proof": "npm run tauri:proof && node ../../scripts/check-binary-command-inventory.mjs proof"
   },
   "devDependencies": {
     "@tauri-apps/cli": "2.11.4"

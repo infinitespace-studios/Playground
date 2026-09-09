@@ -8,7 +8,7 @@ BUILD=1
 while [ "$#" -gt 0 ]; do case "$1" in --skip-build) BUILD=0; shift ;; *) echo "Unknown: $1" >&2; exit 2 ;; esac; done
 [ "$(uname -s)" = "Darwin" ] || { echo "macOS required." >&2; exit 1; }
 mkdir -p "$EVIDENCE"
-[ "$BUILD" -eq 1 ] && { echo "=== Building (PROOF profile) ==="; npm --prefix "$REPO/src/desktop" run tauri -- build --config src-tauri/tauri.proof.conf.json 2>&1 | tail -3; }
+[ "$BUILD" -eq 1 ] && { echo "=== Building (PROOF profile) ==="; npm --prefix "$REPO/src/desktop" run tauri -- build --config src-tauri/tauri.proof.conf.json --features proof-harness 2>&1 | tail -3; }
 [ -x "$BIN" ] || { echo "Binary not found: $BIN" >&2; exit 1; }
 node --check "$REPO/src/preview/wwwroot/preview.js"
 # PROOF profile emits into dist-proof/, so validate the actual proof output.

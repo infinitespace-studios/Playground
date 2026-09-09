@@ -301,6 +301,41 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # Stage 6 slice 6: enforce the compiled-artifact command inventory on the
+      # PACKAGED product executable. This CI leg builds the PRODUCT profile only
+      # (default features, default config), so the freshly compiled shell binary
+      # at target/<triple>/release is the product artifact. The checker proves it
+      # carries exactly the eight responsibility-named product commands + product
+      # runtime floors and ZERO proof commands/env markers/relay symbols/C#
+      # exports/JS globals, and that the staged product frontend dist carries no
+      # proof extension assets. Any leak (or a stale/wrong-profile scan) fails the
+      # release. The default/release path never enables proof-harness, so this can
+      # only ever see the product surface.
+      #
+      # On macOS the checker points at the identity-verified `.app` bundle with
+      # `--bundle`, so it also asserts the bundle's `CFBundleIdentifier`
+      # (`com.monogame.playground`) before scanning — refusing a stale or
+      # wrong-profile artifact. Windows/Linux produce no identity-bearing bundle
+      # executable at a stable path, so those legs scan the freshly built
+      # profile-unique release binary directly with `--binary`; the staged product
+      # `dist/` manifest + content consistency check backstops profile identity
+      # there.
+      - name: Verify packaged product binary command inventory
+        shell: bash
+        run: |
+          if [ "${{ runner.os }}" = "macOS" ]; then
+            APP="src/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/macos/MonoGame Playground.app"
+            node scripts/check-binary-command-inventory.mjs product \
+              --bundle "$APP" \
+              --frontend-dist src/frontend/dist
+          else
+            BIN="src/desktop/src-tauri/target/${{ matrix.target }}/release/monogame-playground"
+            if [ "${{ runner.os }}" = "Windows" ]; then BIN="$BIN.exe"; fi
+            node scripts/check-binary-command-inventory.mjs product \
+              --binary "$BIN" \
+              --frontend-dist src/frontend/dist
+          fi
+
       - name: Upload bundle artifact (${{ matrix.label }})
         uses: actions/upload-artifact@v4
         with:

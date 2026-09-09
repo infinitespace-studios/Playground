@@ -1,9 +1,18 @@
+// The stop executor drives the product cooperative-stop lifecycle (stop the
+// game, record the managed outcome, emit the terminal `preview.stopped` event).
+// It carries NO proof instrumentation: the optional `observeStopped` hook is a
+// product-neutral post-stop observation seam. In the PRODUCT profile no hook is
+// supplied, so the executor performs no additional work after the managed stop.
+// The PROOF preview extension supplies a hook that observes the stopped game's
+// quiescence; that proof-only reflection lives entirely in the extension, never
+// here.
 export function createPreviewStopExecutor({
   getState,
   setState,
   getExports,
   createLifecycleEvent,
   recordStop,
+  observeStopped,
 }) {
   let cleanup = null;
 
@@ -52,11 +61,10 @@ export function createPreviewStopExecutor({
         };
       }
 
-      await new Promise(resolve => globalThis.setTimeout(resolve, 100));
-      const quiescent = typeof exports.QueryStoppedGameProof === "function"
-        ? JSON.parse(exports.QueryStoppedGameProof())
+      const observed = typeof observeStopped === "function"
+        ? (await observeStopped(exports)) ?? null
         : null;
-      recordStop({ ...managed, quiescent });
+      recordStop({ ...managed, quiescent: observed });
       setState("disposed");
       return {
         result: {

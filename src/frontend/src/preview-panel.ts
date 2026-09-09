@@ -22,10 +22,10 @@
 //     by the run/stop controller lifecycle (issue 24) via its additive
 //     `onLifecycle` hook.
 
-import type { Issue052PreviewLifecycle } from "./lifecycle-controller";
+import type { PreviewLifecycleState } from "./lifecycle-controller";
 
 const STATUS_PRESENTATION: Record<
-  Issue052PreviewLifecycle | "idle",
+  PreviewLifecycleState | "idle",
   { glyph: string; label: string; state: string }
 > = {
   idle: { glyph: "○", label: "Idle", state: "idle" },
@@ -62,7 +62,7 @@ function focusPreview(host: HTMLElement): void {
 }
 
 /** Create + insert the preview status indicator into the preview panel header. */
-function installStatusIndicator(): (state: Issue052PreviewLifecycle) => void {
+function installStatusIndicator(): (state: PreviewLifecycleState) => void {
   const head = document.querySelector<HTMLElement>(".preview .panel-head");
   if (!head) throw new Error("Issue 052 preview panel header (.preview .panel-head) is missing.");
 
@@ -79,7 +79,7 @@ function installStatusIndicator(): (state: Issue052PreviewLifecycle) => void {
   label.className = "preview-status-label";
   indicator.append(glyph, label);
 
-  const apply = (key: Issue052PreviewLifecycle | "idle") => {
+  const apply = (key: PreviewLifecycleState | "idle") => {
     const presentation = STATUS_PRESENTATION[key];
     indicator.dataset.state = presentation.state;
     glyph.textContent = presentation.glyph;
@@ -93,7 +93,7 @@ function installStatusIndicator(): (state: Issue052PreviewLifecycle) => void {
   // Place the indicator at the end of the header (after the WEBGL2 · 60HZ span).
   head.appendChild(indicator);
 
-  return (state: Issue052PreviewLifecycle) => apply(state);
+  return (state: PreviewLifecycleState) => apply(state);
 }
 
 /**
@@ -101,7 +101,7 @@ function installStatusIndicator(): (state: Issue052PreviewLifecycle) => void {
  * to `installIssue024RunStopControl` so the indicator tracks Run/Stop.
  */
 export function installPreviewPanel(): {
-  onLifecycle: (state: Issue052PreviewLifecycle) => void;
+  onLifecycle: (state: PreviewLifecycleState) => void;
 } {
   const host = document.getElementById("canvas-frame");
   if (!host) throw new Error("Issue 052 preview host (#canvas-frame) is missing.");

@@ -20,9 +20,9 @@ import {
   installProjectManager,
   parseManifest,
   serializeManifest,
-  ISSUE051_SCHEMA_VERSION,
-  type Issue051Api,
-  type Issue051Hooks,
+  PROJECT_SCHEMA_VERSION,
+  type ProjectManagerApi,
+  type ProjectManagerHooks,
 } from "./project-manager.ts";
 
 // ---- Mock Tauri shell ----
@@ -79,12 +79,12 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
       __TAURI_INTERNALS__: {
         invoke: async (command: string, args?: Record<string, unknown>) => {
           switch (command) {
-            case "issue051_pick_folder":
+            case "project_pick_folder":
               return cancelPicker ? null : "/tmp/playground-project";
-            case "issue051_read_project":
+            case "project_read":
               if (options.readProjectThrows) throw new Error(options.readProjectThrows);
               return options.readProject ?? defaultProject();
-            case "issue050_write_file": {
+            case "workspace_write_file": {
               const path = String(args?.path);
               if (writeFailurePath && path === writeFailurePath) {
                 throw new Error(`disk full writing ${path}`);
@@ -118,7 +118,7 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
 }
 
 interface Harness {
-  project: Issue051Api;
+  project: ProjectManagerApi;
   editorContent: () => string;
   setEditorContent: (content: string) => void;
   dirtyStates: boolean[];
@@ -132,7 +132,7 @@ function installHarness(): Harness {
   let explorerEntries: ReadonlyArray<{ relativePath: string; dirty: boolean; active: boolean }> = [];
   const errors: Array<{ title: string; message: string }> = [];
 
-  const hooks: Issue051Hooks = {
+  const hooks: ProjectManagerHooks = {
     setEditorContent: content => { editorContent = content; },
     getEditorContent: () => editorContent,
     renderExplorer: entries => { explorerEntries = entries; },
@@ -311,7 +311,7 @@ test("a failed write during Save All is atomic: no dirty flag is cleared", async
 
 test("manifest round-trips and rejects a newer schemaVersion without touching disk", async () => {
   const manifest = parseManifest(
-    JSON.stringify({ name: "Demo", schemaVersion: ISSUE051_SCHEMA_VERSION, contentProfile: "Web", preview: { width: 640, height: 360 } }),
+    JSON.stringify({ name: "Demo", schemaVersion: PROJECT_SCHEMA_VERSION, contentProfile: "Web", preview: { width: 640, height: 360 } }),
     "fallback-folder",
   );
   assert.equal(manifest.name, "Demo");
@@ -320,7 +320,7 @@ test("manifest round-trips and rejects a newer schemaVersion without touching di
   assert.equal(parseManifest(serialized, "fallback-folder").name, "Demo");
 
   assert.throws(
-    () => parseManifest(JSON.stringify({ name: "X", schemaVersion: ISSUE051_SCHEMA_VERSION + 1 }), "f"),
+    () => parseManifest(JSON.stringify({ name: "X", schemaVersion: PROJECT_SCHEMA_VERSION + 1 }), "f"),
     /newer than this application supports/,
   );
 });

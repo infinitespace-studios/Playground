@@ -28,11 +28,11 @@ async function invokeChecked<T>(command: string, args?: Record<string, unknown>)
 }
 
 export async function isAcknowledged(identity: string): Promise<boolean> {
-  return invokeChecked<boolean>("issue037_check_acknowledgement", { identity });
+  return invokeChecked<boolean>("first_run_check_acknowledgement", { identity });
 }
 
 export async function writeAcknowledgement(identity: string): Promise<void> {
-  await invokeChecked<null>("issue037_write_acknowledgement", { identity });
+  await invokeChecked<null>("first_run_write_acknowledgement", { identity });
 }
 
 // --- Modal DOM ---
@@ -43,29 +43,29 @@ export function createWarningModal(): {
   destroy: () => void;
 } {
   const backdrop = document.createElement("div");
-  backdrop.className = "issue037-backdrop";
+  backdrop.className = "first-run-backdrop";
   backdrop.setAttribute("role", "presentation");
 
   const dialog = document.createElement("div");
-  dialog.className = "issue037-dialog";
+  dialog.className = "first-run-dialog";
   dialog.setAttribute("role", "alertdialog");
   dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-labelledby", "issue037-title");
-  dialog.setAttribute("aria-describedby", "issue037-desc");
+  dialog.setAttribute("aria-labelledby", "first-run-title");
+  dialog.setAttribute("aria-describedby", "first-run-desc");
 
   const marker = document.createElement("div");
-  marker.className = "issue037-marker";
+  marker.className = "first-run-marker";
   marker.setAttribute("aria-hidden", "true");
   marker.textContent = "\u26A0";
 
   const title = document.createElement("h2");
-  title.id = "issue037-title";
-  title.className = "issue037-title";
+  title.id = "first-run-title";
+  title.className = "first-run-title";
   title.textContent = "Before you run";
 
   const desc = document.createElement("p");
-  desc.id = "issue037-desc";
-  desc.className = "issue037-desc";
+  desc.id = "first-run-desc";
+  desc.className = "first-run-desc";
   desc.textContent =
     "This application is intended primarily for running your own local code. " +
     "It provides defence-in-depth protections against accidental or opportunistic " +
@@ -75,21 +75,21 @@ export function createWarningModal(): {
     "preview and editor and may require you to relaunch the application.";
 
   const note = document.createElement("p");
-  note.className = "issue037-note";
+  note.className = "first-run-note";
   note.textContent =
     "You will not be asked again for this project unless its identity changes.";
 
   const actions = document.createElement("div");
-  actions.className = "issue037-actions";
+  actions.className = "first-run-actions";
 
   const cancelButton = document.createElement("button");
   cancelButton.type = "button";
-  cancelButton.className = "issue037-cancel";
+  cancelButton.className = "first-run-cancel";
   cancelButton.textContent = "Cancel";
 
   const confirmButton = document.createElement("button");
   confirmButton.type = "button";
-  confirmButton.className = "issue037-confirm";
+  confirmButton.className = "first-run-confirm";
   confirmButton.textContent = "I understand, run this project";
 
   actions.appendChild(cancelButton);
@@ -109,7 +109,7 @@ export function createWarningModal(): {
     const fn = resolver;
     resolver = null;
     visible = false;
-    backdrop.classList.remove("issue037-visible");
+    backdrop.classList.remove("first-run-visible");
     restoreFocus();
     fn(confirmed);
   }
@@ -166,7 +166,7 @@ export function createWarningModal(): {
       if (!backdrop.parentElement) document.body.appendChild(backdrop);
       // Force reflow so the CSS transition triggers
       void backdrop.offsetWidth;
-      backdrop.classList.add("issue037-visible");
+      backdrop.classList.add("first-run-visible");
       trapFocus();
       return new Promise<boolean>((r) => { resolver = r; });
     },

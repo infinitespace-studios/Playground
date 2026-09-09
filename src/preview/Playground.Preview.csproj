@@ -17,6 +17,14 @@
     <EmccFlags>-O2 -sINITIAL_MEMORY=128MB -sMAXIMUM_MEMORY=2048MB -sALLOW_MEMORY_GROWTH=1</EmccFlags>
     <ExpectedMonoGameAssemblyName>MonoGame.Framework</ExpectedMonoGameAssemblyName>
     <ExpectedMonoGameAssemblyVersion>3.8.5.1</ExpectedMonoGameAssemblyVersion>
+    <!-- Preview build profile. Defaults to PRODUCT; the PROOF staging path sets
+         MONOGAME_FRONTEND_PROFILE=proof (honored below) so that, and only that,
+         build compiles the proof-only PreviewExports unit and deploys the
+         proof-only wwwroot instrumentation. The default PRODUCT publish compiles
+         and stages neither, so the shipped preview wasm/JS carry no proof
+         export, self-test, fixture, audio probe, or issueNN dispatch surface. -->
+    <MonoGamePreviewProfile Condition="'$(MonoGamePreviewProfile)' == ''">$(MONOGAME_FRONTEND_PROFILE)</MonoGamePreviewProfile>
+    <MonoGamePreviewProfile Condition="'$(MonoGamePreviewProfile)' == ''">product</MonoGamePreviewProfile>
     <MonoGameReferencePath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), '..', 'compiler', 'References', 'MonoGame.Framework.dll'))</MonoGameReferencePath>
     <MonoGameNativeArtifactPath>$([MSBuild]::NormalizeDirectory($(MSBuildProjectDirectory), '..', '..', 'artifacts', 'monogame', 'native'))</MonoGameNativeArtifactPath>
     <SchedulerShimsPath>$([MSBuild]::NormalizePath($(MSBuildProjectDirectory), 'native', 'scheduler-shims.js'))</SchedulerShimsPath>
@@ -25,6 +33,24 @@
     <SchedulerShimsPathEmcc>$(SchedulerShimsPath.Replace('\', '/'))</SchedulerShimsPathEmcc>
     <EmccExtraLDFlags>-sFULL_ES3 -sUSE_WEBGL2=1 -sTOTAL_STACK=5242880 --js-library=$(SchedulerShimsPathEmcc)</EmccExtraLDFlags>
   </PropertyGroup>
+
+  <!-- Proof-only preview compilation unit + wwwroot assets. The WebAssembly SDK
+       auto-includes PreviewExports.Proof.cs (via the Compile glob) and every
+       wwwroot/* file (via the Content glob). Remove all three unless this is the
+       explicit PROOF profile, so the PRODUCT publish emits no proof JSExports
+       and stages no proof extension/observer JS. -->
+  <ItemGroup Condition="'$(MonoGamePreviewProfile)' != 'proof'">
+    <Compile Remove="PreviewExports.Proof.cs" />
+    <Content Remove="wwwroot/preview-proof-extension.js" />
+    <Content Remove="wwwroot/issue033-negative-observer.js" />
+  </ItemGroup>
+
+  <!-- Proof-only shared instrumentation (proof expectation registry + compiler
+       proof-mode handshake). Deployed ONLY for the PROOF profile, so the product
+       preview staging carries none of it. -->
+  <ItemGroup Condition="'$(MonoGamePreviewProfile)' == 'proof'">
+    <WasmExtraFilesToDeploy Include="../shared/Issue21EndpointsProof.js" TargetPath="Issue21EndpointsProof.js" />
+  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="MonoGame.Framework">

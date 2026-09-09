@@ -12,6 +12,18 @@ const outputRoot = path.join(frontendRoot, ".generated-public/preview");
 const allowlistPath = path.join(repositoryRoot, "docs/reference-allowlist.json");
 const sourceAssembly = path.join(repositoryRoot, "src/compiler/References/MonoGame.Framework.dll");
 
+// Build profile selection. Default is PRODUCT; MONOGAME_FRONTEND_PROFILE=proof
+// selects the PROOF staging, which additionally compiles the proof-only
+// PreviewExports unit and deploys the proof-only runtime JS/assets. The product
+// staging compiles and stages neither, so the shipped preview carries no proof
+// export, self-test, fixture, audio probe, issueNN dispatch, or observer.
+const rawProfile = process.env.MONOGAME_FRONTEND_PROFILE ?? "product";
+if (rawProfile !== "product" && rawProfile !== "proof") {
+  throw new Error(`Invalid MONOGAME_FRONTEND_PROFILE="${rawProfile}"; expected "product" or "proof".`);
+}
+const profile = rawProfile;
+const isProof = profile === "proof";
+
 const readJson = async filePath => JSON.parse(await readFile(filePath, "utf8"));
 const digest = data => createHash("sha256").update(data).digest("hex");
 const allowlist = await readJson(allowlistPath);
@@ -53,9 +65,18 @@ if (
 }
 
 await rm(path.join(previewRoot, "bin/Release/net9.0/publish"), { recursive: true, force: true });
+// Force a clean object graph so a prior profile's compiled proof unit can never
+// bleed into this profile's publish output.
+await rm(path.join(previewRoot, "obj"), { recursive: true, force: true });
 execFileSync(
   "dotnet",
-  ["publish", "Playground.Preview.csproj", "--configuration", "Release"],
+  [
+    "publish",
+    "Playground.Preview.csproj",
+    "--configuration",
+    "Release",
+    `-p:MonoGamePreviewProfile=${profile}`,
+  ],
   { cwd: previewRoot, stdio: "inherit" },
 );
 await cp(
@@ -63,6 +84,12 @@ await cp(
   path.join(publishRoot, "ProtocolRuntime.js"),
 );
 await cp(path.join(repositoryRoot, "src/shared/Issue21Endpoints.js"), path.join(publishRoot, "Issue21Endpoints.js"));
+if (isProof) {
+  await cp(
+    path.join(repositoryRoot, "src/shared/Issue21EndpointsProof.js"),
+    path.join(publishRoot, "Issue21EndpointsProof.js"),
+  );
+}
 await cp(
   path.join(repositoryRoot, "src/shared/PreviewStartRuntime.js"),
   path.join(publishRoot, "PreviewStartRuntime.js"),
@@ -102,6 +129,67 @@ const requiredFiles = [
 ];
 for (const relativePath of requiredFiles) {
   await readFile(path.join(publishRoot, relativePath));
+}
+
+// Profile-scoped contamination guard on the staged preview runtime JS. The
+// product build must never publish the proof extension/observer, and its
+// preview.js must contain none of the proof export/dispatch symbols; the proof
+// build must publish the extension and its required proof symbols.
+const PROOF_ONLY_ASSETS = [
+  "preview-proof-extension.js",
+  "issue033-negative-observer.js",
+  "Issue21EndpointsProof.js",
+];
+const FORBIDDEN_PRODUCT_PREVIEW_SYMBOLS = [
+  "previewIssue",
+  "installIssue040AudioProbe",
+  "createProofExpectationRegistry",
+  "initializeCompilerProofMode",
+  "QueryIssue039State",
+  "QueryIssue040AudioState",
+  "QueryStoppedGameProof",
+  "RunContentValidatorSelfTest",
+  "RunAtomicMountSelfTest",
+  "Issue034FileSystemProbe",
+  "issue040-audio-arm",
+];
+const REQUIRED_PRODUCT_PREVIEW_SYMBOLS = [
+  "executeMountRequest",
+  "createPreviewEndpoint",
+  "verifyRuntimeAsset",
+];
+const stagedPreviewJs = await readFile(path.join(publishRoot, "preview.js"), "utf8");
+for (const symbol of REQUIRED_PRODUCT_PREVIEW_SYMBOLS) {
+  if (symbol && !stagedPreviewJs.includes(symbol)) {
+    throw new Error(`Staged preview.js is missing required product symbol "${symbol}" (scan may be vacuous).`);
+  }
+}
+for (const symbol of FORBIDDEN_PRODUCT_PREVIEW_SYMBOLS) {
+  if (stagedPreviewJs.includes(symbol)) {
+    throw new Error(`Staged product preview.js leaked proof symbol "${symbol}".`);
+  }
+}
+if (isProof) {
+  for (const asset of PROOF_ONLY_ASSETS) {
+    await readFile(path.join(publishRoot, asset));
+  }
+  const extensionJs = await readFile(path.join(publishRoot, "preview-proof-extension.js"), "utf8");
+  for (const symbol of ["installIssue040AudioProbe", "previewIssue040Proof", "createProofExpectationRegistry"]) {
+    if (!extensionJs.includes(symbol)) {
+      throw new Error(`Staged proof extension is missing required proof symbol "${symbol}".`);
+    }
+  }
+} else {
+  for (const asset of PROOF_ONLY_ASSETS) {
+    let leaked = false;
+    try {
+      await readFile(path.join(publishRoot, asset));
+      leaked = true;
+    } catch {
+      /* expected: absent in the product staging */
+    }
+    if (leaked) throw new Error(`Product staging published proof-only asset "${asset}".`);
+  }
 }
 if (monoGameAssets.length < 1) {
   throw new Error(`Expected at least one published MonoGame runtime asset; found ${monoGameAssets.length}.`);
@@ -149,4 +237,4 @@ await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 await cp(publishRoot, outputRoot, { recursive: true });
 await writeFile(path.join(outputRoot, "preview-build.json"), `${JSON.stringify(buildMetadata, null, 2)}\n`);
-console.log(`Staged verified Release preview with ${monoGameAssets[0]}.`);
+console.log(`Staged verified Release preview (${profile} profile) with ${monoGameAssets[0]}.`);

@@ -43,6 +43,7 @@ import {
   loadPreviewIframe,
 } from "./preview-frame";
 import {
+  bootstrapAugmentationFields,
   compilerClient,
   createUuid,
   ensureContexts,
@@ -159,15 +160,17 @@ export async function runLivePreviewInPage(input: {
       if (!target) return reject(new Error("Preview contentWindow is unavailable."));
       // Opaque-origin iframe: post with "*" and transfer the protocol + bridge
       // ports. It has no same-origin access and no Tauri bridge (issue 033/034).
-      // preview.js's installPrivatePortBootstrap requires issue021Proof (bool)
-      // and runGamePipeline:true to actually run the user's Game (not a proof).
+      // preview.js's installPrivatePortBootstrap needs runGamePipeline:true to
+      // run the user's Game (not a proof). The historical proof-authorization
+      // field, if any, is contributed only by an optional extension through the
+      // neutral augmentation seam; the product Run path carries none.
       target.postMessage(
         {
           type: "protocol.bootstrap",
           contextGeneration: generation,
           previewId,
-          issue021Proof: false,
           runGamePipeline: true,
+          ...bootstrapAugmentationFields("preview"),
         },
         "*",
         [channel.port2, bridge.childPort],

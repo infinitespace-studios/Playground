@@ -118,7 +118,7 @@ function installTabFocusIndicator(editor: monaco.editor.IStandaloneCodeEditor): 
     ? monaco.KeyMod.WinCtrl | monaco.KeyMod.Shift | monaco.KeyCode.KeyM
     : monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyM;
   editor.addAction({
-    id: "issue052.toggleTabMovesFocus",
+    id: "editor.toggleTabMovesFocus",
     label: "Toggle Tab Key Moves Focus",
     keybindings: [chord],
     run: ed => {

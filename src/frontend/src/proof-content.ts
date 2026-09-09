@@ -11,8 +11,8 @@
 // via the shared `createEmbeddedProofPreview` helper — NOT the issue-038
 // isolated WebviewWindow bridge. Compiled binaries and content assets are
 // transferred INLINE over the in-page protocol port (like the shipping
-// `runLivePreviewInPage`), so no Rust transfer store / `issue038_*` /
-// `issue039_store_asset` mediation is used.
+// `runLivePreviewInPage`), so no Rust transfer store / `issue038_*` asset-store
+// command mediation is used (Stage 6 removed those dead commands).
 import {
   compileToBuffers,
   createEmbeddedProofPreview,

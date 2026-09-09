@@ -13,5 +13,11 @@ export {
 } from "./lifecycle-controller.ts";
 export type {
   PreviewLifecycleState,
-  Issue052PreviewLifecycle,
 } from "./lifecycle-controller.ts";
+import type { PreviewLifecycleState } from "./lifecycle-controller.ts";
+/**
+ * @deprecated historical issue-numbered name; use PreviewLifecycleState. Kept
+ * ONLY in this issue-numbered compatibility façade so the product domain module
+ * (`lifecycle-controller.ts`) carries no issue-numbered identifier.
+ */
+export type Issue052PreviewLifecycle = PreviewLifecycleState;

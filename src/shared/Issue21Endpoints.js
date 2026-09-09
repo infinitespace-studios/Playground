@@ -57,75 +57,6 @@ function terminalFailure(type, correlationId, code, text) {
   };
 }
 
-export function createProofExpectationRegistry({
-  authorized,
-  contextGeneration,
-  portIdentity,
-  expectedRejections = [],
-  unexpectedErrors = [],
-  expiredExpectations = [],
-}) {
-  const entries = new Map();
-  const register = (expectation, timeoutMs = 10000) => {
-    if (authorized !== true ||
-        expectation?.contextGeneration !== contextGeneration ||
-        expectation?.portIdentity !== portIdentity ||
-        !isUuidV4(expectation?.correlationId) ||
-        typeof expectation?.requestType !== "string" ||
-        typeof expectation?.responseType !== "string" ||
-        typeof expectation?.probePhase !== "string" ||
-        typeof expectation?.expectedCode !== "string" ||
-        !Number.isSafeInteger(timeoutMs) || timeoutMs < 100 || timeoutMs > 10000 ||
-        entries.has(expectation.correlationId)) {
-      return false;
-    }
-    const entry = Object.freeze({ ...expectation });
-    const timer = setTimeout(() => {
-      if (entries.get(entry.correlationId)?.entry === entry) {
-        entries.delete(entry.correlationId);
-        expiredExpectations.push(entry);
-      }
-    }, timeoutMs);
-    entries.set(entry.correlationId, { entry, timer });
-    return true;
-  };
-  const consume = observed => {
-    const retained = entries.get(observed.correlationId);
-    if (!retained ||
-        retained.entry.contextGeneration !== observed.contextGeneration ||
-        retained.entry.portIdentity !== observed.portIdentity ||
-        retained.entry.requestType !== observed.requestType ||
-        retained.entry.responseType !== observed.responseType ||
-        retained.entry.probePhase !== observed.probePhase ||
-        retained.entry.expectedCode !== observed.code) {
-      unexpectedErrors.push(observed.code);
-      return false;
-    }
-    clearTimeout(retained.timer);
-    entries.delete(observed.correlationId);
-    expectedRejections.push(Object.freeze({
-      ...retained.entry,
-      observedCode: observed.code,
-    }));
-    return true;
-  };
-  const phaseFor = correlationId => entries.get(correlationId)?.entry.probePhase;
-  const remove = correlationId => {
-    const retained = entries.get(correlationId);
-    if (!retained) return false;
-    clearTimeout(retained.timer);
-    entries.delete(correlationId);
-    return true;
-  };
-  return Object.freeze({
-    register,
-    consume,
-    phaseFor,
-    remove,
-    get size() { return entries.size; },
-  });
-}
-
 function createEndpoint({
   port,
   responseType,
@@ -133,7 +64,11 @@ function createEndpoint({
   validate,
   execute,
   fallbackCode,
-  proof,
+  // Optional, responsibility-neutral lifecycle observer/telemetry sink. The
+  // PRODUCT endpoints (preview.js / compiler-harness.js) never supply it, so
+  // this shared plumbing carries no proof-specific vocabulary. Only the proof
+  // extensions and tests pass a collector to record terminals/events/closes.
+  observer,
   expectations,
   contextGeneration,
   portIdentity,
@@ -145,7 +80,7 @@ function createEndpoint({
   const close = reason => {
     if (closed) return;
     closed = true;
-    proof?.closes?.push(reason);
+    observer?.closes?.push(reason);
     port.close();
   };
   const post = (message, transfer = []) => {
@@ -180,7 +115,7 @@ function createEndpoint({
           "Request correlation ID was already observed.",
           { correlationId: acceptedCorrelation, type: message.type },
         ));
-        proof?.duplicateControls?.push(acceptedCorrelation);
+        observer?.duplicateControls?.push(acceptedCorrelation);
         return;
       }
       inFlight.add(acceptedCorrelation);
@@ -205,10 +140,10 @@ function createEndpoint({
       };
       post(response, outcome.transfer ?? []);
       terminalSent = true;
-      proof?.terminals?.push(acceptedCorrelation);
+      observer?.terminals?.push(acceptedCorrelation);
       for (const lifecycleEvent of outcome.events ?? []) {
         post(lifecycleEvent);
-        proof?.events?.push({
+        observer?.events?.push({
           type: lifecycleEvent.type,
           correlationId: lifecycleEvent.correlationId,
           sequence: lifecycleEvent.payload?.sequence,
@@ -219,7 +154,7 @@ function createEndpoint({
           try {
             if (delayed.shouldPost && !delayed.shouldPost()) return;
             post(delayed.event);
-            proof?.events?.push({
+            observer?.events?.push({
               type: delayed.event.type,
               correlationId: delayed.event.correlationId,
               sequence: delayed.event.payload?.sequence,
@@ -251,7 +186,7 @@ function createEndpoint({
           code,
         });
       } else {
-        proof?.errors?.push(code);
+        observer?.errors?.push(code);
       }
       if (closed) return;
       try {
@@ -268,7 +203,7 @@ function createEndpoint({
                 : activeResponseType === "preview.stop.response"
                   ? "Preview stop request rejected."
                 : "Preview load request rejected."));
-          proof?.terminals?.push(terminalCorrelation);
+          observer?.terminals?.push(terminalCorrelation);
           if (code === "MESSAGE_SOURCE_REJECTED") close("message-source-rejected");
           if (code === "INTERNAL_ERROR" && activeRequestType === "preview.start.request") {
             close("unexpected-start-boundary");
@@ -289,18 +224,13 @@ function createEndpoint({
   };
   const emitEvent = message => {
     post(message);
-    proof?.events?.push({
+    observer?.events?.push({
       type: message.type,
       correlationId: message.correlationId,
       sequence: message.payload?.sequence,
     });
   };
   return { handle, close, emitEvent, completed, inFlight, get closed() { return closed; } };
-}
-
-export async function initializeCompilerProofMode(proofAuthorized, runProof) {
-  if (proofAuthorized !== true) return Object.freeze({ enabled: false });
-  return Object.freeze({ enabled: true, ...(await runProof()) });
 }
 
 export function createCompilerEndpoint(options) {

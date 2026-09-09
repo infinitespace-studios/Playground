@@ -105,7 +105,7 @@ done
 
 if [ "$BUILD_APP" -eq 1 ]; then
     echo "Building packaged application (PROOF profile) before network isolation..."
-    npm --prefix "$DESKTOP_DIR" run tauri -- build --config src-tauri/tauri.proof.conf.json
+    npm --prefix "$DESKTOP_DIR" run tauri -- build --config src-tauri/tauri.proof.conf.json --features proof-harness
 fi
 
 if [ ! -x "$APP_BINARY" ]; then

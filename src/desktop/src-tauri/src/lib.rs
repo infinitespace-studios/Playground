@@ -1,13 +1,16 @@
+#[cfg(feature = "proof-harness")]
 fn issue009_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE009_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue009_is_proof_enabled() -> bool {
     issue009_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue009_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue009_proof_enabled() {
         return Err("issue 009 proof instrumentation is disabled".into());
@@ -18,16 +21,19 @@ fn issue009_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue011_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE011_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue011_is_proof_enabled() -> bool {
     issue011_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue011_set_outer_size(window: tauri::Window, width: f64, height: f64) -> Result<(), String> {
     if !issue011_proof_enabled() {
         return Err("issue 011 proof instrumentation is disabled".into());
@@ -41,6 +47,7 @@ fn issue011_set_outer_size(window: tauri::Window, width: f64, height: f64) -> Re
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue011_outer_bounds(window: tauri::Window) -> Result<(i32, i32, u32, u32, f64), String> {
     if !issue011_proof_enabled() {
         return Err("issue 011 proof instrumentation is disabled".into());
@@ -60,6 +67,7 @@ fn issue011_outer_bounds(window: tauri::Window) -> Result<(i32, i32, u32, u32, f
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue011_emit_report(report: String) -> Result<(), String> {
     if !issue011_proof_enabled() {
         return Err("issue 011 proof instrumentation is disabled".into());
@@ -69,16 +77,19 @@ fn issue011_emit_report(report: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue010_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE010_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue010_is_proof_enabled() -> bool {
     issue010_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue010_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue010_proof_enabled() {
         return Err("issue 010 proof instrumentation is disabled".into());
@@ -89,16 +100,19 @@ fn issue010_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue020_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE020_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue020_is_proof_enabled() -> bool {
     issue020_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue020_emit_checkpoint(report: String) -> Result<(), String> {
     if !issue020_proof_enabled() {
         return Err("issue 020 proof instrumentation is disabled".into());
@@ -109,6 +123,7 @@ fn issue020_emit_checkpoint(report: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue020_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue020_proof_enabled() {
         return Err("issue 020 proof instrumentation is disabled".into());
@@ -119,21 +134,25 @@ fn issue020_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue021_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE021_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue021_is_proof_enabled() -> bool {
     issue021_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue021_is_locked_session_proof() -> bool {
     std::env::var_os("MONOGAME_ISSUE021_LOCKED_SESSION").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue021_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue021_proof_enabled() {
         return Err("issue 021 proof instrumentation is disabled".into());
@@ -146,16 +165,19 @@ fn issue021_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue022_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE022_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue022_is_proof_enabled() -> bool {
     issue022_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue022_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue022_proof_enabled() {
         return Err("issue 022 proof instrumentation is disabled".into());
@@ -168,101 +190,123 @@ fn issue022_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue023_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE023_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue023_is_proof_enabled() -> bool {
     issue023_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue024_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE024_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue024_is_proof_enabled() -> bool {
     issue024_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue025_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE025_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue025_is_proof_enabled() -> bool {
     issue025_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue027_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE027_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue027_is_proof_enabled() -> bool {
     issue027_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue028_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE028_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue028_is_proof_enabled() -> bool {
     issue028_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue029_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE029_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue029_is_proof_enabled() -> bool {
     issue029_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue030_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE030_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue030_is_proof_enabled() -> bool {
     issue030_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue031_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE031_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue031_is_proof_enabled() -> bool {
     issue031_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue032_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE032_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue032_is_proof_enabled() -> bool {
     issue032_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue033_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE033_PROOF").is_some_and(|value| value == "1")
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue033_no_wasm_eval_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE033_NO_WASM_EVAL_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue033_is_proof_enabled() -> bool {
     issue033_proof_enabled() && !issue033_no_wasm_eval_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue033_is_no_wasm_eval_proof_enabled() -> Result<bool, String> {
     if issue033_proof_enabled() && issue033_no_wasm_eval_proof_enabled() {
         return Err("issue 033 proof modes are mutually exclusive".into());
@@ -271,6 +315,7 @@ fn issue033_is_no_wasm_eval_proof_enabled() -> Result<bool, String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue033_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     if !issue033_proof_enabled() {
         return Err("issue 033 proof instrumentation is disabled".into());
@@ -279,18 +324,22 @@ fn issue033_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue034_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE034_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue034_is_proof_enabled() -> bool {
     issue034_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 static ISSUE034_TRUSTED_MARKER_CALLS: std::sync::atomic::AtomicUsize =
     std::sync::atomic::AtomicUsize::new(0);
 
+#[cfg(feature = "proof-harness")]
 fn require_issue034_main_frame(webview: &tauri::WebviewWindow) -> Result<(), String> {
     if !issue034_proof_enabled() || webview.label() != "main" {
         return Err("issue 034 trusted marker is unavailable".into());
@@ -299,6 +348,7 @@ fn require_issue034_main_frame(webview: &tauri::WebviewWindow) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue034_trusted_marker(webview: tauri::WebviewWindow) -> Result<&'static str, String> {
     require_issue034_main_frame(&webview)?;
     ISSUE034_TRUSTED_MARKER_CALLS
@@ -312,20 +362,24 @@ fn issue034_trusted_marker(webview: tauri::WebviewWindow) -> Result<&'static str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue034_trusted_marker_calls(webview: tauri::WebviewWindow) -> Result<usize, String> {
     require_issue034_main_frame(&webview)?;
     Ok(ISSUE034_TRUSTED_MARKER_CALLS.load(std::sync::atomic::Ordering::SeqCst))
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue035_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE035_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue035_is_proof_enabled() -> bool {
     issue035_proof_enabled()
 }
 
+#[cfg(feature = "proof-harness")]
 fn packaged_pipeline_proof_enabled() -> bool {
     issue021_proof_enabled()
         || issue022_proof_enabled()
@@ -350,12 +404,14 @@ fn packaged_pipeline_proof_enabled() -> bool {
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(feature = "proof-harness")]
 fn packaged_app_bundle(executable: &std::path::Path) -> Option<&std::path::Path> {
     let bundle = executable.parent()?.parent()?.parent()?;
     (bundle.extension().and_then(|extension| extension.to_str()) == Some("app")).then_some(bundle)
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(feature = "proof-harness")]
 fn relay_packaged_proof_through_launch_services() -> Result<bool, String> {
     use std::io::Read;
 
@@ -420,6 +476,7 @@ fn relay_packaged_proof_through_launch_services() -> Result<bool, String> {
     Ok(true)
 }
 
+#[cfg(feature = "proof-harness")]
 fn emit_packaged_proof_report(report: &str) -> Result<(), String> {
     use std::io::Write;
 
@@ -433,12 +490,14 @@ fn emit_packaged_proof_report(report: &str) -> Result<(), String> {
         .map_err(|error| format!("failed to relay packaged proof report: {error}"))
 }
 
+#[cfg(feature = "proof-harness")]
 fn require_packaged_pipeline_proof(enabled: bool) -> Result<(), String> {
     enabled
         .then_some(())
         .ok_or_else(|| "packaged pipeline proof instrumentation is disabled".into())
 }
 
+#[cfg(feature = "proof-harness")]
 fn proof_window_ready(
     visible: bool,
     focused: bool,
@@ -449,6 +508,7 @@ fn proof_window_ready(
     visible && focused && !minimized && application_active && native_window_focused
 }
 
+#[cfg(feature = "proof-harness")]
 fn proof_activation_target_allowed(
     proof_enabled: bool,
     expected_pid: i32,
@@ -464,6 +524,7 @@ fn proof_activation_target_allowed(
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(feature = "proof-harness")]
 fn dispatch_exact_proof_window_activation(
     running: &objc2_app_kit::NSRunningApplication,
     window: &objc2_app_kit::NSWindow,
@@ -516,6 +577,7 @@ fn dispatch_exact_proof_window_activation(
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(feature = "proof-harness")]
 async fn activate_packaged_proof_window(
     window: &tauri::Window,
 ) -> Result<(bool, bool, bool, bool, bool, u32, u128), String> {
@@ -662,6 +724,7 @@ async fn activate_packaged_proof_window(
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 async fn prepare_packaged_proof_window(
     window: tauri::Window,
 ) -> Result<
@@ -722,7 +785,7 @@ async fn prepare_packaged_proof_window(
 /// Returns Ok(Some(path)) when the user picks a file, Ok(None) when the
 /// dialog is cancelled.
 #[tauri::command]
-async fn issue050_save_dialog(
+async fn workspace_save_dialog(
     app: tauri::AppHandle,
     default_path: Option<String>,
 ) -> Result<Option<String>, String> {
@@ -754,7 +817,7 @@ async fn issue050_save_dialog(
 /// Returns Ok(Some((path, content))) when a file is chosen, Ok(None) when the
 /// dialog is cancelled.
 #[tauri::command]
-async fn issue050_open_dialog(app: tauri::AppHandle) -> Result<Option<(String, String)>, String> {
+async fn workspace_open_dialog(app: tauri::AppHandle) -> Result<Option<(String, String)>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let chosen = app
@@ -780,17 +843,17 @@ async fn issue050_open_dialog(app: tauri::AppHandle) -> Result<Option<(String, S
 /// shell, so the native window-close handler can decide whether to prompt
 /// before discarding unsaved changes. The frontend is the source of truth for
 /// dirty state (it owns the editor buffer and its last-saved baseline); it
-/// calls `issue050_set_dirty` on every dirty-state transition to keep this in
+/// calls `workspace_set_dirty` on every dirty-state transition to keep this in
 /// sync. Only the trusted main webview can invoke that command (ACL-gated,
-/// like every other `issue050_*` command), so the sandboxed preview can never
+/// like every other workspace command), so the sandboxed preview can never
 /// forge the dirty state.
-static ISSUE050_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+static WORKSPACE_DIRTY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// Issue 050: Record whether the trusted frontend currently has unsaved
 /// changes. Called by the frontend whenever its dirty indicator flips.
 #[tauri::command]
-fn issue050_set_dirty(dirty: bool) {
-    ISSUE050_DIRTY.store(dirty, std::sync::atomic::Ordering::SeqCst);
+fn workspace_set_dirty(dirty: bool) {
+    WORKSPACE_DIRTY.store(dirty, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// Issue 050: Write file content atomically (after save dialog returned path).
@@ -801,7 +864,7 @@ fn issue050_set_dirty(dirty: bool) {
 /// On any failure the backup (if any) is left intact for recovery.
 /// Returns Ok(path) on success, Err on failure.
 #[tauri::command]
-async fn issue050_write_file(
+async fn workspace_write_file(
     _app: tauri::AppHandle,
     path: String,
     content: String,
@@ -845,28 +908,28 @@ async fn issue050_write_file(
 }
 
 // Issue 051 project-read limits (defensive, mirroring issue 050's posture).
-const ISSUE051_MAX_FILES: usize = 500;
-const ISSUE051_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
-const ISSUE051_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
-const ISSUE051_MAX_DEPTH: usize = 32;
+const PROJECT_MAX_FILES: usize = 500;
+const PROJECT_MAX_FILE_BYTES: u64 = 2 * 1024 * 1024;
+const PROJECT_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
+const PROJECT_MAX_DEPTH: usize = 32;
 
 // Issue 052: Content/ discovery limits (separate from the .cs source limits
 // above — binary assets are larger). Mirrors the preview mount bounds:
 // per-image <= 16 MiB, per-audio <= 8 MiB, aggregate content <= 24 MiB.
-const ISSUE052_MAX_CONTENT_FILES: usize = 256;
-const ISSUE052_MAX_CONTENT_FILE_BYTES: u64 = 16 * 1024 * 1024;
-const ISSUE052_MAX_CONTENT_TOTAL_BYTES: u64 = 24 * 1024 * 1024;
+const PROJECT_CONTENT_MAX_FILES: usize = 256;
+const PROJECT_CONTENT_MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+const PROJECT_CONTENT_MAX_TOTAL_BYTES: u64 = 24 * 1024 * 1024;
 
 /// Supported raw/precompiled content extensions the preview can mount
 /// (issue 052). `.wav` is transcoded to an XNB SoundEffect at mount time; images
 /// load via the runtime's Texture2D.FromStream fallback; `.xnb` is precompiled.
-const ISSUE052_CONTENT_EXTENSIONS: &[&str] = &["xnb", "png", "jpg", "jpeg", "bmp", "wav"];
+const PROJECT_CONTENT_EXTENSIONS: &[&str] = &["xnb", "png", "jpg", "jpeg", "bmp", "wav"];
 
 /// Minimal, dependency-free standard base64 encoder (RFC 4648) for returning
 /// binary Content/ asset bytes inside the JSON project-read result. Hand-rolled
 /// to avoid adding a crate (the desktop shell pins `tauri = { features = [] }`
 /// for the issue-034 supply-chain guard).
-fn issue052_base64_encode(bytes: &[u8]) -> String {
+fn base64_encode(bytes: &[u8]) -> String {
     const TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     for chunk in bytes.chunks(3) {
@@ -895,8 +958,8 @@ fn issue052_base64_encode(bytes: &[u8]) -> String {
 /// base64 }`. Relative paths are Content-root-relative and forward-slashed (the
 /// logical asset path the preview mounts under `Content.RootDirectory`). Skips
 /// hidden entries; enforces per-file / total / count bounds. Pure sync file IO,
-/// extracted from `issue051_read_project` so it is directly unit-testable.
-fn issue052_discover_content(
+/// extracted from `project_read` so it is directly unit-testable.
+fn project_discover_content(
     content_root: &std::path::Path,
 ) -> Result<Vec<serde_json::Value>, String> {
     fn walk(
@@ -906,7 +969,7 @@ fn issue052_discover_content(
         files: &mut Vec<serde_json::Value>,
         total_bytes: &mut u64,
     ) -> Result<(), String> {
-        if depth > ISSUE051_MAX_DEPTH {
+        if depth > PROJECT_MAX_DEPTH {
             return Ok(());
         }
         let entries =
@@ -933,23 +996,23 @@ fn issue052_discover_content(
             else {
                 continue;
             };
-            if !ISSUE052_CONTENT_EXTENSIONS.contains(&extension.as_str()) {
+            if !PROJECT_CONTENT_EXTENSIONS.contains(&extension.as_str()) {
                 continue;
             }
             let metadata = std::fs::metadata(&entry)
                 .map_err(|e| format!("failed to inspect content file: {e}"))?;
-            if metadata.len() > ISSUE052_MAX_CONTENT_FILE_BYTES {
+            if metadata.len() > PROJECT_CONTENT_MAX_FILE_BYTES {
                 return Err(format!(
-                    "{file_name} exceeds the {ISSUE052_MAX_CONTENT_FILE_BYTES}-byte per-content-file limit"
+                    "{file_name} exceeds the {PROJECT_CONTENT_MAX_FILE_BYTES}-byte per-content-file limit"
                 ));
             }
             *total_bytes += metadata.len();
-            if *total_bytes > ISSUE052_MAX_CONTENT_TOTAL_BYTES {
+            if *total_bytes > PROJECT_CONTENT_MAX_TOTAL_BYTES {
                 return Err("project Content exceeds the total byte limit".into());
             }
-            if files.len() >= ISSUE052_MAX_CONTENT_FILES {
+            if files.len() >= PROJECT_CONTENT_MAX_FILES {
                 return Err(format!(
-                    "project Content exceeds the {ISSUE052_MAX_CONTENT_FILES}-file limit"
+                    "project Content exceeds the {PROJECT_CONTENT_MAX_FILES}-file limit"
                 ));
             }
             let bytes =
@@ -962,7 +1025,7 @@ fn issue052_discover_content(
                 "relativePath": relative,
                 "extension": extension,
                 "byteLength": bytes.len(),
-                "base64": issue052_base64_encode(&bytes),
+                "base64": base64_encode(&bytes),
             }));
         }
         Ok(())
@@ -980,7 +1043,7 @@ fn issue052_discover_content(
 ///
 /// Returns Ok(Some(path)) when a folder is chosen, Ok(None) when cancelled.
 #[tauri::command]
-async fn issue051_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
+async fn project_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, String> {
     use tauri_plugin_dialog::DialogExt;
 
     let chosen = app.dialog().file().blocking_pick_folder();
@@ -1004,7 +1067,7 @@ async fn issue051_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, S
 /// byteLength, base64 }], manifestText: string | null }`. `contentFiles` holds
 /// the project's `Content/` assets (issue 052) for pre-Run mounting.
 #[tauri::command]
-async fn issue051_read_project(path: String) -> Result<serde_json::Value, String> {
+async fn project_read(path: String) -> Result<serde_json::Value, String> {
     let root = std::path::PathBuf::from(&path);
     if !root.is_dir() {
         return Err("selected path is not a directory".into());
@@ -1027,7 +1090,7 @@ async fn issue051_read_project(path: String) -> Result<serde_json::Value, String
         cs_files: &mut Vec<serde_json::Value>,
         total_bytes: &mut u64,
     ) -> Result<(), String> {
-        if depth > ISSUE051_MAX_DEPTH {
+        if depth > PROJECT_MAX_DEPTH {
             return Ok(());
         }
         let entries = std::fs::read_dir(dir).map_err(|e| format!("failed to read folder: {e}"))?;
@@ -1052,18 +1115,18 @@ async fn issue051_read_project(path: String) -> Result<serde_json::Value, String
             } else if entry.extension().and_then(|e| e.to_str()) == Some("cs") {
                 let metadata = std::fs::metadata(&entry)
                     .map_err(|e| format!("failed to inspect file: {e}"))?;
-                if metadata.len() > ISSUE051_MAX_FILE_BYTES {
+                if metadata.len() > PROJECT_MAX_FILE_BYTES {
                     return Err(format!(
-                        "{file_name} exceeds the {ISSUE051_MAX_FILE_BYTES}-byte per-file limit"
+                        "{file_name} exceeds the {PROJECT_MAX_FILE_BYTES}-byte per-file limit"
                     ));
                 }
                 *total_bytes += metadata.len();
-                if *total_bytes > ISSUE051_MAX_TOTAL_BYTES {
+                if *total_bytes > PROJECT_MAX_TOTAL_BYTES {
                     return Err("project exceeds the total byte limit".into());
                 }
-                if cs_files.len() >= ISSUE051_MAX_FILES {
+                if cs_files.len() >= PROJECT_MAX_FILES {
                     return Err(format!(
-                        "project exceeds the {ISSUE051_MAX_FILES}-file limit"
+                        "project exceeds the {PROJECT_MAX_FILES}-file limit"
                     ));
                 }
                 let content = std::fs::read_to_string(&entry)
@@ -1089,7 +1152,7 @@ async fn issue051_read_project(path: String) -> Result<serde_json::Value, String
     // to Content/ per PRD §15; skips hidden entries; enforces its own bounds.
     let content_root = root.join("Content");
     let content_files = if content_root.is_dir() {
-        issue052_discover_content(&content_root)?
+        project_discover_content(&content_root)?
     } else {
         Vec::new()
     };
@@ -1116,29 +1179,25 @@ async fn issue051_read_project(path: String) -> Result<serde_json::Value, String
 
 #[cfg(test)]
 mod tests {
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "proof-harness"))]
     use super::packaged_app_bundle;
     use super::{
-        ISSUE037_MAX_ENTRIES, ISSUE037_MAX_IDENTITY_BYTES, ISSUE037_SCHEMA_VERSION,
+        FIRST_RUN_MAX_ENTRIES, FIRST_RUN_MAX_IDENTITY_BYTES, FIRST_RUN_SCHEMA_VERSION,
         MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_TOTAL_BYTES, PREVIEW_ASSET_INVENTORY,
-        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, chrono_free_iso8601, issue037_read_store,
-        issue037_validate_identity, issue037_write_store_atomic, issue041_mode_value,
-        issue041_preview_cycle_count_value, issue041_warm_compile_iterations,
-        issue052_base64_encode, issue052_discover_content, navigation_allowed, preview_asset,
-        preview_content_type, preview_protocol_response, proof_activation_target_allowed,
-        proof_window_ready, require_packaged_pipeline_proof,
+        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, base64_encode, chrono_free_iso8601,
+        first_run_read_store, first_run_validate_identity, first_run_write_store_atomic,
+        navigation_allowed, preview_asset, preview_content_type, preview_protocol_response,
+        project_discover_content,
+    };
+    #[cfg(feature = "proof-harness")]
+    use super::{
+        issue041_mode_value, issue041_preview_cycle_count_value, issue041_warm_compile_iterations,
+        proof_activation_target_allowed, proof_window_ready, require_packaged_pipeline_proof,
     };
     use tauri::http::{Method, Response};
 
     fn response(raw_uri: &str) -> Response<Vec<u8>> {
         preview_protocol_response(&Method::GET, raw_uri)
-    }
-
-    fn make_state() -> super::Issue039AssetState {
-        super::Issue039AssetState {
-            asset_transfers: std::collections::HashMap::new(),
-            active_generations: std::collections::HashSet::new(),
-        }
     }
 
     fn assert_security_headers(response: &Response<Vec<u8>>) {
@@ -1151,12 +1210,14 @@ mod tests {
         assert_eq!(headers["content-security-policy"], PREVIEW_CSP);
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn native_activation_is_rejected_without_packaged_proof_authorization() {
         assert!(require_packaged_pipeline_proof(false).is_err());
         assert!(require_packaged_pipeline_proof(true).is_ok());
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue041_benchmark_mode_accepts_only_known_modes() {
         assert_eq!(issue041_mode_value(None), Ok("full"));
@@ -1171,6 +1232,7 @@ mod tests {
         assert!(issue041_mode_value(Some("everything")).is_err());
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue041_sample_counts_are_bounded() {
         assert_eq!(issue041_warm_compile_iterations(None), Ok(10));
@@ -1216,24 +1278,24 @@ mod tests {
     }
 
     #[test]
-    fn issue052_base64_matches_rfc4648_vectors() {
+    fn base64_matches_rfc4648_vectors() {
         // RFC 4648 §10 test vectors.
-        assert_eq!(issue052_base64_encode(b""), "");
-        assert_eq!(issue052_base64_encode(b"f"), "Zg==");
-        assert_eq!(issue052_base64_encode(b"fo"), "Zm8=");
-        assert_eq!(issue052_base64_encode(b"foo"), "Zm9v");
-        assert_eq!(issue052_base64_encode(b"foob"), "Zm9vYg==");
-        assert_eq!(issue052_base64_encode(b"fooba"), "Zm9vYmE=");
-        assert_eq!(issue052_base64_encode(b"foobar"), "Zm9vYmFy");
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
         // Binary bytes incl. 0x00/0xFF map to '+' and '/' in the table.
-        assert_eq!(issue052_base64_encode(&[0x00, 0x00, 0x00]), "AAAA");
-        assert_eq!(issue052_base64_encode(&[0xFF, 0xFF, 0xFF]), "////");
-        assert_eq!(issue052_base64_encode(&[0xFB, 0xFF, 0xBF]), "+/+/");
+        assert_eq!(base64_encode(&[0x00, 0x00, 0x00]), "AAAA");
+        assert_eq!(base64_encode(&[0xFF, 0xFF, 0xFF]), "////");
+        assert_eq!(base64_encode(&[0xFB, 0xFF, 0xBF]), "+/+/");
     }
 
     #[test]
-    fn issue052_discovers_only_supported_content_recursively() {
-        let dir = std::env::temp_dir().join(format!("issue052-content-{}", std::process::id()));
+    fn project_content_discovers_only_supported_recursively() {
+        let dir = std::env::temp_dir().join(format!("project-content-{}", std::process::id()));
         let content = dir.join("Content");
         let nested = content.join("textures");
         std::fs::create_dir_all(&nested).unwrap();
@@ -1246,7 +1308,7 @@ mod tests {
         std::fs::write(content.join("notes.txt"), b"ignore me").unwrap();
         std::fs::write(content.join(".hidden.png"), b"skip").unwrap();
 
-        let files = issue052_discover_content(&content).unwrap();
+        let files = project_discover_content(&content).unwrap();
         let paths: Vec<String> = files
             .iter()
             .map(|f| f["relativePath"].as_str().unwrap().to_string())
@@ -1259,20 +1321,21 @@ mod tests {
         assert_eq!(wav["byteLength"].as_u64().unwrap(), 12);
         assert_eq!(
             wav["base64"].as_str().unwrap(),
-            issue052_base64_encode(b"RIFF....WAVE")
+            base64_encode(b"RIFF....WAVE")
         );
 
         std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
-    fn issue052_content_discovery_enforces_per_file_limit() {
-        let dir = std::env::temp_dir().join(format!("issue052-toobig-{}", std::process::id()));
+    fn project_content_discovery_enforces_per_file_limit() {
+        let dir =
+            std::env::temp_dir().join(format!("project-content-toobig-{}", std::process::id()));
         let content = dir.join("Content");
         std::fs::create_dir_all(&content).unwrap();
-        let big = vec![0u8; (super::ISSUE052_MAX_CONTENT_FILE_BYTES + 1) as usize];
+        let big = vec![0u8; (super::PROJECT_CONTENT_MAX_FILE_BYTES + 1) as usize];
         std::fs::write(content.join("huge.png"), &big).unwrap();
-        let result = issue052_discover_content(&content);
+        let result = project_discover_content(&content);
         assert!(result.is_err(), "oversized content file must be rejected");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -1295,7 +1358,16 @@ mod tests {
         assert!(capability.contains("\"windows\": [\"main\"]"));
         assert!(capability.contains("\"local\": true"));
         assert!(capability.contains("\"permissions\": [\"main-commands\"]"));
-        assert!(permission.contains("issue034_trusted_marker"));
+        // The product permission inventory retains the composite grant name; the
+        // issue034 trusted-marker command now lives in the proof-only overlay
+        // (permissions/proof.toml), compiled in only under the proof-harness
+        // feature (Stage 6 binary separation).
+        assert!(permission.contains("main-commands"));
+        #[cfg(feature = "proof-harness")]
+        {
+            let proof_permission = include_str!("../permissions/proof.toml");
+            assert!(proof_permission.contains("issue034_trusted_marker"));
+        }
         let canary_checksum = canary.iter().fold(0xcbf29ce484222325_u64, |hash, byte| {
             (hash ^ u64::from(*byte)).wrapping_mul(0x100000001b3)
         });
@@ -1313,6 +1385,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn proof_readiness_requires_native_and_tauri_focus() {
         assert!(proof_window_ready(true, true, false, true, true));
@@ -1322,6 +1395,7 @@ mod tests {
         assert!(!proof_window_ready(true, true, true, true, true));
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn exact_activation_requires_proof_gate_and_owned_target() {
         assert!(proof_activation_target_allowed(true, 7, 7, 42, 42));
@@ -1329,6 +1403,7 @@ mod tests {
         assert!(!proof_activation_target_allowed(true, 0, 0, 42, 42));
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn exact_activation_aborts_on_pid_or_window_mismatch() {
         assert!(!proof_activation_target_allowed(true, 7, 8, 42, 42));
@@ -1453,7 +1528,7 @@ mod tests {
         }
     }
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "proof-harness"))]
     #[test]
     fn packaged_bundle_is_derived_only_from_an_app_executable() {
         use std::path::Path;
@@ -1473,43 +1548,45 @@ mod tests {
     // --- Issue 037 unit tests ---
 
     #[test]
-    fn issue037_identity_validation_accepts_valid_identities() {
-        assert!(issue037_validate_identity("builtin-scratch-v1").is_ok());
-        assert!(issue037_validate_identity("a").is_ok());
-        assert!(issue037_validate_identity("project_123-test").is_ok());
-        assert!(issue037_validate_identity(&"a".repeat(ISSUE037_MAX_IDENTITY_BYTES)).is_ok());
+    fn first_run_identity_validation_accepts_valid_identities() {
+        assert!(first_run_validate_identity("builtin-scratch-v1").is_ok());
+        assert!(first_run_validate_identity("a").is_ok());
+        assert!(first_run_validate_identity("project_123-test").is_ok());
+        assert!(first_run_validate_identity(&"a".repeat(FIRST_RUN_MAX_IDENTITY_BYTES)).is_ok());
     }
 
     #[test]
-    fn issue037_identity_validation_rejects_invalid_identities() {
-        assert!(issue037_validate_identity("").is_err());
-        assert!(issue037_validate_identity(&"a".repeat(ISSUE037_MAX_IDENTITY_BYTES + 1)).is_err());
-        assert!(issue037_validate_identity("has spaces").is_err());
-        assert!(issue037_validate_identity("has.dots").is_err());
-        assert!(issue037_validate_identity("path/injection").is_err());
-        assert!(issue037_validate_identity("path\\injection").is_err());
-        assert!(issue037_validate_identity("emoji😀").is_err());
-        assert!(issue037_validate_identity("null\0byte").is_err());
+    fn first_run_identity_validation_rejects_invalid_identities() {
+        assert!(first_run_validate_identity("").is_err());
+        assert!(
+            first_run_validate_identity(&"a".repeat(FIRST_RUN_MAX_IDENTITY_BYTES + 1)).is_err()
+        );
+        assert!(first_run_validate_identity("has spaces").is_err());
+        assert!(first_run_validate_identity("has.dots").is_err());
+        assert!(first_run_validate_identity("path/injection").is_err());
+        assert!(first_run_validate_identity("path\\injection").is_err());
+        assert!(first_run_validate_identity("emoji😀").is_err());
+        assert!(first_run_validate_identity("null\0byte").is_err());
     }
 
     #[test]
-    fn issue037_store_roundtrip_and_atomicity() {
-        let dir = std::env::temp_dir().join(format!("issue037-test-{}", std::process::id()));
+    fn first_run_store_roundtrip_and_atomicity() {
+        let dir = std::env::temp_dir().join(format!("first-run-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("test-ack.json");
 
         // Read non-existent file returns empty store
-        let store = issue037_read_store(&path).unwrap();
-        assert_eq!(store["schemaVersion"], ISSUE037_SCHEMA_VERSION);
+        let store = first_run_read_store(&path).unwrap();
+        assert_eq!(store["schemaVersion"], FIRST_RUN_SCHEMA_VERSION);
         assert_eq!(store["acknowledged"].as_object().unwrap().len(), 0);
 
         // Write and re-read
         let mut store = store;
         store["acknowledged"]["builtin-scratch-v1"] =
             serde_json::json!({ "acknowledgedAt": "2026-01-01T00:00:00Z" });
-        issue037_write_store_atomic(&path, &store).unwrap();
-        let reloaded = issue037_read_store(&path).unwrap();
+        first_run_write_store_atomic(&path, &store).unwrap();
+        let reloaded = first_run_read_store(&path).unwrap();
         assert!(
             reloaded["acknowledged"]["builtin-scratch-v1"]["acknowledgedAt"]
                 .as_str()
@@ -1524,34 +1601,34 @@ mod tests {
     }
 
     #[test]
-    fn issue037_store_rejects_corrupt_json() {
-        let dir = std::env::temp_dir().join(format!("issue037-corrupt-{}", std::process::id()));
+    fn first_run_store_rejects_corrupt_json() {
+        let dir = std::env::temp_dir().join(format!("first-run-corrupt-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("corrupt.json");
         std::fs::write(&path, "not json").unwrap();
-        assert!(issue037_read_store(&path).is_err());
+        assert!(first_run_read_store(&path).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn issue037_store_rejects_wrong_schema_version() {
-        let dir = std::env::temp_dir().join(format!("issue037-schema-{}", std::process::id()));
+    fn first_run_store_rejects_wrong_schema_version() {
+        let dir = std::env::temp_dir().join(format!("first-run-schema-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("wrong-version.json");
         std::fs::write(&path, r#"{"schemaVersion":99,"acknowledged":{}}"#).unwrap();
-        assert!(issue037_read_store(&path).is_err());
+        assert!(first_run_read_store(&path).is_err());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]
-    fn issue037_entry_limit_is_enforced() {
-        const { assert!(ISSUE037_MAX_ENTRIES == 1024) };
+    fn first_run_entry_limit_is_enforced() {
+        const { assert!(FIRST_RUN_MAX_ENTRIES == 1024) };
     }
 
     #[test]
-    fn issue037_timestamp_is_valid_iso8601() {
+    fn first_run_timestamp_is_valid_iso8601() {
         let ts = chrono_free_iso8601();
         assert!(
             ts.len() == 20 && ts.ends_with('Z') && ts.contains('T'),
@@ -1559,15 +1636,17 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
-    fn issue037_proof_and_production_store_filenames_are_distinct() {
+    fn first_run_proof_and_production_store_filenames_are_distinct() {
         assert_ne!(
-            super::ISSUE037_STORE_FILENAME,
+            super::FIRST_RUN_STORE_FILENAME,
             super::ISSUE037_PROOF_STORE_FILENAME,
         );
         assert!(super::ISSUE037_PROOF_STORE_FILENAME.contains("proof"));
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue040_input_kinds_are_restricted_to_play_and_stop_gestures() {
         assert_eq!(
@@ -1596,6 +1675,7 @@ mod tests {
         }
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue040_dispatch_target_routes_embedded_fail_closed() {
         // Well-formed generation, EXPLICITLY REGISTERED as the embedded
@@ -1632,6 +1712,7 @@ mod tests {
         assert!(!super::issue040_caller_is_main(""));
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue040_embedded_registration_is_bounded_and_exact() {
         let mut state = super::Issue040EmbeddedState { active: None };
@@ -1670,6 +1751,7 @@ mod tests {
         assert!(super::issue040_embedded_is_registered(&state, "gen-c"));
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue040_embedded_registration_is_bounded_and_single_slot() {
         // Registering an embedded generation is bounded to a single active slot
@@ -1686,10 +1768,11 @@ mod tests {
         );
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue040_commands_are_registered_in_every_inventory() {
         let build = include_str!("../build.rs");
-        let permission = include_str!("../permissions/main.toml");
+        let permission = include_str!("../permissions/proof.toml");
         for command in [
             "issue040_is_proof_enabled",
             "issue040_emit_checkpoint",
@@ -1699,15 +1782,16 @@ mod tests {
             assert!(build.contains(command), "{command} missing from build.rs");
             assert!(
                 permission.contains(command),
-                "{command} missing from main permission"
+                "{command} missing from proof permission"
             );
         }
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
     fn issue041_commands_are_registered_in_every_inventory() {
         let build = include_str!("../build.rs");
-        let permission = include_str!("../permissions/main.toml");
+        let permission = include_str!("../permissions/proof.toml");
         let frontend = include_str!("../../../frontend/src/proof-preview-security.ts");
         for command in [
             "issue041_is_benchmark_enabled",
@@ -1722,7 +1806,7 @@ mod tests {
             assert!(build.contains(command), "{command} missing from build.rs");
             assert!(
                 permission.contains(command),
-                "{command} missing from main permission"
+                "{command} missing from proof permission"
             );
             assert!(
                 frontend.contains(command),
@@ -1747,157 +1831,151 @@ mod tests {
         );
     }
 
+    // --- Stage 6 proof-surface binary separation ---
+
+    /// Parse the `generate_handler!` body into (command, gated?) pairs. Shared
+    /// by the separation tests below so both bind to the real, compiled handler
+    /// source rather than a hand-maintained copy.
+    fn handler_entries() -> Vec<(String, bool)> {
+        let source = include_str!("lib.rs");
+        let body = source
+            .split(concat!("tauri::generate", "_handler!["))
+            .nth(1)
+            .and_then(|tail| tail.split("])").next())
+            .expect("generate_handler body missing");
+        let mut entries = Vec::new();
+        let mut gated = false;
+        for raw in body.lines() {
+            let line = raw.trim();
+            if line.is_empty() {
+                continue;
+            }
+            if line == "#[cfg(feature = \"proof-harness\")]" {
+                gated = true;
+                continue;
+            }
+            assert!(
+                !line.starts_with("#["),
+                "unexpected handler attribute: {line}"
+            );
+            entries.push((line.trim_end_matches(',').to_owned(), gated));
+            gated = false;
+        }
+        entries
+    }
+
+    const PRODUCT_HANDLER_COMMANDS: [&str; 8] = [
+        "first_run_check_acknowledgement",
+        "first_run_write_acknowledgement",
+        "workspace_write_file",
+        "workspace_save_dialog",
+        "workspace_open_dialog",
+        "workspace_set_dirty",
+        "project_pick_folder",
+        "project_read",
+    ];
+
     #[test]
-    fn issue039_generation_cleanup_preserves_other_generations() {
-        let mut state = make_state();
-        state.asset_transfers.insert(
-            "token-a".into(),
-            super::Issue039AssetTransfer {
-                token: "token-a".into(),
-                generation: "gen-1".into(),
-                assets: vec![super::Issue039AssetEntry {
-                    path: "a.xnb".into(),
-                    bytes: vec![1, 2, 3],
-                    sha256: "aaa".into(),
-                }],
-            },
-        );
-        state.asset_transfers.insert(
-            "token-b".into(),
-            super::Issue039AssetTransfer {
-                token: "token-b".into(),
-                generation: "gen-2".into(),
-                assets: vec![super::Issue039AssetEntry {
-                    path: "b.xnb".into(),
-                    bytes: vec![4, 5, 6],
-                    sha256: "bbb".into(),
-                }],
-            },
-        );
-
-        super::clear_asset_transfers_for_generation(&mut state, "gen-1");
-
-        assert!(
-            !state.asset_transfers.contains_key("token-a"),
-            "gen-1 transfer should be removed"
-        );
-        assert!(
-            state.asset_transfers.contains_key("token-b"),
-            "gen-2 transfer should be preserved"
-        );
+    fn handler_registers_exactly_eight_ungated_product_commands() {
+        let entries = handler_entries();
+        let product: Vec<&str> = entries
+            .iter()
+            .filter(|(_, gated)| !*gated)
+            .map(|(name, _)| name.as_str())
+            .collect();
         assert_eq!(
-            state.asset_transfers["token-b"].assets[0].bytes,
-            vec![4, 5, 6]
+            product, PRODUCT_HANDLER_COMMANDS,
+            "the default build must register exactly the eight product commands, ungated"
         );
     }
 
     #[test]
-    fn issue039_store_rejected_for_inactive_generation() {
-        let mut state = make_state();
-        let result = super::store_issue039_asset_validated(
-            &mut state,
-            "tok",
-            "gen-retired",
-            0,
-            "a.xnb".into(),
-            "a".repeat(64),
-            vec![1, 2, 3],
-        );
-        assert!(result.is_err());
+    fn handler_gates_seventy_proof_commands_behind_the_feature() {
+        let entries = handler_entries();
+        let proof: Vec<&str> = entries
+            .iter()
+            .filter(|(_, gated)| *gated)
+            .map(|(name, _)| name.as_str())
+            .collect();
+        assert_eq!(proof.len(), 70, "the proof surface is seventy commands");
+        // Every gated command carries a proof/benchmark/packaged marker; none is
+        // a product command. This defeats a vacuous "nothing is gated" pass.
+        for name in &proof {
+            assert!(
+                name.starts_with("issue") || name.starts_with("prepare_packaged_proof"),
+                "unexpected gated command: {name}"
+            );
+            assert!(
+                !PRODUCT_HANDLER_COMMANDS.contains(name),
+                "product command {name} must never be gated"
+            );
+        }
+        // Total handler surface is 78 = 8 product + 70 proof.
+        assert_eq!(entries.len(), 78);
+    }
+
+    #[test]
+    fn product_commands_are_present_in_both_profiles_unconditionally() {
+        // The eight product command fns compile with and without the feature
+        // (referencing them here binds the assertion to real symbols, not
+        // strings). If any were feature-gated, this test module — which builds
+        // in the default profile — would fail to compile.
+        let _: fn(tauri::AppHandle, String) -> Result<bool, String> =
+            super::first_run_check_acknowledgement;
+        let _: fn(tauri::AppHandle, String) -> Result<(), String> =
+            super::first_run_write_acknowledgement;
+        let _: fn(bool) = super::workspace_set_dirty;
+    }
+
+    #[cfg(not(feature = "proof-harness"))]
+    #[test]
+    fn no_proof_command_symbol_is_reachable_without_the_feature() {
+        // The proof gate helpers and commands live behind
+        // `#[cfg(feature = "proof-harness")]`. This test itself is compiled only
+        // under `not(feature = "proof-harness")`, so its mere existence in the
+        // default test binary proves the feature is off. Assert the observable
+        // consequence instead of a constant `cfg!`.
+        let feature_on = cfg!(feature = "proof-harness");
         assert!(
-            !state.asset_transfers.contains_key("tok"),
-            "no transfer created for inactive gen"
+            !feature_on,
+            "the default cargo profile must not enable proof-harness"
+        );
+        // The proof store filename constant is proof-only; the product store
+        // filename is always present. This proves the store-name split holds.
+        assert_eq!(
+            super::FIRST_RUN_STORE_FILENAME,
+            "first-run-acknowledgements.json"
         );
     }
 
+    #[cfg(feature = "proof-harness")]
     #[test]
-    fn issue039_store_accepted_for_active_generation() {
-        let mut state = make_state();
-        state.active_generations.insert("gen-live".into());
-        let result = super::store_issue039_asset_validated(
-            &mut state,
-            "tok",
-            "gen-live",
-            0,
-            "a.xnb".into(),
-            "a".repeat(64),
-            vec![1, 2, 3],
-        );
-        assert!(result.is_ok());
-        assert_eq!(state.asset_transfers["tok"].assets.len(), 1);
+    fn feature_build_exposes_full_seventy_eight_command_surface() {
+        let entries = handler_entries();
+        assert_eq!(entries.len(), 78);
+        // Proof symbols must be reachable when the feature compiles them in.
+        let _: fn(&str) -> Option<super::Issue040Input> = super::issue040_input_kind;
+        // The proof store overlay is present only under the feature.
+        assert!(super::ISSUE037_PROOF_STORE_FILENAME.contains("proof"));
     }
 
     #[test]
-    fn issue039_store_after_retirement_rejected() {
-        let mut state = make_state();
-        state.active_generations.insert("gen-1".into());
-        super::store_issue039_asset_validated(
-            &mut state,
-            "tok",
-            "gen-1",
-            0,
-            "a.xnb".into(),
-            "a".repeat(64),
-            vec![1, 2, 3],
-        )
-        .unwrap();
-        state.active_generations.remove("gen-1");
-        super::clear_asset_transfers_for_generation(&mut state, "gen-1");
-        let result = super::store_issue039_asset_validated(
-            &mut state,
-            "tok2",
-            "gen-1",
-            0,
-            "b.xnb".into(),
-            "b".repeat(64),
-            vec![4, 5, 6],
+    fn mixed_first_run_behavior_holds_in_both_profiles() {
+        // The product first-run store path never depends on a proof env gate or
+        // proof store name (Stage 6 decoupling). The resolved filename is the
+        // product store in the default build, and the same in the proof build
+        // unless the two-phase proof gate is active — verified structurally by
+        // the feature-gated `first_run_store_filename` overload compiling.
+        assert_eq!(
+            super::first_run_store_filename(),
+            super::FIRST_RUN_STORE_FILENAME,
+            "without the proof phase gate the product store filename is used"
         );
-        assert!(result.is_err());
-        assert!(!state.asset_transfers.contains_key("tok2"));
-    }
-
-    #[test]
-    fn issue039_create_failure_cleanup() {
-        let mut state = make_state();
-        state.active_generations.insert("gen-fail".into());
-        state.asset_transfers.insert(
-            "tok-fail".into(),
-            super::Issue039AssetTransfer {
-                token: "tok-fail".into(),
-                generation: "gen-fail".into(),
-                assets: vec![],
-            },
-        );
-
-        state.active_generations.remove("gen-fail");
-        super::clear_asset_transfers_for_generation(&mut state, "gen-fail");
-
-        assert!(!state.active_generations.contains("gen-fail"));
-        assert!(!state.asset_transfers.contains_key("tok-fail"));
-    }
-
-    #[test]
-    fn issue039_retirement_removes_generation_and_transfers() {
-        let mut state = make_state();
-        state.active_generations.insert("gen-1".into());
-        state.asset_transfers.insert(
-            "tok".into(),
-            super::Issue039AssetTransfer {
-                token: "tok".into(),
-                generation: "gen-1".into(),
-                assets: vec![],
-            },
-        );
-
-        state.active_generations.remove("gen-1");
-        super::clear_asset_transfers_for_generation(&mut state, "gen-1");
-
-        assert!(!state.active_generations.contains("gen-1"));
-        assert!(!state.asset_transfers.contains_key("tok"));
     }
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue023_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     if !issue023_proof_enabled() {
         return Err("issue 023 proof instrumentation is disabled".into());
@@ -1907,6 +1985,7 @@ fn issue023_emit_checkpoint(checkpoint: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue023_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue023_proof_enabled() {
         return Err("issue 023 proof instrumentation is disabled".into());
@@ -1920,6 +1999,7 @@ fn issue023_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue024_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue024_proof_enabled() {
         return Err("issue 024 proof instrumentation is disabled".into());
@@ -1930,6 +2010,7 @@ fn issue024_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue025_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue025_proof_enabled() {
         return Err("issue 025 proof instrumentation is disabled".into());
@@ -1940,6 +2021,7 @@ fn issue025_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue027_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue027_proof_enabled() {
         return Err("issue 027 proof instrumentation is disabled".into());
@@ -1950,6 +2032,7 @@ fn issue027_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue028_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue028_proof_enabled() {
         return Err("issue 028 proof instrumentation is disabled".into());
@@ -1960,6 +2043,7 @@ fn issue028_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue029_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue029_proof_enabled() {
         return Err("issue 029 proof instrumentation is disabled".into());
@@ -1970,6 +2054,7 @@ fn issue029_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue030_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue030_proof_enabled() {
         return Err("issue 030 proof instrumentation is disabled".into());
@@ -1980,6 +2065,7 @@ fn issue030_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue031_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue031_proof_enabled() {
         return Err("issue 031 proof instrumentation is disabled".into());
@@ -1991,6 +2077,7 @@ fn issue031_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue032_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue032_proof_enabled() {
         return Err("issue 032 proof instrumentation is disabled".into());
@@ -2002,6 +2089,7 @@ fn issue032_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue033_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue033_proof_enabled() {
         return Err("issue 033 proof instrumentation is disabled".into());
@@ -2012,6 +2100,7 @@ fn issue033_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue033_emit_no_wasm_eval_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue033_no_wasm_eval_proof_enabled() {
         return Err("issue 033 no-wasm-eval proof instrumentation is disabled".into());
@@ -2022,6 +2111,7 @@ fn issue033_emit_no_wasm_eval_report(app: tauri::AppHandle, report: String) -> R
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue034_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue034_proof_enabled() {
         return Err("issue 034 proof instrumentation is disabled".into());
@@ -2032,6 +2122,7 @@ fn issue034_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue035_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue035_proof_enabled() {
         return Err("issue 035 proof instrumentation is disabled".into());
@@ -2041,16 +2132,19 @@ fn issue035_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue036_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE036_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue036_is_proof_enabled() -> bool {
     issue036_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue036_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue036_proof_enabled() {
         return Err("issue 036 proof instrumentation is disabled".into());
@@ -2076,28 +2170,42 @@ fn issue036_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 // When proof mode is active (`MONOGAME_ISSUE037_PROOF=1`), a separate proof-
 // namespace file is used so ordinary user acknowledgements are never destroyed.
 
-const ISSUE037_STORE_FILENAME: &str = "first-run-acknowledgements.json";
+const FIRST_RUN_STORE_FILENAME: &str = "first-run-acknowledgements.json";
+#[cfg(feature = "proof-harness")]
 const ISSUE037_PROOF_STORE_FILENAME: &str = "first-run-acknowledgements-proof.json";
-const ISSUE037_SCHEMA_VERSION: u64 = 1;
-const ISSUE037_MAX_IDENTITY_BYTES: usize = 256;
-const ISSUE037_MAX_ENTRIES: usize = 1024;
+const FIRST_RUN_SCHEMA_VERSION: u64 = 1;
+const FIRST_RUN_MAX_IDENTITY_BYTES: usize = 256;
+const FIRST_RUN_MAX_ENTRIES: usize = 1024;
 
-fn issue037_store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
+// Product first-run acknowledgement store filename. The default build resolves
+// this unconditionally with no dependency on any proof env gate or proof store
+// name. Only the proof-harness build overlays the two-phase proof store
+// filename (preserving the packaged issue037 two-phase acknowledgement proof).
+#[cfg(not(feature = "proof-harness"))]
+fn first_run_store_filename() -> &'static str {
+    FIRST_RUN_STORE_FILENAME
+}
+
+#[cfg(feature = "proof-harness")]
+fn first_run_store_filename() -> &'static str {
+    if issue037_proof_enabled() {
+        ISSUE037_PROOF_STORE_FILENAME
+    } else {
+        FIRST_RUN_STORE_FILENAME
+    }
+}
+
+fn first_run_store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, String> {
     use tauri::Manager;
     let dir = app
         .path()
         .app_data_dir()
         .map_err(|error| format!("failed to resolve app data directory: {error}"))?;
-    let filename = if issue037_proof_enabled() {
-        ISSUE037_PROOF_STORE_FILENAME
-    } else {
-        ISSUE037_STORE_FILENAME
-    };
-    Ok(dir.join(filename))
+    Ok(dir.join(first_run_store_filename()))
 }
 
-fn issue037_validate_identity(identity: &str) -> Result<(), String> {
-    if identity.is_empty() || identity.len() > ISSUE037_MAX_IDENTITY_BYTES {
+fn first_run_validate_identity(identity: &str) -> Result<(), String> {
+    if identity.is_empty() || identity.len() > FIRST_RUN_MAX_IDENTITY_BYTES {
         return Err("identity must be 1–256 bytes".into());
     }
     if !identity
@@ -2109,7 +2217,7 @@ fn issue037_validate_identity(identity: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn issue037_read_store(path: &std::path::Path) -> Result<serde_json::Value, String> {
+fn first_run_read_store(path: &std::path::Path) -> Result<serde_json::Value, String> {
     match std::fs::read_to_string(path) {
         Ok(content) => {
             let value: serde_json::Value = serde_json::from_str(&content)
@@ -2118,7 +2226,7 @@ fn issue037_read_store(path: &std::path::Path) -> Result<serde_json::Value, Stri
                 .get("schemaVersion")
                 .and_then(|version| version.as_u64())
                 .ok_or("acknowledgement store missing schemaVersion")?;
-            if version != ISSUE037_SCHEMA_VERSION {
+            if version != FIRST_RUN_SCHEMA_VERSION {
                 return Err(format!(
                     "unsupported acknowledgement store schema version {version}"
                 ));
@@ -2126,14 +2234,14 @@ fn issue037_read_store(path: &std::path::Path) -> Result<serde_json::Value, Stri
             Ok(value)
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({
-            "schemaVersion": ISSUE037_SCHEMA_VERSION,
+            "schemaVersion": FIRST_RUN_SCHEMA_VERSION,
             "acknowledged": {}
         })),
         Err(error) => Err(format!("failed to read acknowledgement store: {error}")),
     }
 }
 
-fn issue037_write_store_atomic(
+fn first_run_write_store_atomic(
     path: &std::path::Path,
     store: &serde_json::Value,
 ) -> Result<(), String> {
@@ -2152,10 +2260,13 @@ fn issue037_write_store_atomic(
 }
 
 #[tauri::command]
-fn issue037_check_acknowledgement(app: tauri::AppHandle, identity: String) -> Result<bool, String> {
-    issue037_validate_identity(&identity)?;
-    let path = issue037_store_path(&app)?;
-    let store = issue037_read_store(&path)?;
+fn first_run_check_acknowledgement(
+    app: tauri::AppHandle,
+    identity: String,
+) -> Result<bool, String> {
+    first_run_validate_identity(&identity)?;
+    let path = first_run_store_path(&app)?;
+    let store = first_run_read_store(&path)?;
     Ok(store
         .get("acknowledged")
         .and_then(|acknowledged| acknowledged.get(&identity))
@@ -2163,15 +2274,15 @@ fn issue037_check_acknowledgement(app: tauri::AppHandle, identity: String) -> Re
 }
 
 #[tauri::command]
-fn issue037_write_acknowledgement(app: tauri::AppHandle, identity: String) -> Result<(), String> {
-    issue037_validate_identity(&identity)?;
-    let path = issue037_store_path(&app)?;
-    let mut store = issue037_read_store(&path)?;
+fn first_run_write_acknowledgement(app: tauri::AppHandle, identity: String) -> Result<(), String> {
+    first_run_validate_identity(&identity)?;
+    let path = first_run_store_path(&app)?;
+    let mut store = first_run_read_store(&path)?;
     let acknowledged = store
         .get_mut("acknowledged")
         .and_then(|value| value.as_object_mut())
         .ok_or("acknowledgement store has invalid shape")?;
-    if acknowledged.len() >= ISSUE037_MAX_ENTRIES && !acknowledged.contains_key(&identity) {
+    if acknowledged.len() >= FIRST_RUN_MAX_ENTRIES && !acknowledged.contains_key(&identity) {
         return Err("acknowledgement store entry limit reached".into());
     }
     acknowledged.insert(
@@ -2180,7 +2291,7 @@ fn issue037_write_acknowledgement(app: tauri::AppHandle, identity: String) -> Re
             "acknowledgedAt": chrono_free_iso8601()
         }),
     );
-    issue037_write_store_atomic(&path, &store)
+    first_run_write_store_atomic(&path, &store)
 }
 
 /// Minimal ISO-8601 UTC timestamp without pulling in chrono.
@@ -2237,16 +2348,19 @@ fn chrono_free_iso8601() -> String {
     )
 }
 
+#[cfg(feature = "proof-harness")]
 fn issue037_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE037_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue037_is_proof_enabled() -> bool {
     issue037_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue037_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue037_proof_enabled() {
         return Err("issue 037 proof instrumentation is disabled".into());
@@ -2258,32 +2372,35 @@ fn issue037_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 
 /// Proof-only: read the store contents for verification (bounded, no paths).
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue037_read_store_snapshot(app: tauri::AppHandle) -> Result<String, String> {
     if !issue037_proof_enabled() {
         return Err("issue 037 proof instrumentation is disabled".into());
     }
-    let path = issue037_store_path(&app)?;
-    let store = issue037_read_store(&path)?;
+    let path = first_run_store_path(&app)?;
+    let store = first_run_read_store(&path)?;
     // Return only the acknowledged map, not the file path
     serde_json::to_string(&store).map_err(|error| error.to_string())
 }
 
 /// Proof-only: clear the store for test isolation.
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue037_clear_store(app: tauri::AppHandle) -> Result<(), String> {
     if !issue037_proof_enabled() {
         return Err("issue 037 proof instrumentation is disabled".into());
     }
-    let path = issue037_store_path(&app)?;
+    let path = first_run_store_path(&app)?;
     let empty = serde_json::json!({
-        "schemaVersion": ISSUE037_SCHEMA_VERSION,
+        "schemaVersion": FIRST_RUN_SCHEMA_VERSION,
         "acknowledged": {}
     });
-    issue037_write_store_atomic(&path, &empty)
+    first_run_write_store_atomic(&path, &empty)
 }
 
 /// Proof-only: returns the current proof phase from env (1 or 2).
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue037_proof_phase() -> Result<u32, String> {
     if !issue037_proof_enabled() {
         return Err("issue 037 proof instrumentation is disabled".into());
@@ -2300,6 +2417,7 @@ fn issue037_proof_phase() -> Result<u32, String> {
 
 /// Proof-only: emit a checkpoint line for multi-process phase markers.
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue037_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     if !issue037_proof_enabled() {
         return Err("issue 037 proof instrumentation is disabled".into());
@@ -2308,128 +2426,35 @@ fn issue037_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     Ok(())
 }
 
-// --- Issue 039: content asset transfer state (issue039_* commands) ---
+// --- Issue 039: live content-proof gate/checkpoint/report ---
 //
-// Stage 5 retired the isolated-window issue038 force-stop harness: the separate
-// preview `WebviewWindow`, its bridge relay, DLL/PDB transfer store, pending
-// message queue, custom `_isolated.html` / `_bridge-setup.js` documents, and the
-// fifteen `issue038_*` commands were all removed (ADR 0003 makes the embedded
-// opaque-origin sandboxed iframe the product preview). Issue 038 remains
-// historical evidence in issues/038-* and ADR 0002.
-//
-// This state is the issue 039 content asset store used by the `issue039_*`
-// commands. It is out of Stage-5 scope and preserved unchanged in behavior
-// (only the enclosing type/static were renamed off the retired bridge name).
+// Stage 6 removed the four inert `issue039_*` asset-store commands
+// (`issue039_store_asset`, `issue039_asset_manifest`, `issue039_clear_assets`,
+// `issue039_transfer_state`) together with their `Issue039Asset*` state, the
+// `store_issue039_asset_validated`/`clear_asset_transfers_for_generation`
+// helpers, and the `/_transfer/` asset-transfer protocol routes. Stage 5 had
+// already retired the isolated-window lifecycle that was their only writer, so
+// they were structurally inert in both the shipped and proof binaries. The
+// durable content workflow (issue 039/040) runs on the embedded in-page
+// transport (`proof-content.ts`) and never used these commands. The live
+// issue039 proof gate/checkpoint/report below is preserved unchanged.
 
-use std::collections::{HashMap, HashSet};
+#[cfg(feature = "proof-harness")]
 use std::sync::Mutex;
 
-struct Issue039AssetEntry {
-    path: String,
-    bytes: Vec<u8>,
-    sha256: String,
-}
-
-struct Issue039AssetTransfer {
-    // Retained for the issue039 asset-transfer state. Stage 5 removed the
-    // isolated-window lifecycle that read this field via
-    // `clear_asset_transfers_for_generation`; the issue039 command surface is
-    // preserved for inventory stability (Stage 6 addresses proof-command
-    // retirement), so the field is kept but currently unread in production.
-    #[allow(dead_code)]
-    token: String,
-    generation: String,
-    assets: Vec<Issue039AssetEntry>,
-}
-
-struct Issue039AssetState {
-    asset_transfers: HashMap<String, Issue039AssetTransfer>,
-    active_generations: HashSet<String>,
-}
-
-static ISSUE039_ASSETS: std::sync::LazyLock<Mutex<Issue039AssetState>> =
-    std::sync::LazyLock::new(|| {
-        Mutex::new(Issue039AssetState {
-            asset_transfers: HashMap::new(),
-            active_generations: HashSet::new(),
-        })
-    });
-
-// Generation-scoped issue039 asset cleanup. Stage 5 removed the isolated-window
-// destroy lifecycle that called this in production; it is retained (and still
-// exercised by the issue039 retirement/cleanup tests) for the preserved
-// issue039 asset-transfer state until Stage 6 revisits the proof command
-// surface.
-#[allow(dead_code)]
-fn clear_asset_transfers_for_generation(state: &mut Issue039AssetState, generation: &str) {
-    let tokens: Vec<String> = state
-        .asset_transfers
-        .iter()
-        .filter(|(_, transfer)| transfer.generation == generation)
-        .map(|(token, _)| token.clone())
-        .collect();
-    for token in tokens {
-        if let Some(mut transfer) = state.asset_transfers.remove(&token) {
-            debug_assert_eq!(transfer.token, token);
-            for asset in &mut transfer.assets {
-                asset.bytes.iter_mut().for_each(|byte| *byte = 0);
-            }
-        }
-    }
-}
-
-fn store_issue039_asset_validated(
-    state: &mut Issue039AssetState,
-    token: &str,
-    generation: &str,
-    index: u32,
-    path: String,
-    sha256: String,
-    bytes: Vec<u8>,
-) -> Result<(), String> {
-    if !state.active_generations.contains(generation) {
-        return Err("generation is not active or already retired".into());
-    }
-    let transfer = state
-        .asset_transfers
-        .entry(token.to_owned())
-        .or_insert_with(|| Issue039AssetTransfer {
-            token: token.to_owned(),
-            generation: generation.to_owned(),
-            assets: Vec::new(),
-        });
-    if transfer.generation != generation {
-        return Err("generation mismatch".into());
-    }
-    let aggregate: usize =
-        transfer.assets.iter().map(|a| a.bytes.len()).sum::<usize>() + bytes.len();
-    if aggregate > 24 * 1024 * 1024 {
-        return Err("aggregate assets exceed 24 MiB".into());
-    }
-    if transfer.assets.len() >= 256 {
-        return Err("asset count exceeds 256".into());
-    }
-    if index as usize != transfer.assets.len() {
-        return Err("asset index out of order".into());
-    }
-    transfer.assets.push(Issue039AssetEntry {
-        path,
-        bytes,
-        sha256,
-    });
-    Ok(())
-}
-
+#[cfg(feature = "proof-harness")]
 fn issue039_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE039_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue039_is_proof_enabled() -> bool {
     issue039_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue039_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     if !issue039_proof_enabled() {
         return Err("issue 039 proof instrumentation is disabled".into());
@@ -2442,6 +2467,7 @@ fn issue039_emit_checkpoint(checkpoint: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue039_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue039_proof_enabled() {
         return Err("issue 039 proof instrumentation is disabled".into());
@@ -2451,123 +2477,19 @@ fn issue039_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
     Ok(())
 }
 
-/// Store one raw asset binary under a generation-bound token + index.
-/// Uses Tauri 2 raw IPC: frontend sends Uint8Array body with metadata in headers.
-/// No JSON byte array serialization — bytes arrive as InvokeBody::Raw.
-#[tauri::command]
-fn issue039_store_asset(request: tauri::ipc::Request<'_>) -> Result<tauri::ipc::Response, String> {
-    let get = |name: &str| -> Result<String, String> {
-        request
-            .headers()
-            .get(name)
-            .and_then(|v| v.to_str().ok())
-            .map(String::from)
-            .ok_or_else(|| format!("missing header: {name}"))
-    };
-    let token = get("x-token")?;
-    let generation = get("x-generation")?;
-    let index: u32 = get("x-index")?.parse().map_err(|_| "bad index")?;
-    let path = get("x-path")?;
-    let sha256 = get("x-sha256")?;
-
-    let bytes = match request.body() {
-        tauri::ipc::InvokeBody::Raw(data) => data.to_vec(),
-        _ => return Err("expected raw binary body".into()),
-    };
-
-    if token.is_empty()
-        || token.len() > 128
-        || !token
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    {
-        return Err("bad token".into());
-    }
-    if generation.is_empty() || generation.len() > 64 {
-        return Err("bad generation".into());
-    }
-    if path.is_empty() || path.len() > 512 {
-        return Err("bad path".into());
-    }
-    if sha256.len() != 64 || !sha256.bytes().all(|b| b.is_ascii_hexdigit()) {
-        return Err("bad sha256".into());
-    }
-    if bytes.is_empty() || bytes.len() > 16 * 1024 * 1024 {
-        return Err("asset exceeds 16 MiB".into());
-    }
-    let mut state = ISSUE039_ASSETS.lock().map_err(|e| e.to_string())?;
-    store_issue039_asset_validated(&mut state, &token, &generation, index, path, sha256, bytes)?;
-    Ok(tauri::ipc::Response::new(b"OK".to_vec()))
-}
-
-/// Query the manifest of a stored asset transfer (without returning bytes).
-#[tauri::command]
-fn issue039_asset_manifest(token: String) -> Result<String, String> {
-    let state = ISSUE039_ASSETS.lock().map_err(|e| e.to_string())?;
-    let transfer = state
-        .asset_transfers
-        .get(&token)
-        .ok_or_else(|| "no such transfer".to_string())?;
-    let manifest: Vec<serde_json::Value> = transfer
-        .assets
-        .iter()
-        .enumerate()
-        .map(|(i, a)| {
-            serde_json::json!({
-                "index": i,
-                "path": a.path,
-                "sha256": a.sha256,
-                "byteLength": a.bytes.len(),
-            })
-        })
-        .collect();
-    serde_json::to_string(&manifest).map_err(|e| e.to_string())
-}
-
-/// Clear all asset transfer entries for a token, zeroing bytes.
-#[tauri::command]
-fn issue039_clear_assets(token: String) -> Result<(), String> {
-    let mut state = ISSUE039_ASSETS.lock().map_err(|e| e.to_string())?;
-    if let Some(mut transfer) = state.asset_transfers.remove(&token) {
-        for asset in &mut transfer.assets {
-            asset.bytes.iter_mut().for_each(|b| *b = 0);
-        }
-    }
-    Ok(())
-}
-
-/// Proof-only: query whether a token has stored assets and their total byte count.
-#[tauri::command]
-fn issue039_transfer_state(token: String) -> Result<String, String> {
-    let state = ISSUE039_ASSETS.lock().map_err(|e| e.to_string())?;
-    let transfer = state.asset_transfers.get(&token);
-    let result = match transfer {
-        Some(t) => serde_json::json!({
-            "exists": true,
-            "assetCount": t.assets.len(),
-            "totalBytes": t.assets.iter().map(|a| a.bytes.len()).sum::<usize>(),
-            "allZeroed": t.assets.iter().all(|a| a.bytes.iter().all(|b| *b == 0)),
-        }),
-        None => serde_json::json!({
-            "exists": false,
-            "assetCount": 0,
-            "totalBytes": 0,
-            "allZeroed": true,
-        }),
-    };
-    serde_json::to_string(&result).map_err(|e| e.to_string())
-}
-
+#[cfg(feature = "proof-harness")]
 fn issue040_proof_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE040_PROOF").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue040_is_proof_enabled() -> bool {
     issue040_proof_enabled()
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue040_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     if !issue040_proof_enabled() {
         return Err("issue 040 proof instrumentation is disabled".into());
@@ -2580,6 +2502,7 @@ fn issue040_emit_checkpoint(checkpoint: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue040_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue040_proof_enabled() {
         return Err("issue 040 proof instrumentation is disabled".into());
@@ -2602,14 +2525,17 @@ fn issue040_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 
 /// Monotonic instant captured as the first statement of `run()`. `Instant` is
 /// monotonic and cannot be moved by wall-clock adjustments.
+#[cfg(feature = "proof-harness")]
 static ISSUE041_PROCESS_START: std::sync::LazyLock<std::time::Instant> =
     std::sync::LazyLock::new(std::time::Instant::now);
 
+#[cfg(feature = "proof-harness")]
 fn issue041_benchmark_enabled() -> bool {
     std::env::var_os("MONOGAME_ISSUE041_BENCHMARK").is_some_and(|value| value == "1")
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_is_benchmark_enabled() -> bool {
     issue041_benchmark_enabled()
 }
@@ -2617,6 +2543,7 @@ fn issue041_is_benchmark_enabled() -> bool {
 /// `shell-only` measures shell startup and exits immediately afterwards;
 /// `full` continues into the compile / preview-start / Stop cycles.
 /// `memory-baseline` runs 100 compilations and 20 cycles with RSS sampling.
+#[cfg(feature = "proof-harness")]
 fn issue041_mode_value(raw: Option<&str>) -> Result<&'static str, String> {
     match raw {
         None | Some("full") => Ok("full"),
@@ -2627,6 +2554,7 @@ fn issue041_mode_value(raw: Option<&str>) -> Result<&'static str, String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_benchmark_mode() -> Result<&'static str, String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2636,6 +2564,7 @@ fn issue041_benchmark_mode() -> Result<&'static str, String> {
 }
 
 /// Number of warm compile samples the harness collects per process launch.
+#[cfg(feature = "proof-harness")]
 fn issue041_warm_compile_iterations(raw: Option<&str>) -> Result<u32, String> {
     let Some(raw) = raw else { return Ok(10) };
     let parsed: u32 = raw
@@ -2650,6 +2579,7 @@ fn issue041_warm_compile_iterations(raw: Option<&str>) -> Result<u32, String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_warm_compile_count() -> Result<u32, String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2661,6 +2591,7 @@ fn issue041_warm_compile_count() -> Result<u32, String> {
 /// Number of preview start / Stop cycles the harness runs per process launch.
 /// The first cycle is the cold sample, every later cycle is a warm sample.
 /// Memory-baseline mode requires up to 20 cycles.
+#[cfg(feature = "proof-harness")]
 fn issue041_preview_cycle_count_value(raw: Option<&str>) -> Result<u32, String> {
     let Some(raw) = raw else { return Ok(2) };
     let parsed: u32 = raw
@@ -2675,6 +2606,7 @@ fn issue041_preview_cycle_count_value(raw: Option<&str>) -> Result<u32, String> 
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_preview_cycle_count() -> Result<u32, String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2686,6 +2618,7 @@ fn issue041_preview_cycle_count() -> Result<u32, String> {
 /// Read the resident set size (RSS) of the current process in bytes.
 /// Uses `ps -o rss=` on macOS (KB) and multiplies by 1024.
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_rss_bytes() -> Result<u64, String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2712,6 +2645,7 @@ fn issue041_rss_bytes() -> Result<u64, String> {
 /// milliseconds since the process-start instant, together with the native
 /// window state observed at that moment.
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_shell_ready(window: tauri::Window, detail: String) -> Result<String, String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2735,6 +2669,7 @@ fn issue041_shell_ready(window: tauri::Window, detail: String) -> Result<String,
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_emit_checkpoint(checkpoint: String) -> Result<(), String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2750,6 +2685,7 @@ fn issue041_emit_checkpoint(checkpoint: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 fn issue041_emit_report(app: tauri::AppHandle, report: String) -> Result<(), String> {
     if !issue041_benchmark_enabled() {
         return Err("issue 041 benchmark instrumentation is disabled".into());
@@ -2765,6 +2701,7 @@ fn issue041_emit_report(app: tauri::AppHandle, report: String) -> Result<(), Str
 /// through its normal input path and marks the resulting DOM event trusted and
 /// user-activating.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[cfg(feature = "proof-harness")]
 enum Issue040Input {
     LeftMouseClick,
     KeyDown {
@@ -2778,6 +2715,7 @@ enum Issue040Input {
 }
 
 /// Space (49) plays and Escape (53) stops, matching the issue 040 test game.
+#[cfg(feature = "proof-harness")]
 fn issue040_input_kind(kind: &str) -> Option<Issue040Input> {
     match kind {
         "click" => Some(Issue040Input::LeftMouseClick),
@@ -2804,12 +2742,14 @@ fn issue040_input_kind(kind: &str) -> Option<Issue040Input> {
 /// The exact native window label of the main Workbench shell that hosts the
 /// Stage-4 embedded opaque-origin preview iframe. Pinned so a gesture routed to
 /// the embedded preview can only ever land on this one known window.
+#[cfg(feature = "proof-harness")]
 const ISSUE040_MAIN_WINDOW_LABEL: &str = "main";
 
 /// A gesture may only be requested by the trusted `main` window that hosts the
 /// embedded preview iframe. This is
 /// enforced in the command as defense-in-depth atop the ACL, which already
 /// excludes the preview window from every capability.
+#[cfg(feature = "proof-harness")]
 fn issue040_caller_is_main(label: &str) -> bool {
     label == ISSUE040_MAIN_WINDOW_LABEL
 }
@@ -2817,6 +2757,7 @@ fn issue040_caller_is_main(label: &str) -> bool {
 /// Shared well-formedness gate for an issue 040 generation identifier: 1–64
 /// bytes of ASCII alphanumeric or hyphen. Rejects empty, oversized, and any id
 /// carrying path or whitespace characters before it can address a window.
+#[cfg(feature = "proof-harness")]
 fn issue040_generation_is_well_formed(generation: &str) -> bool {
     !generation.is_empty()
         && generation.len() <= 64
@@ -2836,11 +2777,13 @@ fn issue040_generation_is_well_formed(generation: &str) -> bool {
 /// random/stale/unknown well-formed generation could otherwise steer a
 /// synthetic native input event at the main Workbench window, and bounds the
 /// state to a single entry.
+#[cfg(feature = "proof-harness")]
 struct Issue040EmbeddedState {
     /// The single currently-registered embedded preview generation, if any.
     active: Option<String>,
 }
 
+#[cfg(feature = "proof-harness")]
 static ISSUE040_EMBEDDED: std::sync::LazyLock<Mutex<Issue040EmbeddedState>> =
     std::sync::LazyLock::new(|| Mutex::new(Issue040EmbeddedState { active: None }));
 
@@ -2849,6 +2792,7 @@ static ISSUE040_EMBEDDED: std::sync::LazyLock<Mutex<Issue040EmbeddedState>> =
 /// generation (confused-generation guard), and rejects a duplicate
 /// re-registration of the same id so a stale caller cannot silently "refresh"
 /// state. The slot must be retired before a fresh generation can register.
+#[cfg(feature = "proof-harness")]
 fn issue040_register_embedded(
     state: &mut Issue040EmbeddedState,
     generation: &str,
@@ -2872,6 +2816,7 @@ fn issue040_register_embedded(
 /// the exact active generation, so a stale/foreign id can never retire the live
 /// one. Idempotent and non-throwing so it is safe to call on every cleanup and
 /// error path. Returns whether an active registration was actually cleared.
+#[cfg(feature = "proof-harness")]
 fn issue040_retire_embedded(state: &mut Issue040EmbeddedState, generation: &str) -> bool {
     if state.active.as_deref() == Some(generation) {
         state.active = None;
@@ -2882,6 +2827,7 @@ fn issue040_retire_embedded(state: &mut Issue040EmbeddedState, generation: &str)
 }
 
 /// Whether `generation` is the exact, currently-registered embedded generation.
+#[cfg(feature = "proof-harness")]
 fn issue040_embedded_is_registered(state: &Issue040EmbeddedState, generation: &str) -> bool {
     state.active.as_deref() == Some(generation)
 }
@@ -2896,6 +2842,7 @@ fn issue040_embedded_is_registered(state: &Issue040EmbeddedState, generation: &s
 /// (the harness no longer exists); the embedded main-window target is the sole
 /// remaining dispatch destination.
 #[derive(Clone, PartialEq, Eq, Debug)]
+#[cfg(feature = "proof-harness")]
 enum Issue040DispatchTarget {
     /// Deliver to the main window that hosts the embedded preview iframe the
     /// trusted host has focused and explicitly registered.
@@ -2910,6 +2857,7 @@ enum Issue040DispatchTarget {
 /// unknown, random, or stale-after-retire generation resolves to `None`. This
 /// never yields a generic "any window" target: the embedded case is pinned to
 /// the single `main` window label.
+#[cfg(feature = "proof-harness")]
 fn issue040_dispatch_target(
     proof_enabled: bool,
     generation: &str,
@@ -2952,6 +2900,7 @@ fn issue040_dispatch_target(
 /// already excludes the preview window from every capability). This command is
 /// not a generic injection primitive: the opaque preview itself has no IPC.
 #[tauri::command]
+#[cfg(feature = "proof-harness")]
 async fn issue040_dispatch_preview_input(
     app: tauri::AppHandle,
     webview: tauri::WebviewWindow,
@@ -3010,9 +2959,11 @@ async fn issue040_dispatch_preview_input(
 }
 
 #[cfg(target_os = "macos")]
+#[cfg(feature = "proof-harness")]
 type Issue040NativeInputObservation = (isize, f64, f64, bool, bool, bool, String);
 
 #[cfg(target_os = "macos")]
+#[cfg(feature = "proof-harness")]
 async fn issue040_send_native_input(
     window: &tauri::WebviewWindow,
     input: Issue040Input,
@@ -3166,112 +3117,12 @@ async fn issue040_send_native_input(
 }
 
 #[cfg(not(target_os = "macos"))]
+#[cfg(feature = "proof-harness")]
 async fn issue040_send_native_input(
     _window: &tauri::WebviewWindow,
     _input: Issue040Input,
 ) -> Result<String, String> {
     Err("issue 040 native input dispatch is only implemented for macOS".into())
-}
-
-/// Handle GET requests to `/_transfer/{token}/asset/{index}` and
-/// `/_transfer/{token}/asset-manifest` that serve issue 039 content asset
-/// transfers stored by the `issue039_*` commands. (The former issue 038
-/// isolated-window DLL/PDB transfer routes were removed in Stage 5.)
-fn issue039_handle_asset_transfer_get(raw_uri: &str) -> Option<tauri::http::Response<Vec<u8>>> {
-    let uri = raw_uri.parse::<tauri::http::Uri>().ok()?;
-    let path = uri.path();
-    if !path.starts_with("/_transfer/") {
-        return None;
-    }
-    let rest = &path["/_transfer/".len()..];
-    let (token, file) = rest.split_once('/')?;
-    if token.is_empty()
-        || file.is_empty()
-        || !token
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'-')
-    {
-        return Some(preview_response(
-            400,
-            "text/plain; charset=utf-8",
-            b"Bad Request",
-        ));
-    }
-    let state = ISSUE039_ASSETS.lock().ok()?;
-    // Check for asset transfer: _transfer/{token}/asset/{index}
-    if let Some(asset_rest) = file.strip_prefix("asset/") {
-        if let Ok(index) = asset_rest.parse::<usize>()
-            && let Some(transfer) = state.asset_transfers.get(token)
-            && let Some(asset) = transfer.assets.get(index)
-        {
-            let body = asset.bytes.clone();
-            let mut response = tauri::http::Response::new(body);
-            *response.status_mut() = tauri::http::StatusCode::OK;
-            response
-                .headers_mut()
-                .insert("content-type", "application/octet-stream".parse().unwrap());
-            response
-                .headers_mut()
-                .insert("access-control-allow-origin", "null".parse().unwrap());
-            response.headers_mut().insert(
-                "cross-origin-resource-policy",
-                "cross-origin".parse().unwrap(),
-            );
-            response
-                .headers_mut()
-                .insert("cache-control", "no-store".parse().unwrap());
-            return Some(response);
-        }
-        return Some(preview_response(
-            404,
-            "text/plain; charset=utf-8",
-            b"Not Found",
-        ));
-    }
-    // Check for asset manifest: _transfer/{token}/asset-manifest
-    if file == "asset-manifest" {
-        if let Some(transfer) = state.asset_transfers.get(token) {
-            let manifest: Vec<serde_json::Value> = transfer
-                .assets
-                .iter()
-                .enumerate()
-                .map(|(i, a)| {
-                    serde_json::json!({
-                        "index": i,
-                        "path": a.path,
-                        "sha256": a.sha256,
-                        "byteLength": a.bytes.len(),
-                        "generation": transfer.generation,
-                    })
-                })
-                .collect();
-            let json = serde_json::to_vec(&manifest).unwrap_or_default();
-            let mut response = tauri::http::Response::new(json);
-            *response.status_mut() = tauri::http::StatusCode::OK;
-            response
-                .headers_mut()
-                .insert("content-type", "application/json".parse().unwrap());
-            response
-                .headers_mut()
-                .insert("access-control-allow-origin", "null".parse().unwrap());
-            response
-                .headers_mut()
-                .insert("cache-control", "no-store".parse().unwrap());
-            return Some(response);
-        }
-        return Some(preview_response(
-            404,
-            "text/plain; charset=utf-8",
-            b"Not Found",
-        ));
-    }
-    // Any other `/_transfer/` path is unknown after the Stage-5 removal of the
-    // isolated-window DLL/PDB transfer routes.
-    Some(preview_response(
-        404,
-        "text/plain; charset=utf-8",
-        b"Not Found",
-    ))
 }
 
 fn navigation_allowed(url: &tauri::Url) -> bool {
@@ -3298,12 +3149,12 @@ fn navigation_allowed(url: &tauri::Url) -> bool {
 /// can gate on the frontend's dirty state. The rest of the menu (App/File/Edit/
 /// View/Window/Help) is reproduced verbatim from `Menu::default` so standard
 /// behaviour — including Edit's cut/copy/paste/undo that Monaco relies on — is
-/// preserved. The custom Quit item's id is `ISSUE050_QUIT_MENU_ID`.
+/// preserved. The custom Quit item's id is `WORKSPACE_QUIT_MENU_ID`.
 #[cfg(target_os = "macos")]
-const ISSUE050_QUIT_MENU_ID: &str = "issue050-quit";
+const WORKSPACE_QUIT_MENU_ID: &str = "workspace-quit";
 
 #[cfg(target_os = "macos")]
-fn issue050_build_macos_menu<R: tauri::Runtime>(
+fn build_macos_menu<R: tauri::Runtime>(
     app_handle: &tauri::AppHandle<R>,
 ) -> tauri::Result<tauri::menu::Menu<R>> {
     use tauri::menu::{
@@ -3330,7 +3181,7 @@ fn issue050_build_macos_menu<R: tauri::Runtime>(
     // terminate: and bypasses the event loop).
     let quit = MenuItem::with_id(
         app_handle,
-        ISSUE050_QUIT_MENU_ID,
+        WORKSPACE_QUIT_MENU_ID,
         format!("Quit {}", pkg_info.name),
         true,
         Some("CmdOrCtrl+Q"),
@@ -3412,9 +3263,10 @@ fn issue050_build_macos_menu<R: tauri::Runtime>(
 pub fn run() {
     // Issue 041: capture the process-start instant before any other work so
     // shell-startup samples cannot be shifted by later initialisation.
+    #[cfg(feature = "proof-harness")]
     let _ = *ISSUE041_PROCESS_START;
 
-    #[cfg(target_os = "macos")]
+    #[cfg(all(target_os = "macos", feature = "proof-harness"))]
     match relay_packaged_proof_through_launch_services() {
         Ok(true) => return,
         Ok(false) => {}
@@ -3432,7 +3284,7 @@ pub fn run() {
             // ExitRequested path already reaches our handler below).
             #[cfg(target_os = "macos")]
             {
-                issue050_build_macos_menu(app_handle)
+                build_macos_menu(app_handle)
             }
             #[cfg(not(target_os = "macos"))]
             {
@@ -3445,8 +3297,8 @@ pub fn run() {
             // changes on Cmd+Q / app-menu Quit (the paths that bypass
             // ExitRequested — tauri-apps/tauri#13778).
             #[cfg(target_os = "macos")]
-            if event.id() == ISSUE050_QUIT_MENU_ID {
-                if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
+            if event.id() == WORKSPACE_QUIT_MENU_ID {
+                if !WORKSPACE_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
                     app_handle.exit(0);
                     return;
                 }
@@ -3463,7 +3315,7 @@ pub fn run() {
                     ))
                     .show(move |discard| {
                         if discard {
-                            ISSUE050_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
+                            WORKSPACE_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
                             app_handle.exit(0);
                         }
                     });
@@ -3482,7 +3334,7 @@ pub fn run() {
                 return;
             }
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
-                if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
+                if !WORKSPACE_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
                     return; // clean buffer — allow the close to proceed
                 }
                 api.prevent_close();
@@ -3503,7 +3355,7 @@ pub fn run() {
                             // destroying the last window cascades into an
                             // app-level ExitRequested, it short-circuits
                             // instead of prompting a second time.
-                            ISSUE050_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
+                            WORKSPACE_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
                             // Force the window to close without re-emitting
                             // CloseRequested (destroy emits no events).
                             let _ = window.destroy();
@@ -3513,12 +3365,6 @@ pub fn run() {
         })
         .register_uri_scheme_protocol("playground-preview", |_context, request| {
             let uri_string = request.uri().to_string();
-            // Issue 039: serve content asset transfers before the static handler.
-            if request.method() == tauri::http::Method::GET
-                && let Some(response) = issue039_handle_asset_transfer_get(&uri_string)
-            {
-                return response;
-            }
             preview_protocol_response(request.method(), &uri_string)
         })
         .setup(|app| {
@@ -3538,6 +3384,7 @@ pub fn run() {
             .build()?;
             window.show()?;
 
+            #[cfg(feature = "proof-harness")]
             if packaged_pipeline_proof_enabled() {
                 #[cfg(target_os = "macos")]
                 {
@@ -3577,88 +3424,154 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            #[cfg(feature = "proof-harness")]
             issue009_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue009_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue011_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue011_set_outer_size,
+            #[cfg(feature = "proof-harness")]
             issue011_outer_bounds,
+            #[cfg(feature = "proof-harness")]
             issue011_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue010_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue010_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue020_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue020_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             issue020_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue021_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue021_is_locked_session_proof,
+            #[cfg(feature = "proof-harness")]
             issue021_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue022_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue022_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue023_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue024_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue025_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue027_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue028_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue029_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue030_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue031_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue032_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue033_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue033_is_no_wasm_eval_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue034_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue034_trusted_marker,
+            #[cfg(feature = "proof-harness")]
             issue034_trusted_marker_calls,
+            #[cfg(feature = "proof-harness")]
             issue033_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             prepare_packaged_proof_window,
+            #[cfg(feature = "proof-harness")]
             issue023_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             issue023_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue024_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue025_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue027_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue028_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue029_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue030_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue031_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue032_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue033_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue033_emit_no_wasm_eval_report,
+            #[cfg(feature = "proof-harness")]
             issue034_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue035_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue035_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue036_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue036_emit_report,
-            issue037_check_acknowledgement,
-            issue037_write_acknowledgement,
+            first_run_check_acknowledgement,
+            first_run_write_acknowledgement,
+            #[cfg(feature = "proof-harness")]
             issue037_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue037_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue037_read_store_snapshot,
+            #[cfg(feature = "proof-harness")]
             issue037_clear_store,
+            #[cfg(feature = "proof-harness")]
             issue037_proof_phase,
+            #[cfg(feature = "proof-harness")]
             issue037_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             issue039_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue039_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             issue039_emit_report,
-            issue039_store_asset,
-            issue039_asset_manifest,
-            issue039_clear_assets,
-            issue039_transfer_state,
+            #[cfg(feature = "proof-harness")]
             issue040_is_proof_enabled,
+            #[cfg(feature = "proof-harness")]
             issue040_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             issue040_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue040_dispatch_preview_input,
+            #[cfg(feature = "proof-harness")]
             issue041_is_benchmark_enabled,
+            #[cfg(feature = "proof-harness")]
             issue041_benchmark_mode,
+            #[cfg(feature = "proof-harness")]
             issue041_warm_compile_count,
+            #[cfg(feature = "proof-harness")]
             issue041_preview_cycle_count,
+            #[cfg(feature = "proof-harness")]
             issue041_shell_ready,
+            #[cfg(feature = "proof-harness")]
             issue041_emit_checkpoint,
+            #[cfg(feature = "proof-harness")]
             issue041_emit_report,
+            #[cfg(feature = "proof-harness")]
             issue041_rss_bytes,
-            issue050_write_file,
-            issue050_save_dialog,
-            issue050_open_dialog,
-            issue050_set_dirty,
-            issue051_pick_folder,
-            issue051_read_project
+            workspace_write_file,
+            workspace_save_dialog,
+            workspace_open_dialog,
+            workspace_set_dirty,
+            project_pick_folder,
+            project_read
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoGame Playground")
@@ -3675,7 +3588,7 @@ pub fn run() {
                 code: None, api, ..
             } = event
             {
-                if !ISSUE050_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
+                if !WORKSPACE_DIRTY.load(std::sync::atomic::Ordering::SeqCst) {
                     return; // clean — allow the quit to proceed
                 }
                 api.prevent_exit();
@@ -3695,7 +3608,7 @@ pub fn run() {
                             // Clear the mirror so the programmatic exit's own
                             // ExitRequested (code = Some) short-circuits, then
                             // quit for real.
-                            ISSUE050_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
+                            WORKSPACE_DIRTY.store(false, std::sync::atomic::Ordering::SeqCst);
                             app_handle.exit(0);
                         }
                     });

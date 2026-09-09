@@ -3,287 +3,46 @@ import {
   installPrivatePortBootstrap,
   isUuidV4,
   sha256 as sha256Buffer,
-  validatePreviewLoadRequest,
 } from "./ProtocolRuntime.js";
-import {
-  createPreviewEndpoint,
-  createProofExpectationRegistry,
-} from "./Issue21Endpoints.js";
+import { createPreviewEndpoint } from "./Issue21Endpoints.js";
 import { createPreviewStartExecutor } from "./PreviewStartRuntime.js";
 import { createPreviewStopExecutor } from "./PreviewStopRuntime.js";
 import { createAssetMountExecutor } from "./AssetMountRuntime.js";
 import { createPreStartAdmission } from "./PreStartAdmission.js";
 import { createNativeOutputCapture } from "./NativeOutputRuntime.js";
 
+// PRODUCT preview runtime boot.
+//
+// This module owns the durable, shipping preview protocol only: verify the
+// staged runtime asset, boot one Release .NET runtime, adopt the private
+// opaque-origin protocol port, and drive the mount → configure → load → run →
+// stop → cleanup lifecycle over that port with binary-integrity validation,
+// CSP, and sandbox intact. It carries NO proof instrumentation: no per-scenario
+// proof globals, no audio probe, no issue-numbered action dispatch, no proof
+// expectation registry, no proof DOM/state, no self-test exports, and no
+// fixtures/observer.
+//
+// A narrow, product-neutral extension seam lets an optional, separately-loaded
+// module observe lifecycle events and supply proof-only bootstrap wiring. The
+// seam has no proof markers or issue names; when no extension is present (the
+// PRODUCT profile), every hook is an inert no-op and the preview behaves as the
+// plain shipping runtime. The PROOF staging profile deploys the extension,
+// which restores exact scenario behavior.
+
 const status = document.querySelector("#status");
-const pingButton = document.querySelector("#ping");
-const output = document.querySelector("#proof-state");
 const realmToken = crypto.randomUUID();
 
-const proofState = {
-  protocolVersion: 1,
-  ready: false,
-  startupAttempts: 0,
-  successfulRuntimeStarts: 0,
-  trustedClickCount: 0,
-  realmToken,
-  parentWindowDistinct: window !== parent,
-  runtimeAsset: null,
-  autoReadyPing: null,
-  ping: null,
-  errors: [],
-};
-
-globalThis.previewProof = proofState;
-globalThis.previewIssue21Proof = {
-  runtimeStarts: 0,
-  load: null,
-  bootstrap: null,
-  requests: [],
-  state: "stopped",
-  rejections: [],
-  errors: [],
-  expectedProbeRejections: [],
-  expiredProbeExpectations: [],
-  endpoint: { terminals: [], closes: [] },
-  lastManagedFailure: null,
-};
-globalThis.previewIssue22Proof = {
-  enabled: false,
-  pipeline: null,
-  repeatedPipeline: null,
-  beforeLoad: null,
-  repeatMatched: null,
-  teardown: [],
-  errors: [],
-};
-globalThis.previewIssue023Proof = {
-  enabled: false,
-  start: null,
-  events: [],
-  queries: [],
-  errors: [],
-};
-globalThis.previewIssue024Proof = {
-  enabled: false,
-  stop: null,
-  animationFrameCancellations: 0,
-  webglDeleteCalls: 0,
-  audioCloseCalls: 0,
-  errors: [],
-};
-globalThis.previewIssue028Proof = { enabled: false };
-globalThis.previewIssue030Proof = { enabled: false, samples: [], errors: [] };
-globalThis.previewIssue033Proof = { enabled: false };
-globalThis.previewIssue034Proof = { enabled: false };
-globalThis.previewIssue035Proof = { enabled: false };
-globalThis.previewIssue036Proof = { enabled: false };
-globalThis.previewIssue039Proof = {
-  enabled: false,
-  mounts: [],
-  mountFailures: [],
-  errors: [],
-};
-globalThis.previewIssue040Proof = {
-  enabled: false,
-  installed: false,
-  contexts: [],
-  inputEvents: [],
-  resumeAttempts: [],
-  analyserInstalled: false,
-  destinationConnections: 0,
-  errors: [],
-};
-
-// Issue 040: proof-only audio instrumentation for this preview document.
-// Tracks every AudioContext the runtime creates, records the trusted user
-// gesture that unlocks it, and splices an AnalyserNode in front of the speakers
-// so playback can be measured as real sample data instead of a state string.
-// Nothing here is installed unless the issue 040 packaged proof enables it.
-const issue040AudioTracking = [];
-let issue040AudioStartedAt = 0;
-
-function issue040RelativeMilliseconds() {
-  return Math.round((performance.now() - issue040AudioStartedAt) * 1000) / 1000;
-}
-
-function installIssue040AudioProbe() {
-  const proof = globalThis.previewIssue040Proof;
-  if (!proof.enabled) return false;
-  if (proof.installed) return true;
-
-  const NativeAudioContext = globalThis.AudioContext ?? globalThis.webkitAudioContext;
-  if (typeof NativeAudioContext !== "function") {
-    proof.errors.push("Web Audio AudioContext is unavailable in the preview realm.");
-    return false;
-  }
-
-  issue040AudioStartedAt = performance.now();
-  proof.installed = true;
-
-  const trackContext = context => {
-    const record = {
-      index: issue040AudioTracking.length,
-      createdAtMs: issue040RelativeMilliseconds(),
-      initialState: context.state,
-      sampleRate: context.sampleRate,
-      transitions: [{ state: context.state, atMs: issue040RelativeMilliseconds() }],
-    };
-    proof.contexts.push(record);
-    issue040AudioTracking.push({ context, record, analyser: null });
-    context.addEventListener("statechange", () => {
-      record.transitions.push({ state: context.state, atMs: issue040RelativeMilliseconds() });
-    });
-  };
-
-  class ProbedAudioContext extends NativeAudioContext {
-    constructor(...args) {
-      super(...args);
-      try {
-        trackContext(this);
-      } catch (error) {
-        proof.errors.push(`context-track: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-  globalThis.AudioContext = ProbedAudioContext;
-  if (typeof globalThis.webkitAudioContext === "function")
-    globalThis.webkitAudioContext = ProbedAudioContext;
-
-  const nativeConnect = AudioNode.prototype.connect;
-  AudioNode.prototype.connect = function issue040Connect(destination, ...rest) {
-    try {
-      const entry = issue040AudioTracking.find(item => destination === item.context.destination);
-      if (entry && this !== entry.analyser) {
-        if (!entry.analyser) {
-          const analyser = entry.context.createAnalyser();
-          analyser.fftSize = 2048;
-          analyser.smoothingTimeConstant = 0;
-          nativeConnect.call(analyser, entry.context.destination);
-          entry.analyser = analyser;
-          proof.analyserInstalled = true;
-        }
-        proof.destinationConnections += 1;
-        return nativeConnect.call(this, entry.analyser);
-      }
-    } catch (error) {
-      proof.errors.push(`connect-probe: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    return nativeConnect.call(this, destination, ...rest);
-  };
-
-  const recordInput = event => {
-    if (proof.inputEvents.length < 256) {
-      proof.inputEvents.push({
-        type: event.type,
-        key: typeof event.key === "string" ? event.key : null,
-        code: typeof event.code === "string" ? event.code : null,
-        button: typeof event.button === "number" ? event.button : null,
-        trusted: event.isTrusted === true,
-        atMs: issue040RelativeMilliseconds(),
-      });
-    }
-    if (event.isTrusted !== true) return;
-    for (const entry of issue040AudioTracking) {
-      if (entry.context.state !== "suspended") continue;
-      const attempt = {
-        contextIndex: entry.record.index,
-        gesture: event.type,
-        atMs: issue040RelativeMilliseconds(),
-        settled: null,
-        stateAfter: null,
-      };
-      if (proof.resumeAttempts.length < 64) proof.resumeAttempts.push(attempt);
-      entry.context.resume().then(
-        () => {
-          attempt.settled = "resolved";
-          attempt.stateAfter = entry.context.state;
-        },
-        error => {
-          attempt.settled = "rejected";
-          attempt.stateAfter = entry.context.state;
-          proof.errors.push(`resume: ${error instanceof Error ? error.message : String(error)}`);
-        },
-      );
-    }
-  };
-  for (const type of ["keydown", "keyup", "mousedown", "mouseup", "pointerdown", "click"])
-    addEventListener(type, recordInput, true);
-
-  return true;
-}
-
-function issue040AudioSnapshot() {
-  const proof = globalThis.previewIssue040Proof;
-  const activation = typeof navigator.userActivation === "undefined"
-    ? null
-    : { isActive: navigator.userActivation.isActive, hasBeenActive: navigator.userActivation.hasBeenActive };
-  return {
-    installed: proof.installed,
-    analyserInstalled: proof.analyserInstalled,
-    destinationConnections: proof.destinationConnections,
-    contextCount: issue040AudioTracking.length,
-    contexts: issue040AudioTracking.map(entry => ({
-      ...entry.record,
-      state: entry.context.state,
-      currentTime: entry.context.currentTime,
-      analyserAttached: entry.analyser !== null,
-    })),
-    inputEvents: proof.inputEvents,
-    resumeAttempts: proof.resumeAttempts,
-    userActivation: activation,
-    errors: proof.errors,
-    documentHasFocus: document.hasFocus(),
-    visibilityState: document.visibilityState,
-  };
-}
-
-async function issue040SampleAudioOutput(payload) {
-  const entry = issue040AudioTracking.find(item => item.analyser !== null)
-    ?? issue040AudioTracking[0];
-  if (!entry) throw new Error("No AudioContext has been created in this preview.");
-  if (!entry.analyser) throw new Error("No analyser is spliced in front of the audio destination.");
-
-  const durationMs = Math.min(Math.max(Number(payload?.durationMs) || 500, 50), 5_000);
-  const label = typeof payload?.label === "string" ? payload.label.slice(0, 64) : "sample";
-  const buffer = new Float32Array(entry.analyser.fftSize);
-  const samples = [];
-  const startedAt = performance.now();
-  let maxPeak = 0;
-  let maxRms = 0;
-  let nonSilentWindows = 0;
-
-  while (performance.now() - startedAt < durationMs) {
-    entry.analyser.getFloatTimeDomainData(buffer);
-    let peak = 0;
-    let sumSquares = 0;
-    for (const value of buffer) {
-      const magnitude = Math.abs(value);
-      if (magnitude > peak) peak = magnitude;
-      sumSquares += value * value;
-    }
-    const rms = Math.sqrt(sumSquares / buffer.length);
-    if (peak > maxPeak) maxPeak = peak;
-    if (rms > maxRms) maxRms = rms;
-    if (peak > 0.0005) nonSilentWindows += 1;
-    if (samples.length < 120) {
-      samples.push({ atMs: issue040RelativeMilliseconds(), peak, rms });
-    }
-    await new Promise(resolve => setTimeout(resolve, 16));
-  }
-
-  return {
-    label,
-    durationMs,
-    windowCount: samples.length,
-    nonSilentWindows,
-    maxPeak,
-    maxRms,
-    contextState: entry.context.state,
-    contextCurrentTime: entry.context.currentTime,
-    samples,
-  };
-}
+// Optional extension attachment point. The PRODUCT build never defines this;
+// the PROOF staging profile deploys a module that assigns it BEFORE this module
+// evaluates. `attach(controls)` returns { observe, bootstrap } which the core
+// consults at the neutral hook sites below.
+const extensionFactory = globalThis.__playgroundPreviewExtension ?? null;
+let extension = null;
+const observe = new Proxy({}, {
+  get(_target, key) {
+    return (...args) => extension?.observe?.[key]?.(...args);
+  },
+});
 
 let protocolPort = null;
 let expectedPreviewId = null;
@@ -291,10 +50,8 @@ let protocolGeneration = null;
 let loadState = "stopped";
 let previewEndpoint = null;
 let constructAfterLoad = false;
-let issue023ProofEnabled = false;
 let runGamePipeline = false;
 let lifecycleSequence = 0;
-let issue023Case = "normal";
 let startExecutor = null;
 let stopExecutor = null;
 let mountExecutor = null;
@@ -306,8 +63,14 @@ let terminationCause = null;
 let runtimeFailureCorrelationId = null;
 let bridgePort = null;
 let bridgeReadySent = false;
-let bridgeProofAuthorized = false;
+let runtimeReady = false;
 const nativeOutput = createNativeOutputCapture();
+
+function setLoadState(state) {
+  loadState = state;
+  observe.onLoadState(state);
+}
+
 dotnet.withConfig({ cacheBootResources: false });
 dotnet.withResourceLoader((type, _name, defaultUri, integrity) => {
   if (type === "dotnetjs") return defaultUri;
@@ -397,18 +160,8 @@ globalThis.__playgroundCompleteManagedRuntimeFailure = reportJson => {
       loadState !== "running" || !previewEndpoint || previewEndpoint.closed) return;
   const failure = JSON.parse(reportJson);
   const correlationId = runtimeFailureCorrelationId;
-  // Cleanup evidence is intentionally carried by the terminal failure details
-  // generated before disposal only in the packaged proof snapshot.
-  globalThis.previewIssue024Proof.runtimeFailureCleanup = {
-    cleanupSucceeded: failure.cleanupSucceeded,
-    disposeAttempts: failure.disposeAttempts,
-    frameCount: failure.frameCount,
-    updateCount: failure.updateCount,
-    proofDisposeCount: failure.proofDisposeCount,
-    callbackAfterDisposedCount: failure.callbackAfterDisposedCount,
-  };
-  loadState = "disposed";
-  globalThis.previewIssue21Proof.state = loadState;
+  observe.onRuntimeFailureCleanup(failure);
+  setLoadState("disposed");
   previewEndpoint.emitEvent(lifecycleEvent("preview.stopped", correlationId, {
     reason: "failed",
   }));
@@ -419,561 +172,20 @@ globalThis.__playgroundCompleteManagedRuntimeFailure = reportJson => {
 };
 
 function sendBridgeReady() {
-  if (!bridgePort || !proofState.ready || bridgeReadySent) return;
+  if (!bridgePort || !runtimeReady || bridgeReadySent) return;
   bridgeReadySent = true;
   bridgePort.postMessage({
     type: "preview.bridge.ready",
     payload: {
-      runtimeStarts: globalThis.previewIssue21Proof.runtimeStarts,
+      runtimeStarts: observe.runtimeStartCount?.() ?? 0,
       realmToken,
       opaqueOrigin: location.origin === "null",
     },
   });
 }
 
-async function executeBridgeAction(action, payload) {
-  if (action === "snapshot") {
-    const name = payload?.name;
-    if (name === "proof") return globalThis.previewProof;
-    if (name === "issue21") return globalThis.previewIssue21Proof;
-    if (name === "issue22") return globalThis.previewIssue22Proof;
-    if (name === "issue023") return globalThis.previewIssue023Proof;
-    if (name === "issue024") return globalThis.previewIssue024Snapshot?.() ?? null;
-    if (name === "endpoint") return globalThis.previewIssue023EndpointSnapshot?.() ?? null;
-    if (name === "native") return globalThis.previewIssue028Snapshot?.() ?? null;
-    if (name === "pixels") return globalThis.previewIssue030PixelProof?.() ?? null;
-    if (name === "issue039") return globalThis.previewIssue039Proof;
-    if (name === "issue039-gate") return { held: preStartAdmission.isHeld(), owner: preStartAdmission.currentOwner() };
-    if (name === "issue039-state") {
-      const exports = await exportsPromise;
-      return typeof exports.QueryIssue039State === "function"
-        ? JSON.parse(exports.QueryIssue039State())
-        : null;
-    }
-    if (name === "issue039-validator-test") {
-      if (!globalThis.previewIssue039Proof.enabled)
-        throw new Error("issue039 proof is not enabled");
-      const exports = await exportsPromise;
-      return typeof exports.RunContentValidatorSelfTest === "function"
-        ? JSON.parse(exports.RunContentValidatorSelfTest())
-        : null;
-    }
-    if (name === "issue039-atomic-test") {
-      if (!globalThis.previewIssue039Proof.enabled)
-        throw new Error("issue039 proof is not enabled");
-      const exports = await exportsPromise;
-      return typeof exports.RunAtomicMountSelfTest === "function"
-        ? JSON.parse(exports.RunAtomicMountSelfTest())
-        : null;
-    }
-    if (name === "issue040-audio") {
-      if (!globalThis.previewIssue040Proof.enabled)
-        throw new Error("issue040 proof is not enabled");
-      return issue040AudioSnapshot();
-    }
-    if (name === "issue040-managed-audio") {
-      if (!globalThis.previewIssue040Proof.enabled)
-        throw new Error("issue040 proof is not enabled");
-      const exports = await exportsPromise;
-      return typeof exports.QueryIssue040AudioState === "function"
-        ? JSON.parse(exports.QueryIssue040AudioState())
-        : null;
-    }
-    if (name === "mount") {
-      const exports = await exportsPromise;
-      return typeof exports.QueryMountState === "function"
-        ? JSON.parse(exports.QueryMountState())
-        : null;
-    }
-    if (name === "errors") {
-      return [
-        ...(globalThis.previewProof?.errors ?? []),
-        ...(globalThis.previewIssue21Proof?.errors ?? []),
-        ...(globalThis.previewIssue023Proof?.errors ?? []),
-      ];
-    }
-    throw new Error("Unknown preview snapshot.");
-  }
-  if (action === "issue040-audio-arm") {
-    if (!globalThis.previewIssue040Proof.enabled)
-      throw new Error("issue040 proof is not enabled");
-    const installed = installIssue040AudioProbe();
-    return { installed, ...issue040AudioSnapshot() };
-  }
-  if (action === "issue040-audio-lock") {
-    if (!globalThis.previewIssue040Proof.enabled)
-      throw new Error("issue040 proof is not enabled");
-    // Reproduce the autoplay-locked state deterministically: suspend every
-    // context the runtime opened so the only path back to "running" is a real
-    // user gesture arriving in this document.
-    const results = [];
-    for (const entry of issue040AudioTracking) {
-      const before = entry.context.state;
-      let error = null;
-      try {
-        await entry.context.suspend();
-      } catch (suspendError) {
-        error = suspendError instanceof Error ? suspendError.message : String(suspendError);
-      }
-      results.push({ contextIndex: entry.record.index, before, after: entry.context.state, error });
-      entry.record.lockedAtMs = issue040RelativeMilliseconds();
-    }
-    return { locked: results, snapshot: issue040AudioSnapshot() };
-  }
-  if (action === "issue040-audio-sample") {
-    if (!globalThis.previewIssue040Proof.enabled)
-      throw new Error("issue040 proof is not enabled");
-    return await issue040SampleAudioOutput(payload);
-  }
-  if (action === "issue023-query") return globalThis.previewIssue023Query();  if (action === "issue023-self-test") return globalThis.previewIssue023RunnerSelfTest();
-  if (action === "issue027-writer-test") return globalThis.previewIssue027WriterSelfTest();
-  if (action === "issue029-quiescent") return globalThis.previewIssue029QuiescentProof();
-  if (action === "issue028-emit") {
-    globalThis.previewIssue028EmitNativePaths();
-    return true;
-  }
-  if (action === "issue22-teardown") return globalThis.previewIssue22Teardown();
-  if (action === "issue033-security" && globalThis.previewIssue033Proof.enabled) {
-    const violations = [];
-    const onViolation = event => violations.push({
-      effectiveDirective: event.effectiveDirective,
-      blockedUri: event.blockedURI,
-    });
-    addEventListener("securitypolicyviolation", onViolation);
-    let parentDomDenied = false;
-    try { void parent.document.body; } catch { parentDomDenied = true; }
-    let evalDenied = false;
-    try { globalThis.eval("1 + 1"); } catch { evalDenied = true; }
-    const inlineScript = document.createElement("script");
-    inlineScript.textContent = "globalThis.__issue033InlineRan = true";
-    document.body.append(inlineScript);
-    const inlineStyle = document.createElement("style");
-    inlineStyle.textContent = "body { outline: 1px solid red; }";
-    document.head.append(inlineStyle);
-    const frame = document.createElement("iframe");
-    frame.src = "data:text/html,blocked";
-    document.body.append(frame);
-    const object = document.createElement("object");
-    object.data = "data:text/html,blocked";
-    document.body.append(object);
-    const base = document.createElement("base");
-    base.href = "https://example.invalid/issue033-base/";
-    document.head.append(base);
-    const popupDenied = window.open("https://example.invalid/issue033-navigation") === null;
-    const form = document.createElement("form");
-    form.action = "https://example.invalid/issue033-form";
-    form.target = "_self";
-    let formSubmitEventObserved = false;
-    form.addEventListener("submit", () => { formSubmitEventObserved = true; });
-    document.body.append(form);
-    form.requestSubmit();
-    let fetchDenied = false;
-    try { await fetch("https://example.invalid/issue033"); } catch { fetchDenied = true; }
-    await new Promise(resolve => setTimeout(resolve, 50));
-    removeEventListener("securitypolicyviolation", onViolation);
-    const baseUriDenied =
-      !document.baseURI.startsWith("https://example.invalid/issue033-base");
-    const formRemainedInDocument = document.contains(form);
-    const formCspViolationObserved = violations.some(item =>
-      item.effectiveDirective === "form-action" &&
-      item.blockedUri === "https://example.invalid/issue033-form");
-    frame.remove();
-    object.remove();
-    base.remove();
-    form.remove();
-    inlineScript.remove();
-    inlineStyle.remove();
-    const audio = new AudioContext();
-    const oscillator = audio.createOscillator();
-    oscillator.connect(audio.destination);
-    oscillator.start();
-    oscillator.stop();
-    await audio.close();
-    return {
-      serializedOrigin: location.origin,
-      parentDomDenied,
-      evalDenied,
-      inlineScriptDenied: globalThis.__issue033InlineRan !== true,
-      fetchDenied,
-      audioClosed: audio.state === "closed",
-      baseUriDenied,
-      popupSandboxDenied: popupDenied,
-      formSubmitEventObserved,
-      formRemainedInDocument,
-      formCspViolationObserved,
-      formSandboxBlockedBeforeCsp:
-        formSubmitEventObserved && formRemainedInDocument && !formCspViolationObserved,
-      evalViolationObserved: violations.some(item =>
-        item.effectiveDirective.startsWith("script-src") && item.blockedUri === "eval"),
-      violations,
-    };
-  }
-  if (action === "issue034-security" && globalThis.previewIssue034Proof.enabled) {
-    const internals = globalThis.__TAURI_INTERNALS__;
-    const webkitHandlers = globalThis.webkit?.messageHandlers;
-    const handlerNames = webkitHandlers && typeof webkitHandlers === "object"
-      ? Object.getOwnPropertyNames(webkitHandlers)
-      : [];
-    let directInvoke = "unreachable";
-    if (typeof internals?.invoke === "function") {
-      try {
-        await internals.invoke("issue034_trusted_marker");
-        directInvoke = "unexpected-success";
-      } catch {
-        directInvoke = "rejected";
-      }
-    }
-    const rawIpc = {
-      windowIpc: typeof globalThis.ipc,
-      windowIpcPostMessage: typeof globalThis.ipc?.postMessage,
-      webkitIpcPostMessage: typeof webkitHandlers?.ipc?.postMessage,
-      submitted: 0,
-      rejected: 0,
-      malformedProbeCount: 0,
-    };
-    const ipcHandler = webkitHandlers?.ipc;
-    const probes = Array.isArray(payload?.ipcProbes) ? payload.ipcProbes : [];
-    if (probes.length > 256)
-      throw new Error("Issue 034 raw IPC probe count exceeds its bound.");
-    for (const probe of probes) {
-      if (!probe || typeof probe.envelope !== "string" ||
-          probe.envelope.length > 4_096 ||
-          !Number.isInteger(probe.repetitions) ||
-          probe.repetitions < 1 || probe.repetitions > 2) {
-        rawIpc.malformedProbeCount += 1;
-        continue;
-      }
-      for (let attempt = 0; attempt < probe.repetitions; attempt += 1) {
-        try {
-          if (typeof ipcHandler?.postMessage !== "function")
-            throw new Error("WebKit IPC handler is unavailable.");
-          ipcHandler.postMessage(probe.envelope);
-          rawIpc.submitted += 1;
-        } catch {
-          rawIpc.rejected += 1;
-        }
-      }
-    }
-    const urls = [
-      "file:///issue034-controlled-canary.txt",
-      "tauri://localhost/tests/security/fixtures/issue034-canary.txt",
-      "asset://localhost/tests/security/fixtures/issue034-canary.txt",
-      "http://ipc.localhost/issue034_trusted_marker",
-      "ipc://localhost/issue034_trusted_marker",
-      "playground-preview://localhost/%2e%2e/tests/security/fixtures/issue034-canary.txt",
-    ];
-    const customProtocolProbe = probes.find(probe =>
-      probe && typeof probe === "object" &&
-      probe.command === "issue034_trusted_marker" &&
-      probe.variant === "wrong-key");
-    const customProtocolHeaders = customProtocolProbe
-      ? {
-          "Content-Type": "application/json",
-          "Tauri-Callback": String(customProtocolProbe.callback),
-          "Tauri-Error": String(customProtocolProbe.error),
-          "Tauri-Invoke-Key": "issue034-deliberately-invalid-invoke-key",
-        }
-      : {};
-    const fetchResults = await Promise.all(urls.map(async (url, probe) => {
-      const controller = new AbortController();
-      const timer = setTimeout(() => controller.abort(), 2_000);
-      try {
-        const ipc = url.startsWith("ipc:") || url.startsWith("http://ipc.");
-        const response = await fetch(url, {
-          method: ipc ? "POST" : "GET",
-          body: ipc ? "{}" : undefined,
-          headers: ipc ? customProtocolHeaders : undefined,
-          credentials: "omit",
-          signal: controller.signal,
-        });
-        const text = (await response.text()).slice(0, 256);
-        const bodyBytes = new TextEncoder().encode(text);
-        return {
-          probe,
-          resolved: true,
-          status: response.status,
-          bodySha256: await sha256Buffer(bodyBytes.buffer),
-          bodyBytes: bodyBytes.byteLength,
-        };
-      } catch (error) {
-        return {
-          probe,
-          resolved: false,
-          error: error instanceof Error ? error.name : "Error",
-          bodySha256: null,
-          bodyBytes: 0,
-        };
-      } finally {
-        clearTimeout(timer);
-      }
-    }));
-    const xhrResults = await Promise.all(urls.map((url, probe) =>
-      new Promise(resolve => {
-        const request = new XMLHttpRequest();
-        let settled = false;
-        const finish = async (resolved, error) => {
-          if (settled) return;
-          settled = true;
-          let text = "";
-          try {
-            text = typeof request.responseText === "string"
-              ? request.responseText.slice(0, 256)
-              : "";
-          } catch {
-            text = "";
-          }
-          const bodyBytes = new TextEncoder().encode(text);
-          try {
-            resolve({
-              probe,
-              resolved,
-              status: request.status,
-              error,
-              bodySha256: await sha256Buffer(bodyBytes.buffer),
-              bodyBytes: bodyBytes.byteLength,
-            });
-          } catch {
-            resolve({
-              probe,
-              resolved: false,
-              status: request.status,
-              error: "digest-error",
-              bodySha256: null,
-              bodyBytes: bodyBytes.byteLength,
-            });
-          }
-        };
-        request.timeout = 2_000;
-        request.onload = () => finish(true, null);
-        request.onerror = () => finish(false, "error");
-        request.ontimeout = () => finish(false, "timeout");
-        try {
-          request.open(
-            url.startsWith("ipc:") || url.startsWith("http://ipc.") ? "POST" : "GET",
-            url,
-          );
-          request.withCredentials = false;
-          if (url.startsWith("ipc:") || url.startsWith("http://ipc.")) {
-            for (const [name, value] of Object.entries(customProtocolHeaders))
-              request.setRequestHeader(name, value);
-          }
-          request.send(
-            url.startsWith("ipc:") || url.startsWith("http://ipc.") ? "{}" : null);
-        } catch {
-          finish(false, "exception");
-        }
-      })));
-    const exports = await exportsPromise;
-    if (typeof exports.Issue034FileSystemProbe !== "function")
-      throw new Error("Issue 034 managed filesystem probe is unavailable.");
-    return {
-      globals: {
-        tauri: typeof globalThis.__TAURI__,
-        internals: typeof internals,
-        isTauri: typeof globalThis.isTauri,
-        invoke: typeof internals?.invoke,
-        transformCallback: typeof internals?.transformCallback,
-        convertFileSrc: typeof internals?.convertFileSrc,
-        internalsKeys: internals && typeof internals === "object"
-          ? Object.keys(internals).sort()
-          : [],
-        webkit: typeof globalThis.webkit,
-        webkitMessageHandlers: typeof webkitHandlers,
-        webkitHandlerNames: handlerNames.sort(),
-      },
-      directInvoke,
-      rawIpc,
-      fetchResults,
-      xhrResults,
-      managedFileSystem: JSON.parse(exports.Issue034FileSystemProbe()),
-    };
-  }
-  if (action === "issue035-security" && globalThis.previewIssue035Proof.enabled) {
-    const violations = [];
-    const onViolation = event => violations.push({
-      effectiveDirective: event.effectiveDirective,
-      blockedUri: event.blockedURI,
-      disposition: event.disposition,
-    });
-    addEventListener("securitypolicyviolation", onViolation);
-
-    // Probe 1: External fetch — must trigger CSP connect-src violation
-    let fetchBlocked = false;
-    let fetchError = null;
-    try {
-      await fetch("https://example.com/issue035-probe");
-    } catch (error) {
-      fetchBlocked = true;
-      fetchError = error instanceof Error ? error.message : String(error);
-    }
-
-    // Probe 2: Top navigation — sandbox blocks this
-    let topLocationBefore = null;
-    let topLocationDenied = false;
-    try { topLocationBefore = parent.location.href; } catch { topLocationBefore = "cross-origin-denied"; }
-    try {
-      parent.location.href = "https://example.com/issue035-top-nav";
-      topLocationDenied = false;
-    } catch {
-      topLocationDenied = true;
-    }
-    let topLocationAfter = null;
-    try { topLocationAfter = parent.location.href; } catch { topLocationAfter = "cross-origin-denied"; }
-
-    // Probe 3: window.open — sandbox blocks popups
-    let windowOpenResult = null;
-    try {
-      windowOpenResult = window.open("https://example.com/issue035-popup", "_blank");
-    } catch {
-      windowOpenResult = "exception";
-    }
-    const popupDenied = windowOpenResult === null || windowOpenResult === "exception";
-
-    // Probe 4: window.open with _top target
-    let windowOpenTopResult = null;
-    try {
-      windowOpenTopResult = window.open("https://example.com/issue035-popup-top", "_top");
-    } catch {
-      windowOpenTopResult = "exception";
-    }
-    const popupTopDenied = windowOpenTopResult === null || windowOpenTopResult === "exception";
-
-    await new Promise(resolve => setTimeout(resolve, 100));
-    removeEventListener("securitypolicyviolation", onViolation);
-
-    const connectViolation = violations.find(item =>
-      item.effectiveDirective.startsWith("connect-src") &&
-      item.blockedUri === "https://example.com/issue035-probe");
-
-    return {
-      fetchBlocked,
-      fetchError,
-      connectSrcViolationObserved: !!connectViolation,
-      topLocationBefore,
-      topLocationAfter,
-      topLocationDenied,
-      topLocationUnchanged: topLocationBefore === topLocationAfter,
-      popupDenied,
-      popupTopDenied,
-      violations,
-      serializedOrigin: location.origin,
-    };
-  }
-  if (action === "wait-animation-frame") {
-    return await boundedAnimationFrame("wait-animation-frame");
-  }
-  if (action === "frame-readiness") {
-    const first = await boundedAnimationFrame("frame-readiness:first");
-    const second = await boundedAnimationFrame("frame-readiness:second");
-    const canvas = document.querySelector("#canvas");
-    const rect = canvas?.getBoundingClientRect();
-    return {
-      first,
-      second,
-      progressed: second > first,
-      visibilityState: document.visibilityState,
-      innerWidth,
-      innerHeight,
-      canvasWidth: rect?.width ?? 0,
-      canvasHeight: rect?.height ?? 0,
-    };
-  }
-  if (action === "sample-texture-grid") {
-    const canvas = document.querySelector("#canvas");
-    const gl = canvas?.getContext("webgl2");
-    if (!canvas || !gl) throw new Error("Preview canvas WebGL2 context is unavailable.");
-    await boundedAnimationFrame("sample-texture-grid");
-    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.finish();
-    const w = gl.drawingBufferWidth;
-    const h = gl.drawingBufferHeight;
-    // Sample at center of each cell of a 4x4 grid drawn over the full canvas
-    const grid = [];
-    for (let row = 0; row < 4; row++) {
-      const gridRow = [];
-      for (let col = 0; col < 4; col++) {
-        const x = Math.floor((col + 0.5) * w / 4);
-        // WebGL readPixels Y=0 is bottom; row 0 is top of texture
-        const y = Math.floor((3.5 - row) * h / 4);
-        const pixel = new Uint8Array(4);
-        gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-        gridRow.push([...pixel]);
-      }
-      grid.push(gridRow);
-    }
-    const glError = gl.getError();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
-    return {
-      sampledAt: performance.now(),
-      drawingBuffer: { width: w, height: h },
-      grid,
-      glError,
-      contextLost: gl.isContextLost(),
-    };
-  }
-  if (action === "sample-webgl") {
-    const canvas = document.querySelector("#canvas");
-    const gl = canvas?.getContext("webgl2");
-    if (!canvas || !gl) throw new Error("Preview canvas WebGL2 context is unavailable.");
-    await boundedAnimationFrame("sample-webgl");
-    const previousFramebuffer = gl.getParameter(gl.FRAMEBUFFER_BINDING);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.finish();
-    const width = gl.drawingBufferWidth;
-    const height = gl.drawingBufferHeight;
-    const points = [
-      [Math.floor(width / 2), Math.floor(height / 2)],
-      [1, 1],
-      [Math.max(0, width - 2), 1],
-      [1, Math.max(0, height - 2)],
-      [Math.max(0, width - 2), Math.max(0, height - 2)],
-    ];
-    const pixels = points.map(([x, y]) => {
-      const pixel = new Uint8Array(4);
-      gl.readPixels(x, y, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, pixel);
-      return [...pixel];
-    });
-    const glError = gl.getError();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, previousFramebuffer);
-    return {
-      sampledAt: performance.now(),
-      canvasBacking: { width: canvas.width, height: canvas.height },
-      drawingBuffer: { width, height },
-      pixels,
-      glError,
-      contextLost: gl.isContextLost(),
-    };
-  }
-
-  function boundedAnimationFrame(label, timeoutMilliseconds = 5_000) {
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => reject(new Error(
-        `ANIMATION_FRAME_TIMEOUT:${JSON.stringify({
-          label,
-          timeoutMilliseconds,
-          visibilityState: document.visibilityState,
-          innerWidth,
-          innerHeight,
-          hasFocus: document.hasFocus(),
-          canvasConnected: document.querySelector("#canvas")?.isConnected === true,
-        })}`)), timeoutMilliseconds);
-      requestAnimationFrame(timestamp => {
-        clearTimeout(timer);
-        resolve(timestamp);
-      });
-    });
-  }
-  if (action === "register-expectation" && bridgeProofAuthorized)
-    return globalThis.previewIssue21RegisterExpectation?.(payload);
-  if (action === "remove-expectation" && bridgeProofAuthorized)
-    return globalThis.previewIssue21RemoveExpectation?.(payload?.correlationId);
-  throw new Error("Preview bridge action is not authorized.");
-}
-
-function installPreviewBridge(port, proofAuthorized) {
+function installPreviewBridge(port, bootstrapData) {
   bridgePort = port;
-  bridgeProofAuthorized = proofAuthorized;
   port.addEventListener("message", async event => {
     const message = event.data;
     if (!message || typeof message !== "object" ||
@@ -981,7 +193,13 @@ function installPreviewBridge(port, proofAuthorized) {
         typeof message.id !== "string" ||
         typeof message.action !== "string") return;
     try {
-      const result = await executeBridgeAction(message.action, message.payload);
+      // Bridge actions are a proof-only surface. The PRODUCT build has no
+      // extension, so any request is unauthorized and rejected; the PROOF
+      // extension supplies the real action dispatcher.
+      const handler = extension?.bootstrap?.bridgeAction;
+      if (typeof handler !== "function")
+        throw new Error("Preview bridge action is not authorized.");
+      const result = await handler(message.action, message.payload, bootstrapData);
       port.postMessage({
         type: "preview.bridge.response",
         id: message.id,
@@ -1006,68 +224,26 @@ const bootstrapObservations = installPrivatePortBootstrap({
   expectedOrigin: trustedParentOrigin,
   additionalPortCount: 1,
   validateData: data => isUuidV4(data.previewId) &&
-    Object.hasOwn(data, "issue021Proof") && typeof data.issue021Proof === "boolean" &&
-    (!Object.hasOwn(data, "issue022Proof") || typeof data.issue022Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue023Proof") || typeof data.issue023Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue024Proof") || typeof data.issue024Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue028Proof") || typeof data.issue028Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue030Proof") || typeof data.issue030Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue033Proof") || typeof data.issue033Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue034Proof") || typeof data.issue034Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue035Proof") || typeof data.issue035Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue036Proof") || typeof data.issue036Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue039Proof") || typeof data.issue039Proof === "boolean") &&
-    (!Object.hasOwn(data, "issue040Proof") || typeof data.issue040Proof === "boolean") &&
     (!Object.hasOwn(data, "runGamePipeline") || typeof data.runGamePipeline === "boolean") &&
-    (!Object.hasOwn(data, "issue023Case") ||
-      typeof data.issue023Case === "string" &&
-      ["normal", "delay-run", "delay-run-late", "delay-run-long", "delay-event", "unexpected"]
-        .includes(data.issue023Case)),
+    (extension?.bootstrap?.validateData?.(data) ?? true),
   onPort: (port, data, additionalPorts) => {
     if (protocolPort) return;
     protocolGeneration = data.contextGeneration;
     expectedPreviewId = data.previewId;
-    issue023ProofEnabled = data.issue023Proof === true;
-    issue023Case = issue023ProofEnabled ? data.issue023Case ?? "normal" : "normal";
     runGamePipeline = data.runGamePipeline === true;
-    constructAfterLoad = data.issue022Proof === true;
-    globalThis.previewIssue22Proof.enabled = data.issue022Proof === true;
-    globalThis.previewIssue023Proof.enabled = issue023ProofEnabled;
-    globalThis.previewIssue024Proof.enabled = data.issue024Proof === true;
-    globalThis.previewIssue028Proof.enabled = data.issue028Proof === true;
-    globalThis.previewIssue030Proof.enabled = data.issue030Proof === true;
-    globalThis.previewIssue033Proof.enabled = data.issue033Proof === true;
-    globalThis.previewIssue034Proof.enabled = data.issue034Proof === true;
-    globalThis.previewIssue035Proof.enabled = data.issue035Proof === true;
-    globalThis.previewIssue036Proof.enabled = data.issue036Proof === true;
-    globalThis.previewIssue039Proof.enabled = data.issue039Proof === true;
-    globalThis.previewIssue040Proof.enabled = data.issue040Proof === true;
-    if (globalThis.previewIssue040Proof.enabled) installIssue040AudioProbe();
-    installPreviewBridge(additionalPorts[0], data.issue021Proof === true);
+    const bootstrapConfig = extension?.bootstrap?.onBootstrap?.(data) ?? {};
+    constructAfterLoad = bootstrapConfig.constructAfterLoad === true;
+    installPreviewBridge(additionalPorts[0], data);
     if (!nativeOutput.authenticate(data.contextGeneration))
       throw new Error("Native output generation authentication failed.");
     protocolPort = port;
-    const expectationRegistry = createProofExpectationRegistry({
-      authorized: data.issue021Proof,
+    const endpointParams = extension?.bootstrap?.endpointParams?.({
+      port,
+      previewId: expectedPreviewId,
       contextGeneration: data.contextGeneration,
       portIdentity: bootstrapObservations.portIdentity,
-      expectedRejections: globalThis.previewIssue21Proof.expectedProbeRejections,
-      unexpectedErrors: globalThis.previewIssue21Proof.errors,
-      expiredExpectations: globalThis.previewIssue21Proof.expiredProbeExpectations,
-    });
-    globalThis.previewIssue21RegisterExpectation = data.issue021Proof
-      ? expectation => expectationRegistry.register(expectation)
-      : undefined;
-    globalThis.previewIssue21RemoveExpectation = data.issue021Proof
-      ? correlationId => expectationRegistry.remove(correlationId)
-      : undefined;
-    const endpointProof = {
-      errors: globalThis.previewIssue21Proof.errors,
-      terminals: globalThis.previewIssue21Proof.endpoint.terminals,
-      closes: globalThis.previewIssue21Proof.endpoint.closes,
-      events: globalThis.previewIssue023Proof.events,
-      duplicateControls: [],
-    };
+      data,
+    }) ?? {};
     previewEndpoint = createPreviewEndpoint({
       port,
       previewId: expectedPreviewId,
@@ -1075,20 +251,14 @@ const bootstrapObservations = installPrivatePortBootstrap({
       executeMount: executeMountRequest,
       executeStart: executeStartRequest,
       executeStop: executeStopRequest,
-      expectations: data.issue021Proof ? expectationRegistry : undefined,
       contextGeneration: data.contextGeneration,
       portIdentity: bootstrapObservations.portIdentity,
-      proof: endpointProof,
+      ...endpointParams,
     });
     protocolPort.addEventListener("message", previewEndpoint.handle);
     protocolPort.start();
   },
 });
-globalThis.previewIssue21Proof.bootstrap = bootstrapObservations;
-
-function render() {
-  output.textContent = JSON.stringify(proofState, null, 2);
-}
 
 async function sha256Response(response) {
   const bytes = await response.arrayBuffer();
@@ -1113,18 +283,17 @@ async function verifyRuntimeAsset() {
   if (runtimeAssetSha256 !== metadata.monoGame.runtimeAssetSha256) {
     throw new Error("Staged MonoGame runtime asset hash does not match preview-build.json.");
   }
-  proofState.runtimeAsset = {
+  observe.onRuntimeAssetVerified({
     path: metadata.monoGame.runtimeAssetPath,
     sha256: runtimeAssetSha256,
     sourceAssemblySha256: metadata.monoGame.sourceAssemblySha256,
     verified: true,
-  };
+  });
   return metadata;
 }
 
 async function startRuntime() {
-  proofState.startupAttempts += 1;
-  render();
+  observe.onStartupAttempt();
   const metadata = await verifyRuntimeAsset();
   const runtime = await dotnet.create();
   const config = runtime.getConfig();
@@ -1138,21 +307,10 @@ async function startRuntime() {
   }
   exports.InitializeRuntimeFailureBoundary();
   await runtime.runMain();
-  proofState.successfulRuntimeStarts += 1;
-  globalThis.previewIssue21Proof.runtimeStarts += 1;
-  proofState.ready = true;
-  proofState.configuration = metadata.configuration;
-  proofState.runtimeSettings = metadata.runtimeSettings;
-  proofState.autoReadyPing = {
-    trusted: false,
-    executingGlobalIsIframeGlobal: globalThis === window && window !== parent,
-    realmToken,
-    ...JSON.parse(exports.Ping()),
-  };
+  runtimeReady = true;
+  observe.onRuntimeReady({ metadata, exports, realmToken });
   status.dataset.state = "ready";
-  status.textContent = "Ready: click for trusted in-realm Ping.";
-  pingButton.disabled = false;
-  render();
+  status.textContent = "Preview runtime ready.";
   sendBridgeReady();
   return exports;
 }
@@ -1163,8 +321,8 @@ async function executeMountRequest(message, observation) {
     getExports: () => exportsPromise,
     sha256: sha256Buffer,
     previewId: expectedPreviewId,
-    recordMount: mount => { globalThis.previewIssue039Proof.mounts.push(mount); },
-    recordMountFailure: failure => { globalThis.previewIssue039Proof.mountFailures.push(failure); },
+    recordMount: mount => observe.onMount(mount),
+    recordMountFailure: failure => observe.onMountFailure(failure),
   });
   return preStartAdmission.runMount(
     message.correlationId,
@@ -1192,10 +350,9 @@ async function executeLoadRequest(message, observation) {
     if (typeof exports.LoadUserAssembly !== "function") throw new Error("INTERNAL_ERROR");
     if (constructAfterLoad) {
       if (typeof exports.DiscoverAndConstructGame !== "function") throw new Error("INTERNAL_ERROR");
-      globalThis.previewIssue22Proof.beforeLoad =
-        JSON.parse(exports.DiscoverAndConstructGame());
+      observe.onBeforeLoadPipeline(JSON.parse(exports.DiscoverAndConstructGame()));
     }
-    loadState = "validating";
+    setLoadState("validating");
     const managed = JSON.parse(await exports.LoadUserAssembly(
       new Uint8Array(assembly),
       new Uint8Array(pdb),
@@ -1206,12 +363,11 @@ async function executeLoadRequest(message, observation) {
       message.payload.binaryProof.primarySourcePath,
     ));
     if (!managed.success) {
-      globalThis.previewIssue21Proof.lastManagedFailure = {
+      observe.onManagedLoadFailure({
         mutationStarted: managed.mutationStarted === true,
         code: managed.error?.code ?? "PREVIEW_LOAD_FAILED",
-      };
-      loadState = managed.mutationStarted ? "tainted" : "stopped";
-      globalThis.previewIssue21Proof.state = loadState;
+      });
+      setLoadState(managed.mutationStarted ? "tainted" : "stopped");
       return {
         result: { success: false, error: {
           code: managed.error?.code ?? "PREVIEW_LOAD_FAILED",
@@ -1223,21 +379,20 @@ async function executeLoadRequest(message, observation) {
     const load = managed.proof;
     if (load.assemblySha256 !== assemblySha256 || load.pdbSha256 !== pdbSha256 ||
         load.assemblyByteLength !== assembly.byteLength || load.pdbByteLength !== pdb.byteLength) {
-      loadState = "tainted";
-      globalThis.previewIssue21Proof.state = loadState;
+      setLoadState("tainted");
       return {
         result: { success: false, error: { code: "PREVIEW_LOAD_FAILED", message: "Managed byte proof mismatched." } },
         closeAfterResponse: true,
       };
     }
-    globalThis.previewIssue21Proof.load = {
+    observe.onLoadSuccess({
       ...load,
       compileId: message.payload.compileId,
       correlationId: message.correlationId,
       receiptAssemblySha256: assemblySha256,
       receiptPdbSha256: pdbSha256,
-    };
-    globalThis.previewIssue21Proof.requests.push({
+    });
+    observe.onLoadRequest({
       compileId: message.payload.compileId,
       correlationId: message.correlationId,
       measuredRequestBytes: observation.measuredBytes,
@@ -1245,20 +400,16 @@ async function executeLoadRequest(message, observation) {
     });
     if (constructAfterLoad) {
       if (typeof exports.DiscoverAndConstructGame !== "function") throw new Error("INTERNAL_ERROR");
-      loadState = "loaded";
-      globalThis.previewIssue21Proof.state = loadState;
+      setLoadState("loaded");
       const [pipeline, repeatedPipeline] = await Promise.all([
         Promise.resolve().then(() => JSON.parse(exports.DiscoverAndConstructGame())),
         Promise.resolve().then(() => JSON.parse(exports.DiscoverAndConstructGame())),
       ]);
-      globalThis.previewIssue22Proof.pipeline = pipeline;
-      globalThis.previewIssue22Proof.repeatedPipeline = repeatedPipeline;
-      globalThis.previewIssue22Proof.repeatMatched =
-        JSON.stringify(pipeline) === JSON.stringify(repeatedPipeline);
-      if (!globalThis.previewIssue22Proof.repeatMatched) throw new Error("INTERNAL_ERROR");
+      const repeatMatched = JSON.stringify(pipeline) === JSON.stringify(repeatedPipeline);
+      observe.onLoadPipeline({ pipeline, repeatedPipeline, repeatMatched });
+      if (!repeatMatched) throw new Error("INTERNAL_ERROR");
       if (!pipeline.success) {
-        loadState = "tainted";
-        globalThis.previewIssue21Proof.state = loadState;
+        setLoadState("tainted");
         const diagnostic = pipeline.diagnostic;
         return {
           result: { success: false, error: {
@@ -1270,8 +421,7 @@ async function executeLoadRequest(message, observation) {
         };
       }
     }
-    loadState = "loaded";
-    globalThis.previewIssue21Proof.state = loadState;
+    setLoadState("loaded");
     return {
       result: { success: true, data: {
         previewId: expectedPreviewId,
@@ -1283,22 +433,20 @@ async function executeLoadRequest(message, observation) {
       ? error.message
       : "PREVIEW_LOAD_FAILED";
     if (["INVALID_STATE", "DUPLICATE_CORRELATION_ID", "MALFORMED_PAYLOAD"].includes(code)) {
-      globalThis.previewIssue21Proof.rejections.push(code);
+      observe.onLoadRejection(code);
     } else if (loadState !== "loaded" && loadState !== "tainted") {
-      globalThis.previewIssue21Proof.errors.push(code);
+      observe.onLoadError(code);
     }
     if (loadState === "validating") {
-      loadState = "tainted";
-      globalThis.previewIssue21Proof.state = loadState;
+      setLoadState("tainted");
       return {
         result: { success: false, error: { code: "PREVIEW_LOAD_FAILED", message: "Managed load failed after mutation may have begun." } },
         closeAfterResponse: true,
       };
     }
     if (loadState === "loaded" || loadState === "tainted") {
-      loadState = "tainted";
-      globalThis.previewIssue21Proof.state = loadState;
-      globalThis.previewIssue21Proof.errors.push("INTERNAL_ERROR");
+      setLoadState("tainted");
+      observe.onLoadError("INTERNAL_ERROR");
       return {
         result: {
           success: false,
@@ -1324,28 +472,18 @@ async function executeStartRequest(message) {
     globalThis.__playgroundForwardOutput("native", stream, category, text))) {
     throw new Error("INVALID_STATE");
   }
+  const startConfig = extension?.bootstrap?.startConfig?.() ?? {};
   startExecutor ??= createPreviewStartExecutor({
     getState: () => loadState,
-    setState: state => {
-      loadState = state;
-      globalThis.previewIssue21Proof.state = state;
-    },
+    setState: state => setLoadState(state),
     getExports: () => exportsPromise,
     createLifecycleEvent: lifecycleEvent,
-    recordStart: start => { globalThis.previewIssue023Proof.start = start; },
-    recordFailureTeardown: teardown => {
-      globalThis.previewIssue023Proof.failureTeardown = teardown;
-    },
-    recordUnexpected: error => {
-      globalThis.previewIssue023Proof.expectedUnexpectedBoundary = error;
-    },
-    beforeRunDelayMs: issue023Case === "delay-run"
-      ? 150
-      : issue023Case === "delay-run-late"
-        ? 800
-        : issue023Case === "delay-run-long" ? 2_500 : 0,
-    startedEventDelayMs: issue023Case === "delay-event" ? 150 : 0,
-    throwUnexpectedBeforeExport: issue023Case === "unexpected",
+    recordStart: start => observe.onStart(start),
+    recordFailureTeardown: teardown => observe.onStartFailureTeardown(teardown),
+    recordUnexpected: error => observe.onStartUnexpected(error),
+    beforeRunDelayMs: startConfig.beforeRunDelayMs ?? 0,
+    startedEventDelayMs: startConfig.startedEventDelayMs ?? 0,
+    throwUnexpectedBeforeExport: startConfig.throwUnexpectedBeforeExport === true,
   });
   const outcome = await startExecutor(message);
   const outputEvents = pendingOutputEvents;
@@ -1383,13 +521,14 @@ async function executeStartRequest(message) {
 async function executeStopRequest(message) {
   stopExecutor ??= createPreviewStopExecutor({
     getState: () => loadState,
-    setState: state => {
-      loadState = state;
-      globalThis.previewIssue21Proof.state = state;
-    },
+    setState: state => setLoadState(state),
     getExports: () => exportsPromise,
     createLifecycleEvent: lifecycleEvent,
-    recordStop: stop => { globalThis.previewIssue024Proof.stop = stop; },
+    recordStop: stop => observe.onStop(stop),
+    // Neutral post-stop observation seam. Product supplies no extension, so
+    // `observe.onStopObservation` returns undefined and no proof reflection
+    // runs; the proof extension implements it to observe stopped quiescence.
+    observeStopped: exports => observe.onStopObservation(exports),
   });
   const outcome = await stopExecutor(message);
   return {
@@ -1417,178 +556,34 @@ function lifecycleEvent(type, correlationId, extra = {}) {
   };
 }
 
-const exportsPromise = startRuntime();
-globalThis.previewIssue023Query = async () => {
-  if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
-  const exports = await exportsPromise;
-  if (typeof exports.QueryRunState !== "function") throw new Error("INTERNAL_ERROR");
-  const result = JSON.parse(exports.QueryRunState(true));
-  globalThis.previewIssue023Proof.queries.push(result);
-  return result;
+// Neutral control surface handed to an optional extension. Exposes only what a
+// separately-staged module needs to observe the product lifecycle; it grants no
+// ability to alter the shipping protocol. Product builds never define the
+// extension factory, so `extension` stays null and every hook is inert.
+let exportsPromise = null;
+const previewControls = {
+  realmToken,
+  get loadState() { return loadState; },
+  get exportsPromise() { return exportsPromise; },
+  get previewEndpoint() { return previewEndpoint; },
+  get expectedPreviewId() { return expectedPreviewId; },
+  get protocolGeneration() { return protocolGeneration; },
+  get bootstrapObservations() { return bootstrapObservations; },
+  get nativeOutput() { return nativeOutput; },
+  get preStartAdmission() { return preStartAdmission; },
 };
-globalThis.previewIssue023RunnerSelfTest = async () => {
-  if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
-  const exports = await exportsPromise;
-  if (typeof exports.RunGameRunnerBehavioralSelfTest !== "function") {
-    throw new Error("INTERNAL_ERROR");
-  }
-  return JSON.parse(exports.RunGameRunnerBehavioralSelfTest());
-};
-globalThis.previewIssue027WriterSelfTest = async () => {
-  const exports = await exportsPromise;
-  if (typeof exports.RunForwardingTextWriterSelfTest !== "function")
-    throw new Error("INTERNAL_ERROR");
-  return JSON.parse(exports.RunForwardingTextWriterSelfTest());
-};
-globalThis.previewIssue028Snapshot = () => nativeOutput.snapshot();
-globalThis.previewIssue028EmitNativePaths = () => {
-  if (!globalThis.previewIssue028Proof.enabled) throw new Error("INVALID_STATE");
-  nativeOutput.print("Playground native runtime stdout proof.");
-  nativeOutput.printErr("Playground native runtime stderr proof.");
-};
-globalThis.previewIssue023EndpointSnapshot = () => {
-  if (!issue023ProofEnabled) throw new Error("INVALID_STATE");
-  return Object.freeze({
-    closed: previewEndpoint?.closed === true,
-    closeReasons: Object.freeze([
-      ...globalThis.previewIssue21Proof.endpoint.closes,
-    ]),
-    terminals: Object.freeze([
-      ...globalThis.previewIssue21Proof.endpoint.terminals,
-    ]),
-    lifecycleEvents: Object.freeze([
-      ...globalThis.previewIssue023Proof.events,
-    ]),
-    expectedRejections: Object.freeze([
-      ...globalThis.previewIssue21Proof.expectedProbeRejections,
-    ]),
-    unexpectedErrors: Object.freeze([
-      ...globalThis.previewIssue21Proof.errors,
-    ]),
-  });
-};
-globalThis.previewIssue024Snapshot = () => Object.freeze({
-  ...globalThis.previewIssue024Proof,
-  state: loadState,
-  endpointClosed: previewEndpoint?.closed === true,
-  nativeOutput: nativeOutput.snapshot(),
-});
-globalThis.previewIssue029QuiescentProof = async () => {
-  const exports = await exportsPromise;
-  if (typeof exports.QueryStoppedGameProof !== "function") throw new Error("INTERNAL_ERROR");
-  const before = JSON.parse(exports.QueryStoppedGameProof());
-  await new Promise(resolve => globalThis.setTimeout(resolve, 100));
-  const after = JSON.parse(exports.QueryStoppedGameProof());
-  return Object.freeze({ before, after });
-};
-globalThis.previewIssue22Teardown = async () => {
-  const exports = await exportsPromise;
-  if (typeof exports.TeardownGame !== "function") throw new Error("INTERNAL_ERROR");
-  const result = JSON.parse(exports.TeardownGame());
-  globalThis.previewIssue22Proof.teardown.push(result);
-  loadState = "disposed";
-  globalThis.previewIssue21Proof.state = loadState;
-  return result;
-};
-window.addEventListener("pagehide", () => {
-  if (loadState !== "disposed") void globalThis.previewIssue22Teardown();
-}, { once: true });
-
-const originalCancelAnimationFrame = globalThis.cancelAnimationFrame.bind(globalThis);
-globalThis.cancelAnimationFrame = handle => {
-  if (globalThis.previewIssue024Proof.enabled && loadState === "stopping") {
-    globalThis.previewIssue024Proof.animationFrameCancellations++;
-  }
-  return originalCancelAnimationFrame(handle);
-};
-
-for (const name of [
-  "deleteBuffer", "deleteFramebuffer", "deleteProgram", "deleteQuery",
-  "deleteRenderbuffer", "deleteSampler", "deleteShader", "deleteTexture",
-  "deleteTransformFeedback", "deleteVertexArray",
-]) {
-  const original = WebGL2RenderingContext.prototype[name];
-  if (typeof original !== "function") continue;
-  WebGL2RenderingContext.prototype[name] = function (...args) {
-    if (globalThis.previewIssue024Proof.enabled && loadState === "stopping") {
-      globalThis.previewIssue024Proof.webglDeleteCalls++;
-    }
-    return original.apply(this, args);
-  };
+if (typeof extensionFactory === "function") {
+  extension = extensionFactory(previewControls) ?? null;
 }
 
-const originalWebGlClear = WebGL2RenderingContext.prototype.clear;
-WebGL2RenderingContext.prototype.clear = function (mask) {
-  const result = originalWebGlClear.call(this, mask);
-  if (globalThis.previewIssue030Proof.enabled &&
-      (mask & this.COLOR_BUFFER_BIT) !== 0 &&
-      globalThis.previewIssue030Proof.samples.length < 8) {
-    try {
-      const pixel = new Uint8Array(4);
-      this.readPixels(
-        Math.floor(this.drawingBufferWidth / 2),
-        Math.floor(this.drawingBufferHeight / 2),
-        1, 1, this.RGBA, this.UNSIGNED_BYTE, pixel);
-      globalThis.previewIssue030Proof.samples.push([...pixel]);
-    } catch (error) {
-      globalThis.previewIssue030Proof.errors.push(
-        error instanceof Error ? error.message : String(error));
-    }
-  }
-  return result;
-};
-globalThis.previewIssue030PixelProof = () => Object.freeze({
-  samples: globalThis.previewIssue030Proof.samples.map(sample => [...sample]),
-  errors: [...globalThis.previewIssue030Proof.errors],
-});
-
-for (const AudioContextType of [globalThis.AudioContext, globalThis.webkitAudioContext]) {
-  if (!AudioContextType?.prototype || AudioContextType.prototype.__playgroundStopInstrumented) continue;
-  const originalClose = AudioContextType.prototype.close;
-  if (typeof originalClose !== "function") continue;
-  Object.defineProperty(AudioContextType.prototype, "__playgroundStopInstrumented", { value: true });
-  AudioContextType.prototype.close = function (...args) {
-    if (globalThis.previewIssue024Proof.enabled && loadState === "stopping") {
-      globalThis.previewIssue024Proof.audioCloseCalls++;
-    }
-    return originalClose.apply(this, args);
-  };
-}
-
-pingButton.addEventListener("click", async event => {
-  pingButton.disabled = true;
-  try {
-    const exports = await exportsPromise;
-    const managed = JSON.parse(exports.Ping());
-    if (event.isTrusted) {
-      proofState.trustedClickCount += 1;
-    }
-    proofState.ping = {
-      trusted: event.isTrusted,
-      executingGlobalIsIframeGlobal: globalThis === window && window !== parent,
-      realmToken,
-      ...managed,
-    };
-    status.textContent = `${managed.message}; managed call ${managed.callCount}; trusted=${event.isTrusted}`;
-    render();
-  } catch (error) {
-    showError(error);
-  } finally {
-    pingButton.disabled = false;
-  }
-});
-
-function showError(error) {
-  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
-  proofState.errors.push(message);
-  status.dataset.state = "error";
-  status.textContent = message;
-  render();
-  console.error(error);
-}
+exportsPromise = startRuntime();
 
 try {
   await exportsPromise;
 } catch (error) {
-  showError(error);
+  const message = error instanceof Error ? `${error.name}: ${error.message}` : String(error);
+  observe.onError(message);
+  status.dataset.state = "error";
+  status.textContent = message;
+  console.error(error);
 }

@@ -7,11 +7,42 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Compiler build profile. Defaults to PRODUCT; the PROOF staging path sets
+         MONOGAME_FRONTEND_PROFILE=proof (honored below) so that, and only that,
+         build compiles the proof-only CompilerExports unit and deploys the
+         proof-only wwwroot instrumentation (compiler-proof-extension.js, the
+         proof index.html, and the shared proof endpoints). The default PRODUCT
+         publish compiles and stages neither, so the shipped compiler wasm/JS
+         carry no proof export, retention-behavior proof, handshake, proof
+         DOM/state, or interactive proof buttons. -->
+    <MonoGameCompilerProfile Condition="'$(MonoGameCompilerProfile)' == ''">$(MONOGAME_FRONTEND_PROFILE)</MonoGameCompilerProfile>
+    <MonoGameCompilerProfile Condition="'$(MonoGameCompilerProfile)' == ''">product</MonoGameCompilerProfile>
   </PropertyGroup>
+
+  <!-- Proof-only compiler compilation unit. The WebAssembly SDK auto-includes
+       CompilerExports.Proof.cs via the Compile glob (removed for product), and
+       `dotnet publish` auto-includes every wwwroot/* file via the Content glob.
+       The product publish therefore must explicitly Content Remove the proof-only
+       wwwroot assets so the staged product compiler carries no proof extension,
+       proof index, retention-behavior proof, handshake, proof DOM/state, or
+       interactive proof buttons. -->
+  <ItemGroup Condition="'$(MonoGameCompilerProfile)' != 'proof'">
+    <Compile Remove="CompilerExports.Proof.cs" />
+    <Content Remove="wwwroot/compiler-proof-extension.js" />
+    <Content Remove="wwwroot/index.proof.html" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(MonoGameCompilerProfile)' == 'proof'">
+    <!-- The proof publish drops the product index.html and keeps index.proof.html
+         (published as index.proof.html); stage-compiler.mjs renames it to
+         index.html for the proof staging. The proof extension ships via the
+         wwwroot Content glob; the shared proof endpoints are copied by staging. -->
+    <Content Remove="wwwroot/index.html" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
-    <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
+    <WasmExtraFilesToDeploy Include="wwwroot/index.html" Condition="'$(MonoGameCompilerProfile)' != 'proof'" />
     <WasmExtraFilesToDeploy Include="../shared/ProtocolRuntime.js" TargetPath="ProtocolRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/Issue21Endpoints.js" TargetPath="Issue21Endpoints.js" />
     <EmbeddedResource Include="References/*.dll">

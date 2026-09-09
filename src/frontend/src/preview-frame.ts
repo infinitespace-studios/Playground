@@ -3,6 +3,31 @@ export const PREVIEW_CSP = "default-src 'none'; script-src playground-preview: '
 export const PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL =
   PREVIEW_CSP.replace(" 'wasm-unsafe-eval'", "");
 
+// Build-profile flag (statically replaced by Vite's `define`). The PROOF build
+// sets it true so the preview srcdoc additionally loads the proof-only runtime
+// extension, proof DOM, and negative observer; the PRODUCT build leaves it
+// false (also the fallback under tsc/node) so the shipping preview document
+// references none of the proof surface. Declared as an ambient global so
+// typecheck and node test runs (where the define is absent) compile with the
+// safe PRODUCT default.
+declare const __MONOGAME_PREVIEW_PROOF__: boolean | undefined;
+const PREVIEW_PROOF_PROFILE =
+  typeof __MONOGAME_PREVIEW_PROOF__ !== "undefined" && __MONOGAME_PREVIEW_PROOF__ === true;
+
+// Proof-only preview document fragments. Empty strings in the PRODUCT build, so
+// its srcdoc loads only the neutral preview runtime (no proof extension, no
+// #ping / #proof-state DOM, no negative observer). The extension module is
+// listed BEFORE preview.js so it registers the neutral extension seam before
+// the runtime evaluates.
+const PROOF_PREVIEW_DOM = PREVIEW_PROOF_PROFILE
+  ? `\n<button id="ping" type="button" disabled>Prove preview runtime</button>` +
+    `\n<pre id="proof-state" aria-label="Preview proof state"></pre>`
+  : "";
+const PROOF_PREVIEW_SCRIPTS = PREVIEW_PROOF_PROFILE
+  ? `\n<script src="playground-preview://localhost/issue033-negative-observer.js"></script>` +
+    `\n<script type="module" src="playground-preview://localhost/preview-proof-extension.js"></script>`
+  : "";
+
 function previewDocument(csp: string): string {
   return `<!doctype html>
 <html lang="en"><head><meta charset="UTF-8">
@@ -13,16 +38,17 @@ function previewDocument(csp: string): string {
 <link rel="stylesheet" href="playground-preview://localhost/preview.css">
 </head><body>
 <canvas id="canvas" width="640" height="360" aria-label="MonoGame preview render surface"></canvas>
-<button id="ping" type="button" disabled>Prove preview runtime</button>
-<p id="status" role="status" aria-live="polite">Booting one Release .NET runtime...</p>
-<pre id="proof-state" aria-label="Preview proof state"></pre>
-<script src="playground-preview://localhost/issue033-negative-observer.js"></script>
+<p id="status" role="status" aria-live="polite">Booting one Release .NET runtime...</p>${PROOF_PREVIEW_DOM}${PROOF_PREVIEW_SCRIPTS}
 <script type="module" src="playground-preview://localhost/preview.js"></script>
 </body></html>`;
 }
 
 export const PREVIEW_DOCUMENT = previewDocument(PREVIEW_CSP);
-export const ISSUE033_NO_WASM_EVAL_DOCUMENT =
+// Responsibility-neutral name (Stage 6 remediation): the preview document with
+// the `wasm-unsafe-eval` source stripped from its CSP, used to prove the
+// runtime refuses to boot without WASM compilation. Historical issue-numbered
+// callers live only in the proof module (issue21.ts).
+export const PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL =
   PREVIEW_DOCUMENT.replace(" 'wasm-unsafe-eval'", "");
 
 interface PendingBridgeRequest {
@@ -50,9 +76,9 @@ export function loadPreviewIframe(frame: HTMLIFrameElement): void {
   frame.srcdoc = PREVIEW_DOCUMENT;
 }
 
-export function loadIssue033NoWasmEvalPreviewIframe(frame: HTMLIFrameElement): void {
+export function loadPreviewIframeWithoutWasmEval(frame: HTMLIFrameElement): void {
   configurePreviewIframe(frame);
-  frame.srcdoc = ISSUE033_NO_WASM_EVAL_DOCUMENT;
+  frame.srcdoc = PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL;
 }
 
 export function createPreviewIframe(): HTMLIFrameElement {

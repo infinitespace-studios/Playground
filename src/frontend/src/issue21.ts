@@ -29,7 +29,7 @@ import { withForcedPreviewRetirement } from "./issue23-controller";
 import {
   createPreviewBridge,
   createPreviewIframe,
-  loadIssue033NoWasmEvalPreviewIframe,
+  loadPreviewIframeWithoutWasmEval,
   loadPreviewIframe,
   previewBridgeFor,
   type PreviewBridge,
@@ -45,17 +45,16 @@ import {
   getLivePreviewFrame,
   hostTransport,
   initialPreviewBridge,
-  isProofModeAuthorized,
   previewClient,
   previewFrame,
   previewGeneration,
   previewId,
+  registerBootstrapAugmentation,
   registerContextSetup,
   requiredElement,
   retireInitialPreviewContext,
   setLastPrimaryRunFrame,
   setLivePreviewFrame,
-  setProofModeAuthorized,
   waitForTopRuntime,
 } from "./compiler-context";
 
@@ -384,6 +383,16 @@ async function requireVisiblePreviewFrame(
   }
   return child;
 }
+
+// Proof-mode authorization (proof-only; product never imports this module).
+// Owned here rather than in the product compiler context. The historical
+// `issue021Proof` bootstrap field is contributed to the child bootstrap message
+// through the neutral augmentation seam registered below, so the product
+// bootstrap carries no proof authorization variable at all.
+let proofModeAuthorized = false;
+const isProofModeAuthorized = () => proofModeAuthorized;
+const setProofModeAuthorized = (value: boolean) => { proofModeAuthorized = value; };
+registerBootstrapAugmentation(() => ({ issue021Proof: proofModeAuthorized }));
 
 // Proof-only context setup: register the post-mutation taint prover and the
 // preview probe-expectation registrar. compiler-context's ensureContexts() runs
@@ -2148,7 +2157,7 @@ export async function probeInPageNoWasmEvalBoot(
 
   setLivePreviewFrame(frame);
   // No-wasm-eval CSP variant; set srcdoc BEFORE append (about:blank load-race).
-  loadIssue033NoWasmEvalPreviewIframe(frame);
+  loadPreviewIframeWithoutWasmEval(frame);
   canvasFrame.appendChild(frame);
 
   try {
@@ -2180,8 +2189,9 @@ export async function probeInPageNoWasmEvalBoot(
 // It returns the same low-level surface the content-workflow proof needs
 // (protocol client + bridge + previewId/generation + awaitable retire/exists),
 // leaving binary/asset transfer to the caller INLINE over the protocol port
-// (like `runLivePreviewInPage`), so no Rust transfer store / `issue038_*` /
-// `issue039_store_asset` mediation is required. Unlike `runInPagePreviewForProof`
+// (like `runLivePreviewInPage`), so no Rust transfer store / `issue038_*`
+// asset-store command mediation is required (Stage 6 removed those dead
+// commands). Unlike `runInPagePreviewForProof`
 // it does not auto load/start/stop — the caller drives mount→load→start→stop
 // explicitly (content must be mounted after load and before start).
 export interface EmbeddedProofPreviewContext {

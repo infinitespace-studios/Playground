@@ -28,16 +28,18 @@ import {
   PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL,
   PREVIEW_DOCUMENT,
   PREVIEW_SANDBOX,
-  ISSUE033_NO_WASM_EVAL_DOCUMENT,
+  PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL,
 } from "./preview-frame.ts";
 
 import { installPrivatePortBootstrap } from "../../shared/ProtocolRuntime.js";
 import {
   createCompilerEndpoint,
   createPreviewEndpoint,
+} from "../../shared/Issue21Endpoints.js";
+import {
   createProofExpectationRegistry,
   initializeCompilerProofMode,
-} from "../../shared/Issue21Endpoints.js";
+} from "../../shared/Issue21EndpointsProof.js";
 import {
   createPreviewStartExecutor,
   UnexpectedStartBoundaryError,
@@ -798,7 +800,7 @@ test("actual endpoints sanitize malformed input and produce one terminal respons
   const compilerChannel = new MessageChannel();
   const compiler = createCompilerEndpoint({
     port: compilerChannel.port1,
-    proof: { errors: [], terminals: [], closes: [] },
+    observer: { errors: [], terminals: [], closes: [] },
     execute: async () => ({ result: { success: false, error: { code: "COMPILE_FAILED", message: "safe" } } }),
   });
     compilerChannel.port1.addEventListener("message", compiler.handle);
@@ -817,7 +819,7 @@ test("actual endpoints sanitize malformed input and produce one terminal respons
     const previewChannel = new MessageChannel();
     const preview = createPreviewEndpoint({
       port: previewChannel.port1, previewId: uuid,
-      proof: { errors: [], terminals: [], closes: [] },
+      observer: { errors: [], terminals: [], closes: [] },
       execute: async () => { throw new Error("MESSAGE_SOURCE_REJECTED"); },
     });
     previewChannel.port1.addEventListener("message", preview.handle);
@@ -851,7 +853,7 @@ test("actual endpoints sanitize malformed input and produce one terminal respons
     const proof = { errors: [], terminals: [], closes: [], duplicateControls: [] };
     const endpoint = createCompilerEndpoint({
       port: channel.port1,
-      proof,
+      observer: proof,
       execute: async () => {
         executeCalls += 1;
         await executeGate;
@@ -993,7 +995,7 @@ function expectation(correlationId = uuid, phase = "probe", code = "INVALID_STAT
       const endpoint = createPreviewEndpoint({
         port: { postMessage() {}, close() {} },
         previewId: uuid,
-        proof: { errors, terminals: [], closes: [] },
+        observer: { errors, terminals: [], closes: [] },
         execute: async () => { throw new Error("INVALID_STATE"); },
       });
       const assembly = new ArrayBuffer(1);
@@ -1030,7 +1032,7 @@ function expectation(correlationId = uuid, phase = "probe", code = "INVALID_STAT
           consume() { consumeCalls += 1; return false; },
           phaseFor() { phaseCalls += 1; return undefined; },
         },
-        proof: { errors: [], terminals: [], closes: [] },
+        observer: { errors: [], terminals: [], closes: [] },
         execute: async () => ({
           result: {
             success: true,
@@ -1096,7 +1098,7 @@ function expectation(correlationId = uuid, phase = "probe", code = "INVALID_STAT
       const endpoint = createPreviewEndpoint({
         port: { postMessage() {}, close() {} },
         previewId: uuid,
-        proof: { errors, terminals: [], closes: [] },
+        observer: { errors, terminals: [], closes: [] },
         expectations: registry,
         contextGeneration: compileId,
         portIdentity: "private-port-1",
@@ -1202,7 +1204,7 @@ function withPollutedPrototype<T>(key: string, value: unknown, action: () => T):
     let executeCalls = 0;
     const endpoint = createCompilerEndpoint({
       port: { postMessage(message: Record<string, any>) { posted.push(message); }, close() {} },
-      proof: { errors: [], terminals: [], closes: [] },
+      observer: { errors: [], terminals: [], closes: [] },
       execute: async () => {
         executeCalls += 1;
         return { result: { success: false, error: { code: "COMPILE_FAILED", message: "unused" } } };
@@ -1231,7 +1233,7 @@ test("actual endpoint closes on sender detach failure", async () => {
   };
   const endpoint = createCompilerEndpoint({
     port: fakePort,
-    proof: { errors: [], terminals: [], closes: [] },
+    observer: { errors: [], terminals: [], closes: [] },
     execute: async () => ({
       result: { success: true, data: {} },
       transfer: [new ArrayBuffer(1)],
@@ -1250,7 +1252,7 @@ test("post-terminal instrumentation failure cannot emit a second terminal", asyn
         postMessage(message: Record<string, any>) { posted.push(message); },
         close() { closed = true; },
       },
-      proof: { errors: [], terminals: [], closes: [] },
+      observer: { errors: [], terminals: [], closes: [] },
       execute: async () => ({
         result: { success: false, error: { code: "COMPILE_FAILED", message: "expected" } },
         afterPost: () => { throw new Error("instrumentation failure"); },
@@ -1273,7 +1275,7 @@ test("actual preview endpoint rejects aliased and detached binary requests befor
         close() {},
       },
       previewId: uuid,
-      proof: { errors: [], terminals: [], closes: [] },
+      observer: { errors: [], terminals: [], closes: [] },
       execute: async () => {
         loadCalls += 1;
         return { result: { success: true, data: { previewId: uuid, compileId } } };
@@ -1351,7 +1353,8 @@ test("validates exact stop request and response contracts", () => {
 test("stop executor disposes once and emits one stopped completion", async () => {
   let state = "running";
   let stopCalls = 0;
-  let records = 0;
+  const records: Array<Record<string, unknown>> = [];
+  let observedExports = false;
   let sequence = 1;
   const execute = createPreviewStopExecutor({
     getState: () => state,
@@ -1364,10 +1367,6 @@ test("stop executor disposes once and emits one stopped completion", async () =>
           proofDisposeCount: 1, frameCount: 4,
         });
       },
-      QueryStoppedGameProof: () => JSON.stringify({
-        frameCount: 4, updateCount: 4, disposeCount: 1,
-        callbackAfterDisposedCount: 0,
-      }),
     }),
     createLifecycleEvent: (type, correlationId, extra = {}) => ({
       protocolVersion: 1,
@@ -1375,14 +1374,22 @@ test("stop executor disposes once and emits one stopped completion", async () =>
       type,
       payload: { previewId: uuid, sequence: ++sequence, ...extra },
     }),
-    recordStop: () => { records++; },
+    recordStop: stop => { records.push(stop); },
+    // Neutral post-stop observation seam (proof supplies the real observer).
+    observeStopped: exports => {
+      observedExports = typeof exports.StopGame === "function";
+      return { disposeCount: 1 };
+    },
   });
   const first = execute(stopRequest());
   const concurrent = execute(stopRequest(compileId));
   const [firstOutcome, concurrentOutcome] = await Promise.all([first, concurrent]);
   assert.equal(stopCalls, 1);
   assert.equal(state, "disposed");
-  assert.equal(records, 2);
+  assert.equal(records.length, 2);
+  // The observation result is threaded through as the neutral `quiescent` field.
+  assert.equal(observedExports, true);
+  assert.deepEqual(records[1].quiescent, { disposeCount: 1 });
   assert.deepEqual(firstOutcome.events.map(event => event.type), ["preview.stopped"]);
   assert.equal(firstOutcome.events[0].payload.reason, "requested");
   assert.equal(concurrentOutcome.events, undefined);
@@ -1405,9 +1412,6 @@ test("actual endpoint makes stop win during awaited start with one stopped event
       disposeCalls++;
       return JSON.stringify({ success: true, disposeAttempts: 1 });
     },
-    QueryStoppedGameProof: () => JSON.stringify({
-      frameCount: 0, updateCount: 0, disposeCount: 1, callbackAfterDisposedCount: 0,
-    }),
   };
   const lifecycleEvent = (type: string, correlationId: string, extra = {}) => ({
     protocolVersion: 1,
@@ -1438,7 +1442,7 @@ test("actual endpoint makes stop win during awaited start with one stopped event
       close() {},
     },
     previewId: uuid,
-    proof: { errors: [], terminals: [], closes: [], events: [] },
+    observer: { errors: [], terminals: [], closes: [], events: [] },
     execute: async () => { throw new Error("INVALID_STATE"); },
     executeStart,
     executeStop,
@@ -1479,7 +1483,7 @@ test("already-stopped stop posts response before retiring actual endpoint", asyn
       close() { order.push("close"); },
     },
     previewId: uuid,
-    proof: { errors: [], terminals: [], closes: [], events: [] },
+    observer: { errors: [], terminals: [], closes: [], events: [] },
     execute: async () => { throw new Error("INVALID_STATE"); },
     executeStop,
   });
@@ -1545,7 +1549,7 @@ test("actual start endpoint rejects wrong version, type, and preview identity be
         close() {},
       },
       previewId: uuid,
-      proof: { errors: [], terminals: [], closes: [], events: [] },
+      observer: { errors: [], terminals: [], closes: [], events: [] },
       execute: async () => { executions += 1; throw new Error("INVALID_STATE"); },
       executeStart: async () => { executions += 1; throw new Error("INVALID_STATE"); },
     });
@@ -1572,7 +1576,7 @@ test("actual preview endpoint enforces start state, one execution, and response-
       close() {},
     },
     previewId: uuid,
-    proof,
+    observer: proof,
     execute: async () => {
       loaded = true;
       return { result: { success: true, data: { previewId: uuid, compileId } } };
@@ -1621,7 +1625,7 @@ test("concurrent duplicate start correlation executes once and receives one term
       close() {},
     },
     previewId: uuid,
-    proof: { errors: [], terminals: [], closes: [], events: [], duplicateControls: [] },
+    observer: { errors: [], terminals: [], closes: [], events: [], duplicateControls: [] },
     execute: async () => { throw new Error("INVALID_STATE"); },
     executeStart: async () => {
       starts += 1;
@@ -1653,7 +1657,7 @@ test("distinct concurrent starts admit one and reject the other without a second
       close() {},
     },
     previewId: uuid,
-    proof: { errors: [], terminals: [], closes: [], events: [] },
+    observer: { errors: [], terminals: [], closes: [], events: [] },
     execute: async () => { throw new Error("INVALID_STATE"); },
     executeStart: async () => {
       if (lifecycle !== "loaded") throw new Error("INVALID_STATE");
@@ -1683,7 +1687,7 @@ test("synchronous start failure orders response, failed, stopped and disposes on
       close() {},
     },
     previewId: uuid,
-    proof: { errors: [], terminals: [], closes: [], events: [] },
+    observer: { errors: [], terminals: [], closes: [], events: [] },
     execute: async () => { throw new Error("INVALID_STATE"); },
     executeStart: async message => {
       disposeAttempts += 1;
@@ -2162,6 +2166,8 @@ test("issue 033 sandbox and CSP remain restrictive", async () => {
     new URL("../../desktop/src-tauri/tauri.conf.json", import.meta.url), "utf8");
   const previewRuntime = await readFile(
     new URL("../../preview/wwwroot/preview.js", import.meta.url), "utf8");
+  const previewProofExtension = await readFile(
+    new URL("../../preview/wwwroot/preview-proof-extension.js", import.meta.url), "utf8");
   const issue21Runtime = await readFile(
     new URL("./issue21.ts", import.meta.url), "utf8");
   assert.equal(PREVIEW_SANDBOX, "allow-scripts");
@@ -2186,26 +2192,204 @@ test("issue 033 sandbox and CSP remain restrictive", async () => {
     PREVIEW_CSP.length - PREVIEW_CSP_WITHOUT_WASM_UNSAFE_EVAL.length,
     " 'wasm-unsafe-eval'".length);
   assert.equal(
-    ISSUE033_NO_WASM_EVAL_DOCUMENT,
+    PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL,
     PREVIEW_DOCUMENT.replace(" 'wasm-unsafe-eval'", ""));
   assert.doesNotMatch(PREVIEW_DOCUMENT, /issue033ForbiddenInlineProbeRan/);
-  assert.doesNotMatch(ISSUE033_NO_WASM_EVAL_DOCUMENT, /issue033ForbiddenInlineProbeRan/);
+  assert.doesNotMatch(PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL, /issue033ForbiddenInlineProbeRan/);
   assert.match(config, /frame-src 'self' playground-preview:/);
   assert.match(previewRuntime, /withResourceLoader/);
   assert.match(previewRuntime, /credentials:\s*"omit"/);
-  assert.match(previewRuntime, /ANIMATION_FRAME_TIMEOUT/);
+  // The animation-frame bridge action is proof-only and lives in the proof
+  // extension, not the shipping preview runtime.
+  assert.match(previewProofExtension, /ANIMATION_FRAME_TIMEOUT/);
+  assert.doesNotMatch(previewRuntime, /ANIMATION_FRAME_TIMEOUT/);
+  // The stopped-game quiescence proof observation was moved out of the shared
+  // product stop runtime and behind the proof-only extension's neutral
+  // `onStopObservation` hook. The product stop runtime must reference neither
+  // the proof JSExport nor the settle delay; the proof extension owns both.
+  const previewStopRuntime = await readFile(
+    new URL("../../shared/PreviewStopRuntime.js", import.meta.url), "utf8");
+  assert.doesNotMatch(previewStopRuntime, /QueryStoppedGameProof/);
+  assert.match(previewStopRuntime, /observeStopped/); // non-vacuous product floor
+  assert.match(previewProofExtension, /onStopObservation/);
+  assert.match(previewProofExtension, /QueryStoppedGameProof/);
+  // Product preview runtime must carry no proof instrumentation surface.
+  for (const forbidden of [
+    /previewIssue/,
+    /installIssue040AudioProbe/,
+    /createProofExpectationRegistry/,
+    /QueryIssue039State/,
+    /QueryStoppedGameProof/,
+    /Issue034FileSystemProbe/,
+  ]) {
+    assert.doesNotMatch(previewRuntime, forbidden);
+  }
+  // Non-vacuous floor: it IS the product preview runtime.
+  assert.match(previewRuntime, /createPreviewEndpoint/);
+  assert.match(previewRuntime, /verifyRuntimeAsset/);
   assert.match(issue21Runtime, /async function requireVisiblePreviewFrame\(/);
   assert.match(issue21Runtime, /frame\.scrollIntoView/);
 });
 
+test("product compiler harness and shared endpoints carry no proof surface", async () => {
+  const compilerRuntime = await readFile(
+    new URL("../../compiler/wwwroot/compiler-harness.js", import.meta.url), "utf8");
+  const compilerProofExtension = await readFile(
+    new URL("../../compiler/wwwroot/compiler-proof-extension.js", import.meta.url), "utf8");
+  const sharedEndpoints = await readFile(
+    new URL("../../shared/Issue21Endpoints.js", import.meta.url), "utf8");
+  const sharedProofEndpoints = await readFile(
+    new URL("../../shared/Issue21EndpointsProof.js", import.meta.url), "utf8");
+
+  // The product compiler harness must contain none of the proof globals, proof
+  // DOM/state, retention-behavior proof, or proof-mode handshake.
+  for (const forbidden of [
+    /compilerProof/,
+    /compilerIssue21Proof/,
+    /initializeCompilerProofMode/,
+    /createProofExpectationRegistry/,
+    /AuthorizeRetentionProof/,
+    /CompleteRetentionProof/,
+    /GetRetentionState/,
+    /runRetentionBehaviorProof/,
+    /proof-state/,
+  ]) {
+    assert.doesNotMatch(compilerRuntime, forbidden);
+  }
+  // Non-vacuous floor: it IS the product compiler runtime (retained binary
+  // transfer over the protocol endpoint with the binary-integrity envelope).
+  assert.match(compilerRuntime, /createCompilerEndpoint/);
+  assert.match(compilerRuntime, /executeCompileRequest/);
+  assert.match(compilerRuntime, /CompileAndRetain/);
+  assert.match(compilerRuntime, /binaryProof/);
+
+  // The proof surface lives in the proof extension + proof-only shared module.
+  assert.match(compilerProofExtension, /initializeCompilerProofMode/);
+  assert.match(compilerProofExtension, /compilerIssue21Proof/);
+  assert.match(compilerProofExtension, /runRetentionBehaviorProof/);
+  assert.match(compilerProofExtension, /AuthorizeRetentionProof/);
+
+  // The shared product endpoints module must retain the protocol plumbing and
+  // the binary-integrity envelope validation, but no proof registry/handshake.
+  assert.match(sharedEndpoints, /createCompilerEndpoint/);
+  assert.match(sharedEndpoints, /createPreviewEndpoint/);
+  assert.doesNotMatch(sharedEndpoints, /createProofExpectationRegistry/);
+  assert.doesNotMatch(sharedEndpoints, /initializeCompilerProofMode/);
+  // The proof-only shared sibling owns the moved functions.
+  assert.match(sharedProofEndpoints, /export function createProofExpectationRegistry/);
+  assert.match(sharedProofEndpoints, /export async function initializeCompilerProofMode/);
+});
+
+test("product frontend source carries no proof-numbered/issue-numbered identifiers (Stage 6 remediation)", async () => {
+  const read = (rel: string) => readFile(new URL(rel, import.meta.url), "utf8");
+  const [
+    compilerContext, projectManager, previewPanel, monaco, firstRun, styleCss,
+    sharedEndpoints, previewStopRuntime, livePreview, previewFrame,
+    lifecycleController,
+  ] = await Promise.all([
+    read("./compiler-context.ts"),
+    read("./project-manager.ts"),
+    read("./preview-panel.ts"),
+    read("./monaco-editor.ts"),
+    read("./first-run-warning.ts"),
+    read("./style.css"),
+    read("../../shared/Issue21Endpoints.js"),
+    read("../../shared/PreviewStopRuntime.js"),
+    read("./live-preview.ts"),
+    read("./preview-frame.ts"),
+    read("./lifecycle-controller.ts"),
+  ]);
+
+  // (1) The product compiler context must not send an issue021 proof bootstrap
+  // field or carry a proof-authorization variable. The historical field is now
+  // contributed only by the proof extension through the neutral augmentation
+  // seam. The product live-preview Run path is likewise neutral.
+  assert.doesNotMatch(compilerContext, /issue021Proof/);
+  assert.doesNotMatch(compilerContext, /proofModeAuthorized/);
+  assert.doesNotMatch(compilerContext, /setProofModeAuthorized/);
+  assert.doesNotMatch(livePreview, /issue021Proof/);
+  // Non-vacuous floors: the neutral augmentation seam IS present.
+  assert.match(compilerContext, /registerBootstrapAugmentation/);
+  assert.match(compilerContext, /protocol\.bootstrap/);
+  assert.match(livePreview, /bootstrapAugmentationFields/);
+  assert.match(livePreview, /runGamePipeline/);
+
+  // (2) The shared endpoints plumbing must be responsibility-neutral: the proof
+  // collector was renamed to `observer`. `binaryProof`/`validateBinaryProof`
+  // (the PRODUCT cryptographic integrity protocol) must NOT be touched.
+  assert.match(sharedEndpoints, /observer\?\.terminals/); // non-vacuous floor
+  assert.doesNotMatch(sharedEndpoints, /\bproof\?\./); // no proof collector vocabulary
+
+  // (3) project-manager domain identifiers renamed off the issue051 number.
+  for (const forbidden of [
+    /Issue051Manifest/, /Issue051File/, /Issue051Hooks/, /Issue051Api/,
+    /ISSUE051_SCHEMA_VERSION/,
+  ]) {
+    assert.doesNotMatch(projectManager, forbidden);
+  }
+  // Non-vacuous floors: the responsibility names ARE present.
+  assert.match(projectManager, /export interface ProjectManifest/);
+  assert.match(projectManager, /export const PROJECT_SCHEMA_VERSION/);
+  assert.match(projectManager, /ProjectManagerHooks/);
+  assert.match(projectManager, /ProjectManagerApi/);
+
+  // (4) preview-panel uses the responsibility-named lifecycle state.
+  assert.doesNotMatch(previewPanel, /Issue052PreviewLifecycle/);
+  assert.match(previewPanel, /PreviewLifecycleState/); // non-vacuous floor
+
+  // (5) Monaco action id renamed off the issue052 number.
+  assert.doesNotMatch(monaco, /issue052\.toggleTabMovesFocus/);
+  assert.match(monaco, /editor\.toggleTabMovesFocus/); // non-vacuous floor
+
+  // (6) First-run product DOM ids/classes renamed off issue037.
+  assert.doesNotMatch(firstRun, /issue037-/);
+  assert.doesNotMatch(styleCss, /issue037-/);
+  // Non-vacuous floors: the first-run- DOM vocabulary IS present.
+  assert.match(firstRun, /first-run-backdrop/);
+  assert.match(firstRun, /first-run-dialog/);
+  assert.match(styleCss, /\.first-run-backdrop/);
+
+  // (7) The shared product stop runtime carries no stopped-game proof export
+  // reference; the neutral observation hook is the floor.
+  assert.doesNotMatch(previewStopRuntime, /QueryStoppedGameProof/);
+  assert.match(previewStopRuntime, /observeStopped/); // non-vacuous floor
+
+  // (8) The product preview-frame module carries no issue-numbered *identifier*:
+  // the former ISSUE033_NO_WASM_EVAL_DOCUMENT / loadIssue033NoWasmEvalPreviewIframe
+  // were renamed to responsibility-neutral names (Stage 6 remediation). The one
+  // remaining `issue033-...` token is a proof-only asset URL that is statically
+  // stripped from the PRODUCT srcdoc (empty PROOF_PREVIEW_SCRIPTS when
+  // __MONOGAME_PREVIEW_PROOF__ is false), so the guard targets issue-numbered
+  // constant/function NAMES, not that kebab-case proof-asset path. The neutral
+  // names are the non-vacuous floor.
+  assert.doesNotMatch(previewFrame, /ISSUE0\d\d_[A-Z]/); // no SCREAMING_CASE issue const
+  assert.doesNotMatch(previewFrame, /Issue0\d\d[A-Za-z]/); // no PascalCase issue identifier
+  assert.doesNotMatch(previewFrame, /loadIssue0\d\d/); // no issue-numbered helper fn
+  assert.match(previewFrame, /export const PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL/);
+  assert.match(previewFrame, /export function loadPreviewIframeWithoutWasmEval/);
+
+  // (9) The product lifecycle controller domain module carries no issue-numbered
+  // identifier. The deprecated `Issue052PreviewLifecycle` alias now lives ONLY
+  // in the issue-numbered compatibility façade (issue24-controller.ts). The
+  // responsibility-named `PreviewLifecycleState` is the non-vacuous floor.
+  assert.doesNotMatch(lifecycleController, /Issue052PreviewLifecycle/);
+  assert.doesNotMatch(lifecycleController, /ISSUE0\d\d_[A-Z]/);
+  assert.doesNotMatch(lifecycleController, /Issue0\d\d[A-Za-z]/);
+  assert.match(lifecycleController, /export type PreviewLifecycleState/);
+});
+
 test("issue 034 commands are scoped to the local main webview", async () => {
   const root = new URL("../../desktop/src-tauri/", import.meta.url);
-  const [configText, capabilityText, permission, build, rust, cargo, frontendPackage,
+  const [configText, proofConfigText, capabilityText, proofCapabilityText, permission,
+    proofPermission, build, rust, cargo, frontendPackage,
     issue034Source, capabilityEntries, permissionEntries] =
     await Promise.all([
       readFile(new URL("tauri.conf.json", root), "utf8"),
+      readFile(new URL("tauri.proof.conf.json", root), "utf8"),
       readFile(new URL("capabilities/main.json", root), "utf8"),
+      readFile(new URL("capabilities/proof.json", root), "utf8"),
       readFile(new URL("permissions/main.toml", root), "utf8"),
+      readFile(new URL("permissions/proof.toml", root), "utf8"),
       readFile(new URL("build.rs", root), "utf8"),
       readFile(new URL("src/lib.rs", root), "utf8"),
       readFile(new URL("Cargo.toml", root), "utf8"),
@@ -2215,60 +2399,54 @@ test("issue 034 commands are scoped to the local main webview", async () => {
       readdir(new URL("permissions/", root), { withFileTypes: true }),
     ]);
   const config = JSON.parse(configText);
+  const proofConfig = JSON.parse(proofConfigText);
   const capability = JSON.parse(capabilityText);
-  const validateCapabilities = (
-    files: Array<{ name: string; capability: Record<string, unknown> }>,
+  const proofCapability = JSON.parse(proofCapabilityText);
+  // Stage 6 binary separation: the product build selects only the `main`
+  // capability (8 commands); the proof build additionally selects `proof` (70
+  // commands). Validate the shape of both, and that the product config never
+  // pulls in the proof capability.
+  const validateCapability = (
+    name: string,
+    value: Record<string, unknown>,
+    identifier: string,
+    composite: string,
   ) => {
-    assert.equal(files.length, 1);
-    assert.equal(files[0].name, "main.json");
-    const value = files[0].capability;
     assert.deepEqual(Object.keys(value).sort(),
       ["$schema", "description", "identifier", "local", "permissions", "windows"]);
-    assert.equal(value.identifier, "main");
-    assert.equal(value.local, true);
-    assert.deepEqual(value.windows, ["main"]);
-    assert.deepEqual(value.permissions, ["main-commands"]);
-    assert.equal("remote" in value, false);
-    assert.equal("webviews" in value, false);
+    assert.equal(value.identifier, identifier, name);
+    assert.equal(value.local, true, name);
+    assert.deepEqual(value.windows, ["main"], name);
+    assert.deepEqual(value.permissions, [composite], name);
+    assert.equal("remote" in value, false, name);
+    assert.equal("webviews" in value, false, name);
     assert.doesNotMatch(JSON.stringify(value), /"\*"/);
   };
-  validateCapabilities([{ name: "main.json", capability }]);
+  validateCapability("main.json", capability, "main", "main-commands");
+  validateCapability("proof.json", proofCapability, "proof", "proof-commands");
   for (const injected of [
-    [
-      { name: "main.json", capability },
-      { name: "remote.json", capability },
-    ],
-    [{
-      name: "main.json",
-      capability: { ...capability, remote: { urls: ["https://example.invalid"] } },
-    }],
-    [{
-      name: "main.json",
-      capability: { ...capability, windows: ["*"] },
-    }],
-    [{
-      name: "main.json",
-      capability: { ...capability, webviews: ["main"] },
-    }],
-    [{
-      name: "main.json",
-      capability: { ...capability, local: false },
-    }],
-    [{
-      name: "main.json",
-      capability: { ...capability, permissions: ["main-commands", "core:default"] },
-    }],
+    { ...capability, remote: { urls: ["https://example.invalid"] } },
+    { ...capability, windows: ["*"] },
+    { ...capability, webviews: ["main"] },
+    { ...capability, local: false },
+    { ...capability, permissions: ["main-commands", "core:default"] },
   ]) {
-    assert.throws(() => validateCapabilities(injected));
+    assert.throws(() =>
+      validateCapability("main.json", injected, "main", "main-commands"));
   }
+  // The product build selects only the main capability; the proof build selects
+  // both. Neither product config nor its capability references the proof grant.
+  assert.deepEqual(config.app.security.capabilities, ["main"]);
+  assert.deepEqual(proofConfig.app.security.capabilities, ["main", "proof"]);
   assert.deepEqual(
-    capabilityEntries.map(entry => [entry.name, entry.isFile()]),
-    [["main.json", true]]);
+    capabilityEntries.filter(entry => entry.isFile()).map(entry => entry.name).sort(),
+    ["main.json", "proof.json"]);
   assert.deepEqual(
-    permissionEntries.filter(entry => entry.isFile()).map(entry => entry.name),
-    ["main.toml"]);
+    permissionEntries.filter(entry => entry.isFile()).map(entry => entry.name).sort(),
+    ["main.toml", "proof.toml"]);
   assert.equal(permissionEntries.every(entry =>
     entry.name === "main.toml" && entry.isFile() ||
+    entry.name === "proof.toml" && entry.isFile() ||
     entry.name === "autogenerated" && entry.isDirectory()), true);
   assert.equal(config.app.withGlobalTauri, false);
   assert.equal(config.app.windows[0].label, "main");
@@ -2277,23 +2455,50 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   assert.deepEqual(capability.permissions, ["main-commands"]);
   const commandNames = (text: string) =>
     [...text.matchAll(/"([a-z][a-z0-9_]*)"/g)].map(match => match[1]);
-  const manifestBlock = build.match(/const APP_COMMANDS: &\[&str\] = &\[(.*?)\];/s)?.[1] ?? "";
-  const permissionBlock = permission.match(/commands\.allow = \[(.*?)\]/s)?.[1] ?? "";
+  const productBlock =
+    build.match(/const PRODUCT_COMMANDS: &\[&str\] = &\[(.*?)\];/s)?.[1] ?? "";
+  const proofBlock =
+    build.match(/const PROOF_COMMANDS: &\[&str\] = &\[(.*?)\];/s)?.[1] ?? "";
+  const handlerOrderBlock =
+    build.match(/const HANDLER_ORDER: &\[&str\] = &\[(.*?)\];/s)?.[1] ?? "";
+  const productCommands = commandNames(productBlock).sort();
+  const proofBuildCommands = commandNames(proofBlock).sort();
+  const handlerOrderCommands = commandNames(handlerOrderBlock).sort();
+  const mainPermissionBlock = permission.match(/commands\.allow = \[(.*?)\]/s)?.[1] ?? "";
+  const proofPermissionBlock = proofPermission.match(/commands\.allow = \[(.*?)\]/s)?.[1] ?? "";
+  const mainPermissionCommands = commandNames(mainPermissionBlock).sort();
+  const proofPermissionCommands = commandNames(proofPermissionBlock).sort();
   const handlerBlock = rust.match(/tauri::generate_handler!\[(.*?)\]\)/s)?.[1] ?? "";
-  const manifestCommands = commandNames(manifestBlock).sort();
-  const permissionCommands = commandNames(permissionBlock).sort();
+  // Strip the per-line proof-harness cfg gates before reading the identifiers.
   const handlerCommands = [...handlerBlock.matchAll(/^\s*([a-z][a-z0-9_]*),?\s*$/gm)]
     .map(match => match[1]).sort();
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
-  const proofCommands = commandNames(proofInventoryBlock).sort();
-  assert.equal(manifestCommands.length, 82);
-  assert.deepEqual(manifestCommands, handlerCommands);
-  assert.deepEqual(permissionCommands, handlerCommands);
-  assert.deepEqual(proofCommands, handlerCommands);
-  assert.match(permission, /issue034_trusted_marker/);
-  // Issue 050 legitimately depends on tauri-plugin-dialog for the trusted
-  // top-level frontend's native save/open dialogs, scoped to the "main"
+  const proofInventoryCommands = commandNames(proofInventoryBlock).sort();
+  // Product surface is exactly 8; proof surface exactly 70; union is the full 78
+  // handler order (and the frontend proof inventory, which ships all 78).
+  assert.equal(productCommands.length, 8);
+  assert.equal(proofBuildCommands.length, 70);
+  assert.equal(handlerOrderCommands.length, 78);
+  assert.deepEqual(mainPermissionCommands, productCommands);
+  assert.deepEqual(proofPermissionCommands, proofBuildCommands);
+  assert.deepEqual(handlerCommands, handlerOrderCommands);
+  assert.deepEqual(
+    [...productCommands, ...proofBuildCommands].sort(), handlerOrderCommands);
+  assert.deepEqual(proofInventoryCommands, handlerOrderCommands);
+  // Product permission and capability must carry NONE of the proof commands or
+  // the proof composite grant — the product ACL surface stays proof-free.
+  for (const proofCommand of proofBuildCommands) {
+    assert.equal(permission.includes(proofCommand), false,
+      `main.toml leaked proof command ${proofCommand}`);
+  }
+  assert.equal(capabilityText.includes("proof-commands"), false);
+  // The issue034 trusted-marker command is proof-only: present in the proof
+  // permission, absent from the product permission.
+  assert.match(proofPermission, /issue034_trusted_marker/);
+  assert.doesNotMatch(permission, /issue034_trusted_marker/);
+  // The workspace commands legitimately depend on tauri-plugin-dialog for the
+  // trusted top-level frontend's native save/open dialogs, scoped to the "main"
   // window only (never the preview iframe). Per issue 034's own scope, file
   // open/save IPC for the trusted frontend is explicitly permitted; only
   // filesystem/shell/process/opener/clipboard plugins remain forbidden.
@@ -2519,7 +2724,7 @@ test("036: endpoint rejects forged envelope errors without crash or amplificatio
       loadCalls += 1;
       return { result: { success: true, data: { previewId: uuid, compileId } } };
     },
-    proof,
+    observer: proof,
   });
   channel.port2.addEventListener("message", endpoint.handle);
   channel.port2.start();

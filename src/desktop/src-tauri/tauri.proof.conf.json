@@ -5,5 +5,10 @@
   "build": {
     "beforeBuildCommand": "npm --prefix ../frontend run build:proof",
     "frontendDist": "../../frontend/dist-proof"
+  },
+  "app": {
+    "security": {
+      "capabilities": ["main", "proof"]
+    }
   }
 }

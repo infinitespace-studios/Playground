@@ -6,9 +6,15 @@
   "scripts": {
     "stage:monogame": "bash ../../scripts/verify-monogame-artifacts.sh && node scripts/stage-monogame.mjs",
     "stage:compiler": "node scripts/stage-compiler.mjs",
+    "stage:compiler:proof": "MONOGAME_FRONTEND_PROFILE=proof node scripts/stage-compiler.mjs",
     "stage:preview": "node scripts/stage-preview.mjs",
+    "stage:preview:proof": "MONOGAME_FRONTEND_PROFILE=proof node scripts/stage-preview.mjs",
     "test:stage-preview-clean": "bash scripts/test-stage-preview-clean.sh",
+    "test:stage-preview-proof-clean": "bash scripts/test-stage-preview-proof-clean.sh",
+    "test:stage-compiler-clean": "bash scripts/test-stage-compiler-clean.sh",
+    "test:stage-compiler-proof-clean": "bash scripts/test-stage-compiler-proof-clean.sh",
     "test:stage-issue21-clean": "bash scripts/test-stage-issue21-clean.sh",
+    "test:verify-profiles-static": "bash scripts/test-verify-profiles-static.sh",
     "test:preview-native-artifacts": "bash ../../scripts/test-preview-native-artifacts.sh",
     "test:protocol": "node --experimental-strip-types --test src/protocol.test.ts",
     "check:profiles": "node scripts/check-profile-artifacts.mjs both",
@@ -20,12 +26,13 @@
     "measure:performance": "node ../../scripts/measure-performance.mjs",
     "typecheck": "tsc --noEmit",
     "stage": "npm run stage:monogame && npm run stage:compiler && npm run stage:preview",
+    "stage:proof": "npm run stage:monogame && npm run stage:compiler:proof && npm run stage:preview:proof",
     "dev": "npm run stage && vite",
-    "dev:proof": "MONOGAME_FRONTEND_PROFILE=proof npm run dev",
+    "dev:proof": "MONOGAME_FRONTEND_PROFILE=proof npm run stage:proof && MONOGAME_FRONTEND_PROFILE=proof vite",
     "build:vite": "vite build",
     "build:vite:proof": "MONOGAME_FRONTEND_PROFILE=proof vite build",
     "build": "npm run stage && npm run build:vite",
-    "build:proof": "npm run stage && npm run build:vite:proof"
+    "build:proof": "npm run stage:proof && npm run build:vite:proof"
   },
   "devDependencies": {
     "typescript": "5.9.2",

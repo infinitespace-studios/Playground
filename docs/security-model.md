@@ -105,20 +105,39 @@ trusted code uses Tauri's injected, non-global `__TAURI_INTERNALS__.invoke`
 transport directly.
 
 Custom application commands are opted into Tauri's runtime authority through
-`AppManifest::commands`. The sole local capability is
-`capabilities/main.json`: identifier `main`, `local: true`, window `main`, and
-permission `main-commands`. It has no remote URL grant. The exact command
-inventory is maintained and cross-checked in four places:
-`build.rs`, `permissions/main.toml`, `generate_handler!`, and the packaged
-proof inventory. It consists of
-the issue 009–037 proof enable/checkpoint/report commands,
-`prepare_packaged_proof_window`, and the issue-034 marker commands. **Stage 5
-removed the fifteen issue-038 isolated-window commands** (ADR 0003 makes the
-embedded opaque-origin iframe the product preview), reducing the effective ACL
-from 99 to 84 entries (one capability, one composite permission, and 82
-generated permissions). No
+`AppManifest::commands`. **Stage 6 split the command surface by build profile.**
+The product (default) build registers **only the eight responsibility-named
+product commands** through the sole local capability `capabilities/main.json`
+(identifier `main`, `local: true`, window `main`, permission `main-commands`); it
+has no remote URL grant. The explicit `--features proof-harness` proof build
+additionally compiles the seventy proof commands and adds the `proof` capability
+(`capabilities/proof.json` → `proof-commands`). The canonical inventories are
+maintained once in `build.rs` (`PRODUCT_COMMANDS` 8, `PROOF_COMMANDS` 70,
+`HANDLER_ORDER` 78) and cross-checked against `permissions/main.toml` (product 8),
+`permissions/proof.toml` (proof 70), `generate_handler!` (per-line
+`#[cfg(feature = "proof-harness")]` gates), and the packaged proof inventory.
+The seventy proof commands are the issue 009–037 proof enable/checkpoint/report
+commands, `prepare_packaged_proof_window`, the issue-034 marker commands, and the
+issue 039–041 content/audio/benchmark commands. **Stage 5 removed the fifteen
+issue-038 isolated-window commands** (ADR 0003 makes the embedded opaque-origin
+iframe the product preview). The effective ACL is therefore **10 entries in the
+product build** (one capability, one composite `main-commands` permission, eight
+generated per-command permissions) and **82 in the proof build** (two capabilities,
+two composite permissions, seventy-eight generated per-command permissions). No
 filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
 arbitrary command-forwarding command is registered.
+
+**Compiled-artifact enforcement (Stage 6 slice 6).**
+`scripts/check-binary-command-inventory.mjs` scans the packaged executable and
+staged frontend after a build to prove the profile boundary holds in the shipped
+artifact: the product bundle exposes exactly the eight product commands and
+**zero** proof commands, proof env/report markers, proof Rust relay strings,
+proof C# export references, or proof JS globals; the proof bundle retains all 78
+commands, the proof symbols, and exactly eight scenarios. It derives its
+inventories from `build.rs` (no duplicate list), verifies bundle identity by
+`CFBundleIdentifier` so a stale/wrong-profile artifact is refused, and ships with
+negative self-tests. The proof packaged runner and the release workflow invoke it
+(see `docs/build.md`).
 The structured policy validator requires exactly one permission table with
 only the expected identifier, description, and exact `commands.allow`; extra
 tables, fields, and grants fail the build. It recursively checks desktop Rust
@@ -133,10 +152,14 @@ matrix covers appended permission tables, plugin/all-frame initialization,
 second handler macros, extra runtime/build/plugin dependencies, and dependency
 feature drift. Protocol tests cover second/remote/wildcard capabilities,
 `webviews`, `local: false`, and extra permissions. It also validates all
-generated files. The effective 74-file ACL scope is exactly one capability,
-one composite `main-commands` permission, and 72 Tauri-generated per-command
-allow/deny permission files. The generated directory is intentionally ignored
-by Git: `tauri_build` reproducibly creates it from `APP_COMMANDS`, then
+generated files. The effective per-command ACL scope is one capability, one
+composite `main-commands` permission, and eight Tauri-generated per-command
+allow/deny permission files in the product build (and, in the proof build, the
+added `proof` capability, `proof-commands` composite, and seventy more generated
+files). The generated directory is intentionally ignored
+by Git: `tauri_build` reproducibly creates it from the profile-effective
+command inventory (`build.rs::effective_commands()` — `PRODUCT_COMMANDS` by
+default, the full `HANDLER_ORDER` under the `proof-harness` feature), then
 `build.rs` rejects missing, extra, renamed, non-file, or malformed entries.
 
 `issue034_trusted_marker` is harmless and proof-gated. It accepts no user
@@ -421,22 +444,24 @@ projects receive distinct identities.
 
 ### Commands
 
-Eight Tauri commands are added to the `main` capability:
+The first-run acknowledgement surface is split by profile:
 
-| Command | Purpose | Proof-only |
+| Command | Purpose | Capability |
 |---|---|---|
-| `issue037_check_acknowledgement` | Check if an identity is acknowledged | No |
-| `issue037_write_acknowledgement` | Persist acknowledgement for an identity | No |
-| `issue037_is_proof_enabled` | Check proof env gate | No |
-| `issue037_emit_report` | Emit packaged proof report | Yes |
-| `issue037_read_store_snapshot` | Read store contents (bounded, no paths) | Yes |
-| `issue037_clear_store` | Clear store for test isolation | Yes |
-| `issue037_proof_phase` | Return current multi-process proof phase | Yes |
-| `issue037_emit_checkpoint` | Emit proof phase checkpoint line | Yes |
+| `first_run_check_acknowledgement` | Check if an identity is acknowledged | PRODUCT `main-commands` |
+| `first_run_write_acknowledgement` | Persist acknowledgement for an identity | PRODUCT `main-commands` |
+| `issue037_is_proof_enabled` | Check proof env gate | PROOF `proof-commands` |
+| `issue037_emit_report` | Emit packaged proof report | PROOF `proof-commands` |
+| `issue037_read_store_snapshot` | Read store contents (bounded, no paths) | PROOF `proof-commands` |
+| `issue037_clear_store` | Clear store for test isolation | PROOF `proof-commands` |
+| `issue037_proof_phase` | Return current multi-process proof phase | PROOF `proof-commands` |
+| `issue037_emit_checkpoint` | Emit proof phase checkpoint line | PROOF `proof-commands` |
 
-All eight are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
-and `ISSUE034_APPROVED_COMMANDS`.  They are inaccessible from the opaque
-preview under the existing ACL/invoke-key boundary.
+All eight are registered in the proof build's `generate_handler!` and
+`build.rs::effective_commands()` inventories. The two PRODUCT commands are
+listed in `permissions/main.toml`; the six proof commands are listed in
+`permissions/proof.toml` and are compiled out of normal PRODUCT binaries. All
+remain inaccessible from the opaque preview under the ACL/invoke-key boundary.
 
 ## Production preview execution and non-yielding code
 
@@ -524,7 +549,7 @@ WebView2 renderer process.
 ### Issue 038 commands (removed in Stage 5)
 
 The fifteen isolated-window commands below were removed from `generate_handler!`,
-`APP_COMMANDS` (`build.rs`), `permissions/main.toml`, and
+the `build.rs` command inventory (`effective_commands()`), `permissions/main.toml`, and
 `ISSUE034_APPROVED_COMMANDS` in Stage 5. They are listed only as a historical
 record of what existed; **none are registered in the current binary.**
 
@@ -553,9 +578,11 @@ record of what existed; **none are registered in the current binary.**
 | `issue040_emit_report` | Emit packaged proof report and exit | Yes |
 | `issue040_dispatch_preview_input` | Register/retire the single embedded-preview input target and deliver one trusted Space/Escape/click AppKit event to the authorized preview | Yes |
 
-The six issue039/issue040 commands above are registered in `generate_handler!`,
-`APP_COMMANDS`, `main.toml`, and `ISSUE034_APPROVED_COMMANDS`. They are
-accessible only from the trusted `main` window. (The fifteen `issue038_*`
+The six issue039/issue040 commands above are registered only in the
+`proof-harness` build's `generate_handler!`, `build.rs::effective_commands()`,
+`permissions/proof.toml`, and `ISSUE034_APPROVED_COMMANDS`. They are compiled
+out of PRODUCT and are accessible only from the trusted `main` window in the
+explicit PROOF package. (The fifteen `issue038_*`
 commands in the table above were removed in Stage 5.)
 
 `issue040_dispatch_preview_input` is the only command that synthesises input,

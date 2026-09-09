@@ -66,7 +66,7 @@ function waitForModal(timeoutMs = 3000): Promise<HTMLElement> {
   return new Promise((resolve, reject) => {
     const deadline = performance.now() + timeoutMs;
     const check = () => {
-      const backdrop = document.querySelector<HTMLElement>(".issue037-backdrop.issue037-visible");
+      const backdrop = document.querySelector<HTMLElement>(".first-run-backdrop.first-run-visible");
       if (backdrop) return resolve(backdrop);
       if (performance.now() >= deadline) return reject(new Error("Issue 037: modal did not appear within timeout."));
       window.setTimeout(check, 30);
@@ -80,7 +80,7 @@ function waitForModalDismissed(timeoutMs = 3000): Promise<void> {
   return new Promise((resolve, reject) => {
     const deadline = performance.now() + timeoutMs;
     const check = () => {
-      const backdrop = document.querySelector<HTMLElement>(".issue037-backdrop.issue037-visible");
+      const backdrop = document.querySelector<HTMLElement>(".first-run-backdrop.first-run-visible");
       if (!backdrop) return resolve();
       if (performance.now() >= deadline) return reject(new Error("Issue 037: modal did not dismiss within timeout."));
       window.setTimeout(check, 30);
@@ -115,7 +115,7 @@ async function runPhase1(invoke: NonNullable<typeof window.__TAURI_INTERNALS__>[
   await invoke("issue037_emit_checkpoint", { checkpoint: JSON.stringify({ phase: 1, step: "modal-appeared-for-cancel" }) });
 
   // Step 4: Click Cancel → modal dismissed, no compile/run
-  const cancelBtn = modalForCancel.querySelector<HTMLButtonElement>(".issue037-cancel");
+  const cancelBtn = modalForCancel.querySelector<HTMLButtonElement>(".first-run-cancel");
   if (!cancelBtn) throw new Error("Issue 037 phase 1: Cancel button missing.");
   cancelBtn.click();
   await waitForModalDismissed();
@@ -134,7 +134,7 @@ async function runPhase1(invoke: NonNullable<typeof window.__TAURI_INTERNALS__>[
   await invoke("issue037_emit_checkpoint", { checkpoint: JSON.stringify({ phase: 1, step: "modal-reappeared-for-confirm" }) });
 
   // Step 6: Click Confirm → compile+run should proceed
-  const confirmBtn = modalForConfirm.querySelector<HTMLButtonElement>(".issue037-confirm");
+  const confirmBtn = modalForConfirm.querySelector<HTMLButtonElement>(".first-run-confirm");
   if (!confirmBtn) throw new Error("Issue 037 phase 1: Confirm button missing.");
   confirmBtn.click();
   await waitForModalDismissed();
@@ -201,7 +201,7 @@ async function runPhase2(invoke: NonNullable<typeof window.__TAURI_INTERNALS__>[
   if (!gateResult) throw new Error("Issue 037 phase 2: gate denied despite acknowledged identity.");
 
   // Verify no modal is visible
-  const modalVisible = !!document.querySelector<HTMLElement>(".issue037-backdrop.issue037-visible");
+  const modalVisible = !!document.querySelector<HTMLElement>(".first-run-backdrop.first-run-visible");
   if (modalVisible) throw new Error("Issue 037 phase 2: modal appeared for already-acknowledged identity.");
 
   await invoke("issue037_emit_checkpoint", { checkpoint: JSON.stringify({ phase: 2, step: "gate-passed-no-modal" }) });

@@ -43,7 +43,7 @@ if [ "$BUILD_APP" -eq 1 ]; then
     # we do not build the frontend separately here (avoids a redundant double
     # frontend build). The Tauri build stages + embeds the proof frontend.
     echo "=== Building release bundle (PROOF profile) ==="
-    (cd "$DESKTOP_DIR" && npm run tauri -- build --config src-tauri/tauri.proof.conf.json 2>&1 | tail -5)
+    (cd "$DESKTOP_DIR" && npm run tauri -- build --config src-tauri/tauri.proof.conf.json --features proof-harness 2>&1 | tail -5)
 fi
 
 if [ ! -x "$APP_BINARY" ]; then

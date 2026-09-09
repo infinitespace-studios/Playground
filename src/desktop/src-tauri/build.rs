@@ -3,7 +3,31 @@ use std::{
     path::{Path, PathBuf},
 };
 
-const APP_COMMANDS: &[&str] = &[
+// Stage 6 proof-surface binary separation.
+//
+// The shipping PRODUCT build compiles only the eight domain-named product
+// commands. The proof build (`--features proof-harness`) additionally compiles
+// the seventy packaged-proof commands. `build.rs` sees the full handler source
+// either way (it reads `lib.rs` as text), so the three inventories below are the
+// build-time source of truth:
+//
+//   * `HANDLER_ORDER`   — all 78 command identifiers, in `generate_handler!`
+//                         order. Every proof identifier is gated by a per-line
+//                         `#[cfg(feature = "proof-harness")]`; the eight product
+//                         identifiers are unconditional. `validate_runtime_rust`
+//                         enforces exactly that gating so neither list can drift
+//                         nor a proof command silently lose its gate.
+//   * `PRODUCT_COMMANDS` — the eight commands compiled into every build.
+//   * `PROOF_COMMANDS`   — the seventy commands compiled only under the feature.
+//
+// The *effective* command set handed to `tauri_build` (and therefore the
+// generated per-command permissions) is `PRODUCT_COMMANDS` by default and the
+// full `HANDLER_ORDER` under the feature. The committed ACL is split to match:
+// `permissions/main.toml` + `capabilities/main.json` grant the eight product
+// commands (selected by every build); `permissions/proof.toml` +
+// `capabilities/proof.json` grant the seventy proof commands (selected only by
+// `tauri.proof.conf.json`).
+const HANDLER_ORDER: &[&str] = &[
     "issue009_is_proof_enabled",
     "issue009_emit_report",
     "issue011_is_proof_enabled",
@@ -53,8 +77,8 @@ const APP_COMMANDS: &[&str] = &[
     "issue035_emit_report",
     "issue036_is_proof_enabled",
     "issue036_emit_report",
-    "issue037_check_acknowledgement",
-    "issue037_write_acknowledgement",
+    "first_run_check_acknowledgement",
+    "first_run_write_acknowledgement",
     "issue037_is_proof_enabled",
     "issue037_emit_report",
     "issue037_read_store_snapshot",
@@ -64,10 +88,6 @@ const APP_COMMANDS: &[&str] = &[
     "issue039_is_proof_enabled",
     "issue039_emit_checkpoint",
     "issue039_emit_report",
-    "issue039_store_asset",
-    "issue039_asset_manifest",
-    "issue039_clear_assets",
-    "issue039_transfer_state",
     "issue040_is_proof_enabled",
     "issue040_emit_checkpoint",
     "issue040_emit_report",
@@ -80,13 +100,114 @@ const APP_COMMANDS: &[&str] = &[
     "issue041_emit_checkpoint",
     "issue041_emit_report",
     "issue041_rss_bytes",
-    "issue050_write_file",
-    "issue050_save_dialog",
-    "issue050_open_dialog",
-    "issue050_set_dirty",
-    "issue051_pick_folder",
-    "issue051_read_project",
+    "workspace_write_file",
+    "workspace_save_dialog",
+    "workspace_open_dialog",
+    "workspace_set_dirty",
+    "project_pick_folder",
+    "project_read",
 ];
+
+const PRODUCT_COMMANDS: &[&str] = &[
+    "first_run_check_acknowledgement",
+    "first_run_write_acknowledgement",
+    "workspace_write_file",
+    "workspace_save_dialog",
+    "workspace_open_dialog",
+    "workspace_set_dirty",
+    "project_pick_folder",
+    "project_read",
+];
+
+const PROOF_COMMANDS: &[&str] = &[
+    "issue009_is_proof_enabled",
+    "issue009_emit_report",
+    "issue011_is_proof_enabled",
+    "issue011_set_outer_size",
+    "issue011_outer_bounds",
+    "issue011_emit_report",
+    "issue010_is_proof_enabled",
+    "issue010_emit_report",
+    "issue020_is_proof_enabled",
+    "issue020_emit_checkpoint",
+    "issue020_emit_report",
+    "issue021_is_proof_enabled",
+    "issue021_is_locked_session_proof",
+    "issue021_emit_report",
+    "issue022_is_proof_enabled",
+    "issue022_emit_report",
+    "issue023_is_proof_enabled",
+    "issue024_is_proof_enabled",
+    "issue025_is_proof_enabled",
+    "issue027_is_proof_enabled",
+    "issue028_is_proof_enabled",
+    "issue029_is_proof_enabled",
+    "issue030_is_proof_enabled",
+    "issue031_is_proof_enabled",
+    "issue032_is_proof_enabled",
+    "issue033_is_proof_enabled",
+    "issue033_is_no_wasm_eval_proof_enabled",
+    "issue034_is_proof_enabled",
+    "issue034_trusted_marker",
+    "issue034_trusted_marker_calls",
+    "issue033_emit_checkpoint",
+    "prepare_packaged_proof_window",
+    "issue023_emit_checkpoint",
+    "issue023_emit_report",
+    "issue024_emit_report",
+    "issue025_emit_report",
+    "issue027_emit_report",
+    "issue028_emit_report",
+    "issue029_emit_report",
+    "issue030_emit_report",
+    "issue031_emit_report",
+    "issue032_emit_report",
+    "issue033_emit_report",
+    "issue033_emit_no_wasm_eval_report",
+    "issue034_emit_report",
+    "issue035_is_proof_enabled",
+    "issue035_emit_report",
+    "issue036_is_proof_enabled",
+    "issue036_emit_report",
+    "issue037_is_proof_enabled",
+    "issue037_emit_report",
+    "issue037_read_store_snapshot",
+    "issue037_clear_store",
+    "issue037_proof_phase",
+    "issue037_emit_checkpoint",
+    "issue039_is_proof_enabled",
+    "issue039_emit_checkpoint",
+    "issue039_emit_report",
+    "issue040_is_proof_enabled",
+    "issue040_emit_checkpoint",
+    "issue040_emit_report",
+    "issue040_dispatch_preview_input",
+    "issue041_is_benchmark_enabled",
+    "issue041_benchmark_mode",
+    "issue041_warm_compile_count",
+    "issue041_preview_cycle_count",
+    "issue041_shell_ready",
+    "issue041_emit_checkpoint",
+    "issue041_emit_report",
+    "issue041_rss_bytes",
+];
+
+/// True when Cargo compiled the crate with `--features proof-harness`. Cargo
+/// exports `CARGO_FEATURE_<NAME>` (uppercased, `-` → `_`) to the build script
+/// for every enabled feature, so this reflects exactly what `lib.rs` compiled.
+fn proof_harness_enabled() -> bool {
+    env::var_os("CARGO_FEATURE_PROOF_HARNESS").is_some()
+}
+
+/// The command set actually compiled into this build: the eight product
+/// commands by default, or all 78 under the proof-harness feature.
+fn effective_commands() -> &'static [&'static str] {
+    if proof_harness_enabled() {
+        HANDLER_ORDER
+    } else {
+        PRODUCT_COMMANDS
+    }
+}
 
 fn collect_files(root: &Path, directory: &Path, output: &mut Vec<(String, PathBuf)>) {
     for entry in fs::read_dir(directory).expect("failed to read staged preview directory") {
@@ -126,15 +247,20 @@ fn regular_files(directory: &Path) -> Vec<PathBuf> {
     files
 }
 
-fn validate_permission(permission: &str) -> Result<(), String> {
+fn validate_permission(
+    permission: &str,
+    expected_identifier: &str,
+    expected_description: &str,
+    expected_commands: &[&str],
+) -> Result<(), String> {
     let document = permission
         .parse::<toml::Value>()
-        .map_err(|error| format!("main permission must be valid TOML: {error}"))?;
+        .map_err(|error| format!("{expected_identifier} permission must be valid TOML: {error}"))?;
     let root = document
         .as_table()
-        .ok_or("main permission root must be a table")?;
+        .ok_or("permission root must be a table")?;
     if root.keys().map(String::as_str).collect::<Vec<_>>() != ["permission"] {
-        return Err("main permission must contain only [[permission]]".into());
+        return Err("permission must contain only [[permission]]".into());
     }
     let permissions = root["permission"]
         .as_array()
@@ -150,11 +276,8 @@ fn validate_permission(permission: &str) -> Result<(), String> {
     if keys != ["commands", "description", "identifier"] {
         return Err("permission contains an unapproved field or grant".into());
     }
-    if table["identifier"].as_str() != Some("main-commands")
-        || table["description"].as_str()
-            != Some(
-                "Allows the trusted main webview to invoke the application's registered commands.",
-            )
+    if table["identifier"].as_str() != Some(expected_identifier)
+        || table["description"].as_str() != Some(expected_description)
     {
         return Err("permission identity or description drifted".into());
     }
@@ -175,10 +298,33 @@ fn validate_permission(permission: &str) -> Result<(), String> {
                 .ok_or("commands.allow values must be strings")
         })
         .collect::<Result<Vec<_>, _>>()?;
-    if allow.iter().map(String::as_str).collect::<Vec<_>>() != APP_COMMANDS {
-        return Err("main permission command inventory drifted".into());
+    if allow.iter().map(String::as_str).collect::<Vec<_>>() != expected_commands {
+        return Err("permission command inventory drifted".into());
     }
     Ok(())
+}
+
+const MAIN_PERMISSION_DESCRIPTION: &str =
+    "Allows the trusted main webview to invoke the application's registered commands.";
+const PROOF_PERMISSION_DESCRIPTION: &str =
+    "Allows the trusted main webview to invoke the packaged proof-harness commands.";
+
+fn validate_main_permission(permission: &str) -> Result<(), String> {
+    validate_permission(
+        permission,
+        "main-commands",
+        MAIN_PERMISSION_DESCRIPTION,
+        PRODUCT_COMMANDS,
+    )
+}
+
+fn validate_proof_permission(permission: &str) -> Result<(), String> {
+    validate_permission(
+        permission,
+        "proof-commands",
+        PROOF_PERMISSION_DESCRIPTION,
+        PROOF_COMMANDS,
+    )
 }
 
 fn validate_cargo_manifest(manifest: &str) -> Result<(), String> {
@@ -210,6 +356,13 @@ objc2-foundation = { version = "=0.3.2", features = ["NSGeometry", "NSString"] }
 "#
     .parse::<toml::Value>()
     .expect("expected dependency policy must be valid TOML");
+    let expected_features = r#"
+[features]
+default = []
+proof-harness = []
+"#
+    .parse::<toml::Value>()
+    .expect("expected feature policy must be valid TOML");
     let root = actual
         .as_table()
         .ok_or("Cargo manifest root must be a table")?;
@@ -219,6 +372,7 @@ objc2-foundation = { version = "=0.3.2", features = ["NSGeometry", "NSString"] }
         != [
             "build-dependencies",
             "dependencies",
+            "features",
             "lib",
             "package",
             "target",
@@ -232,6 +386,13 @@ objc2-foundation = { version = "=0.3.2", features = ["NSGeometry", "NSString"] }
                 "Cargo {section} names, versions, or features drifted"
             ));
         }
+    }
+    // The proof-harness feature must remain non-default and carry no implied
+    // dependencies, or it could leak the proof surface into the product binary.
+    if actual.get("features") != expected_features.get("features") {
+        return Err(
+            "Cargo [features] table drifted from `default = []; proof-harness = []`".into(),
+        );
     }
     Ok(())
 }
@@ -293,7 +454,10 @@ fn validate_frontend_command_inventory(source: &str) -> Result<(), String> {
         .nth(1)
         .and_then(|tail| tail.split("] as const").next())
         .ok_or("frontend command inventory is missing")?;
-    if quoted_values(block) != APP_COMMANDS {
+    // The proof-only security scenario ships the full 78-command inventory in
+    // every profile's source (it is a proof module; the product graph never
+    // imports it). Bind it to the complete handler order so it cannot drift.
+    if quoted_values(block) != HANDLER_ORDER {
         return Err("frontend command inventory drifted".into());
     }
     Ok(())
@@ -302,7 +466,7 @@ fn validate_frontend_command_inventory(source: &str) -> Result<(), String> {
 fn validate_negative_fixtures(permission: &str, cargo: &str, rust: &[String]) {
     let appended_permission =
         format!("{permission}\n[[permission]]\nidentifier = \"extra\"\ncommands.allow = []\n");
-    assert!(validate_permission(&appended_permission).is_err());
+    assert!(validate_main_permission(&appended_permission).is_err());
 
     for injected in [
         "\nfn injected(builder: tauri::Builder) { let _ = builder.js_init_script_on_all_frames(\"x\"); }\n",
@@ -364,44 +528,29 @@ fn validate_acl_source(root: &Path) {
     let capability_files = regular_files(&capability_directory);
     assert_eq!(
         capability_entries.len(),
-        1,
-        "capabilities must not contain additional files or directories"
+        2,
+        "capabilities must contain exactly the main and proof capability files"
     );
     assert_eq!(
         capability_files,
-        [root.join("capabilities/main.json")],
-        "exactly one capability file named main.json is permitted"
-    );
-    let capability: serde_json::Value = serde_json::from_slice(
-        &fs::read(&capability_files[0]).expect("failed to read main capability"),
-    )
-    .expect("main capability must be valid JSON");
-    let object = capability
-        .as_object()
-        .expect("main capability must be an object");
-    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
-    keys.sort();
-    assert_eq!(
-        keys,
         [
-            "$schema",
-            "description",
-            "identifier",
-            "local",
-            "permissions",
-            "windows"
+            root.join("capabilities/main.json"),
+            root.join("capabilities/proof.json")
         ],
-        "main capability contains an unapproved field"
+        "exactly the main.json and proof.json capability files are permitted"
     );
-    assert_eq!(capability["identifier"], "main");
-    assert_eq!(capability["local"], true);
-    assert_eq!(capability["windows"], serde_json::json!(["main"]));
-    assert_eq!(
-        capability["permissions"],
-        serde_json::json!(["main-commands"])
+    validate_capability(
+        &capability_files[0],
+        "main",
+        "main-commands",
+        "main capability",
     );
-    assert!(capability.get("remote").is_none());
-    assert!(capability.get("webviews").is_none());
+    validate_capability(
+        &capability_files[1],
+        "proof",
+        "proof-commands",
+        "proof capability",
+    );
 
     let permission_directory = root.join("permissions");
     let permission_entries = fs::read_dir(&permission_directory)
@@ -411,6 +560,7 @@ fn validate_acl_source(root: &Path) {
     assert!(
         permission_entries.iter().all(|path| {
             path == &root.join("permissions/main.toml")
+                || path == &root.join("permissions/proof.toml")
                 || path == &root.join("permissions/autogenerated") && path.is_dir()
         }),
         "permissions contains an unapproved file or directory"
@@ -418,12 +568,18 @@ fn validate_acl_source(root: &Path) {
     let permission_files = regular_files(&permission_directory);
     assert_eq!(
         permission_files,
-        [root.join("permissions/main.toml")],
-        "only the main permission source file is permitted"
+        [
+            root.join("permissions/main.toml"),
+            root.join("permissions/proof.toml")
+        ],
+        "only the main and proof permission source files are permitted"
     );
     let permission =
         fs::read_to_string(&permission_files[0]).expect("failed to read main permission");
-    validate_permission(&permission).unwrap_or_else(|error| panic!("{error}"));
+    validate_main_permission(&permission).unwrap_or_else(|error| panic!("{error}"));
+    let proof_permission =
+        fs::read_to_string(&permission_files[1]).expect("failed to read proof permission");
+    validate_proof_permission(&proof_permission).unwrap_or_else(|error| panic!("{error}"));
 
     let config: serde_json::Value = serde_json::from_slice(
         &fs::read(root.join("tauri.conf.json")).expect("failed to read Tauri config"),
@@ -452,19 +608,102 @@ fn validate_acl_source(root: &Path) {
         .nth(1)
         .and_then(|tail| tail.split("])").next())
         .expect("generate_handler command list is missing");
-    let handler_commands = handler
-        .lines()
-        .map(str::trim)
-        .filter(|line| !line.is_empty())
-        .map(|line| line.trim_end_matches(',').to_owned())
-        .collect::<Vec<_>>();
+    // Parse the handler body line by line. Each proof command identifier must be
+    // immediately preceded by a per-line `#[cfg(feature = "proof-harness")]`;
+    // each product command must NOT be. This makes the gating structurally
+    // non-vacuous: dropping a proof command's gate, or gating a product command,
+    // fails the build.
+    const PROOF_GATE: &str = "#[cfg(feature = \"proof-harness\")]";
+    let mut handler_commands = Vec::new();
+    let mut pending_gate = false;
+    for raw in handler.lines() {
+        let line = raw.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if line == PROOF_GATE {
+            pending_gate = true;
+            continue;
+        }
+        assert!(
+            !line.starts_with("#["),
+            "unexpected attribute inside generate_handler!: {line}"
+        );
+        let command = line.trim_end_matches(',').to_owned();
+        let is_proof = PROOF_COMMANDS.contains(&command.as_str());
+        let is_product = PRODUCT_COMMANDS.contains(&command.as_str());
+        assert!(
+            is_proof ^ is_product,
+            "handler command {command} is not classified in exactly one inventory"
+        );
+        if is_proof {
+            assert!(
+                pending_gate,
+                "proof command {command} is missing its #[cfg(feature = \"proof-harness\")] gate"
+            );
+        } else {
+            assert!(
+                !pending_gate,
+                "product command {command} must not be gated behind proof-harness"
+            );
+        }
+        pending_gate = false;
+        handler_commands.push(command);
+    }
+    assert!(
+        !pending_gate,
+        "dangling #[cfg(feature = \"proof-harness\")] at end of generate_handler!"
+    );
     assert_eq!(
-        handler_commands, APP_COMMANDS,
+        handler_commands, HANDLER_ORDER,
         "generate_handler command inventory drifted"
     );
     let frontend =
         fs::read_to_string(frontend_inventory).expect("failed to read frontend command inventory");
     validate_frontend_command_inventory(&frontend).unwrap_or_else(|error| panic!("{error}"));
+}
+
+/// Validate a committed capability file: exact field set, identifier, main-only
+/// local scope, and that it grants exactly its one composite permission. The
+/// product build selects only `main`; the proof build (`tauri.proof.conf.json`)
+/// additionally selects `proof`, so neither capability's command strings can
+/// leak into the other profile's resolved ACL.
+fn validate_capability(path: &Path, identifier: &str, permission: &str, label: &str) {
+    let capability: serde_json::Value = serde_json::from_slice(
+        &fs::read(path).unwrap_or_else(|_| panic!("failed to read {label}")),
+    )
+    .unwrap_or_else(|_| panic!("{label} must be valid JSON"));
+    let object = capability
+        .as_object()
+        .unwrap_or_else(|| panic!("{label} must be an object"));
+    let mut keys = object.keys().map(String::as_str).collect::<Vec<_>>();
+    keys.sort();
+    assert_eq!(
+        keys,
+        [
+            "$schema",
+            "description",
+            "identifier",
+            "local",
+            "permissions",
+            "windows"
+        ],
+        "{label} contains an unapproved field"
+    );
+    assert_eq!(capability["identifier"], identifier, "{label} identifier");
+    assert_eq!(capability["local"], true, "{label} must be local");
+    assert_eq!(
+        capability["windows"],
+        serde_json::json!(["main"]),
+        "{label} must scope to the main window"
+    );
+    assert_eq!(
+        capability["permissions"],
+        serde_json::json!([permission]),
+        "{label} must grant exactly its composite permission"
+    );
+    assert!(capability.get("remote").is_none(), "{label} remote");
+    assert!(capability.get("webviews").is_none(), "{label} webviews");
 }
 
 fn validate_generated_acl(root: &Path) {
@@ -483,12 +722,18 @@ fn validate_generated_acl(root: &Path) {
         generated_files.len(),
         "generated permissions must contain files only"
     );
+    // `tauri_build` regenerates this directory from the effective command set,
+    // so it is the profile-correct floor: 8 files by default, 78 under the
+    // feature. This is the *effective grant* count (distinct from the committed
+    // permission definitions, which always describe all 78 across the two
+    // permission files).
+    let effective = effective_commands();
     assert_eq!(
         generated_files.len(),
-        APP_COMMANDS.len(),
-        "generated command permission count drifted"
+        effective.len(),
+        "generated command permission count drifted from the effective command set"
     );
-    for command in APP_COMMANDS {
+    for command in effective {
         let path = generated.join(format!("{command}.toml"));
         assert!(
             generated_files.contains(&path),
@@ -501,23 +746,99 @@ fn validate_generated_acl(root: &Path) {
         assert!(content.contains(&format!("identifier = \"deny-{kebab}\"")));
         assert!(content.matches(&format!("[\"{command}\"]")).count() == 2);
     }
+    // Effective ACL entries actually resolved into this profile's binary:
+    //   product: 1 capability (main) + 1 composite permission (main-commands)
+    //            + 8 generated permissions            = 10
+    //   proof:   2 capabilities (main + proof)
+    //            + 2 composite permissions            + 78 generated = 82
+    let (capabilities, composites, expected_total) = if proof_harness_enabled() {
+        (2, 2, 82)
+    } else {
+        (1, 1, 10)
+    };
     assert_eq!(
-        1 + 1 + generated_files.len(),
-        84,
-        "effective ACL must contain one capability, one composite permission, and 82 generated permissions"
+        capabilities + composites + generated_files.len(),
+        expected_total,
+        "effective ACL entry count drifted for this build profile"
     );
 }
 
 fn main() {
     let manifest_root = Path::new(".");
     validate_acl_source(manifest_root);
-    let preview_root = Path::new("../../frontend/dist/preview")
+    // Embed the profile-correct staged preview: the PRODUCT build (default
+    // features) embeds the `dist/preview` runtime staged by `build`; the PROOF
+    // build (`--features proof-harness`) embeds the `dist-proof/preview` runtime
+    // staged by `build:proof`, which alone carries the proof extension/observer.
+    let (package_dir, profile_label) = if proof_harness_enabled() {
+        ("../../frontend/dist-proof", "proof")
+    } else {
+        ("../../frontend/dist", "product")
+    };
+    let preview_root = Path::new(package_dir)
+        .join("preview")
         .canonicalize()
         .expect("frontend preview assets must be staged before the Rust build");
     println!("cargo:rerun-if-changed={}", preview_root.display());
     let mut files = Vec::new();
     collect_files(&preview_root, &preview_root, &mut files);
     files.sort_by(|left, right| left.0.cmp(&right.0));
+    // Non-vacuous proof-surface scan of the staged preview.js. The PRODUCT build
+    // must embed a preview runtime that contains a known product symbol
+    // (positive floor, so a failed/empty read cannot pass) and NONE of the proof
+    // export/dispatch symbols. The PROOF build must embed one that carries the
+    // proof extension surface.
+    let staged_preview_js = fs::read_to_string(preview_root.join("preview.js"))
+        .expect("staged preview.js must exist for the embedded-preview proof scan");
+    assert!(
+        staged_preview_js.contains("createPreviewEndpoint")
+            && staged_preview_js.contains("verifyRuntimeAsset"),
+        "staged preview.js is missing product runtime symbols (scan would be vacuous)"
+    );
+    let forbidden_product_preview_symbols = [
+        "previewIssue",
+        "installIssue040AudioProbe",
+        "createProofExpectationRegistry",
+        "QueryIssue039State",
+        "QueryIssue040AudioState",
+        "QueryStoppedGameProof",
+        "Issue034FileSystemProbe",
+        "RunAtomicMountSelfTest",
+    ];
+    let proof_extension = preview_root.join("preview-proof-extension.js");
+    if proof_harness_enabled() {
+        assert!(
+            proof_extension.exists(),
+            "the PROOF build must embed the staged preview proof extension"
+        );
+    } else {
+        for symbol in forbidden_product_preview_symbols {
+            assert!(
+                !staged_preview_js.contains(symbol),
+                "the PRODUCT-embedded preview.js leaked proof symbol {symbol:?}"
+            );
+        }
+        // The shared product stop runtime must not reference the stopped-game
+        // proof export: the quiescence observation moved behind the proof-only
+        // preview extension's neutral `onStopObservation` hook (Stage 6
+        // remediation). Non-vacuous: assert the product floor is present first.
+        let staged_stop_runtime = fs::read_to_string(preview_root.join("PreviewStopRuntime.js"))
+            .expect("staged PreviewStopRuntime.js must exist for the proof-surface scan");
+        assert!(
+            staged_stop_runtime.contains("createPreviewStopExecutor")
+                && staged_stop_runtime.contains("observeStopped"),
+            "staged PreviewStopRuntime.js is missing product symbols (scan would be vacuous)"
+        );
+        assert!(
+            !staged_stop_runtime.contains("QueryStoppedGameProof"),
+            "the PRODUCT-staged PreviewStopRuntime.js leaked proof symbol QueryStoppedGameProof"
+        );
+        assert!(
+            !proof_extension.exists(),
+            "the PRODUCT build embedded a proof-only preview extension asset"
+        );
+    }
+    let _ = profile_label;
     let sizes = files
         .iter()
         .map(|(_, path)| {
@@ -537,7 +858,7 @@ fn main() {
     );
     let canary = fs::read("../../../tests/security/fixtures/issue034-canary.txt")
         .expect("issue 034 canary fixture is missing");
-    let package_root = Path::new("../../frontend/dist")
+    let package_root = Path::new(package_dir)
         .canonicalize()
         .expect("frontend package must exist before the Rust build");
     let mut package_files = Vec::new();
@@ -552,6 +873,50 @@ fn main() {
         }),
         "the issue 034 canary fixture leaked into packaged frontend assets"
     );
+    // Non-vacuous proof-surface scan of the staged compiler harness. The compiler
+    // ships as a normal frontend asset under `<package>/compiler` (not embedded
+    // via `preview_asset`), so scan the profile-correct staged tree directly. The
+    // PRODUCT build must contain a known product symbol (positive floor) and NONE
+    // of the proof globals/handshake/extension; the PROOF build must carry the
+    // proof extension + shared proof endpoints module.
+    let compiler_root = package_root.join("compiler");
+    let staged_compiler_harness = fs::read_to_string(compiler_root.join("compiler-harness.js"))
+        .expect("staged compiler-harness.js must exist for the embedded-compiler proof scan");
+    assert!(
+        staged_compiler_harness.contains("createCompilerEndpoint")
+            && staged_compiler_harness.contains("CompileAndRetain"),
+        "staged compiler-harness.js is missing product runtime symbols (scan would be vacuous)"
+    );
+    let forbidden_product_compiler_symbols = [
+        "compilerProof",
+        "compilerIssue21Proof",
+        "initializeCompilerProofMode",
+        "createProofExpectationRegistry",
+        "AuthorizeRetentionProof",
+        "CompleteRetentionProof",
+        "GetRetentionState",
+        "runRetentionBehaviorProof",
+        "proof-state",
+    ];
+    let compiler_proof_extension = compiler_root.join("compiler-proof-extension.js");
+    let compiler_proof_endpoints = compiler_root.join("Issue21EndpointsProof.js");
+    if proof_harness_enabled() {
+        assert!(
+            compiler_proof_extension.exists() && compiler_proof_endpoints.exists(),
+            "the PROOF build must stage the compiler proof extension + shared proof endpoints"
+        );
+    } else {
+        for symbol in forbidden_product_compiler_symbols {
+            assert!(
+                !staged_compiler_harness.contains(symbol),
+                "the PRODUCT-staged compiler-harness.js leaked proof symbol {symbol:?}"
+            );
+        }
+        assert!(
+            !compiler_proof_extension.exists() && !compiler_proof_endpoints.exists(),
+            "the PRODUCT build staged a proof-only compiler asset"
+        );
+    }
     let mut generated =
         String::from("fn preview_asset(path: &str) -> Option<&'static [u8]> {\n    match path {\n");
     for (route, path) in &files {
@@ -571,9 +936,45 @@ fn main() {
     let output = PathBuf::from(env::var_os("OUT_DIR").expect("OUT_DIR is missing"))
         .join("preview_assets.rs");
     fs::write(output, generated).expect("failed to generate embedded preview asset map");
+    // The autogenerated per-command permission directory is a gitignored build
+    // artifact that `tauri_build` regenerates from the effective command set but
+    // never prunes. Switching profiles (product ↔ proof) would otherwise leave
+    // stale files and desync the effective-ACL count, so wipe it first and let
+    // `tauri_build` repopulate exactly the profile-correct set.
+    let autogenerated = manifest_root.join("permissions/autogenerated");
+    if autogenerated.exists() {
+        for entry in fs::read_dir(&autogenerated).expect("failed to read autogenerated permissions")
+        {
+            let path = entry
+                .expect("failed to read autogenerated permission entry")
+                .path();
+            if path.extension().and_then(|value| value.to_str()) == Some("toml") {
+                fs::remove_file(&path).expect("failed to prune stale autogenerated permission");
+            }
+        }
+    }
+    // Profile-scope which committed ACL files `tauri_build` reads into the
+    // embedded manifest. The product build reads ONLY main.toml / main.json, so
+    // the proof composite permission and the seventy proof command name strings
+    // never enter the product binary's ACL manifest (a raw `strings` scan of the
+    // release binary confirms their absence). The proof build widens both globs
+    // to include the proof overlay. The `default = []` feature keeps the product
+    // scoping as the fail-safe default.
+    let (permissions_pattern, capabilities_pattern) = if proof_harness_enabled() {
+        ("./permissions/*.toml", "./capabilities/*.json")
+    } else {
+        ("./permissions/main.toml", "./capabilities/main.json")
+    };
+    println!("cargo:rerun-if-changed=permissions");
+    println!("cargo:rerun-if-changed=capabilities");
     tauri_build::try_build(
         tauri_build::Attributes::new()
-            .app_manifest(tauri_build::AppManifest::new().commands(APP_COMMANDS)),
+            .capabilities_path_pattern(capabilities_pattern)
+            .app_manifest(
+                tauri_build::AppManifest::new()
+                    .commands(effective_commands())
+                    .permissions_path_pattern(permissions_pattern),
+            ),
     )
     .expect("failed to build Tauri context");
     validate_generated_acl(manifest_root);

@@ -38,6 +38,17 @@ import {
   type PreviewBridge,
 } from "./preview-frame";
 
+// Product-neutral compiler runtime readiness signal. The product compiler
+// harness (compiler-harness.js) increments this exactly once after its single
+// runtime start; the shell reads it to confirm the persistent compiler context
+// is up WITHOUT depending on any proof global. The proof extension maintains its
+// own `compilerIssue21Proof.runtimeStarts` separately (for proof reporting).
+declare global {
+  interface Window {
+    __playgroundCompilerRuntimeStarts?: number;
+  }
+}
+
 export function requiredElement<T extends Element>(selector: string): T {
   const element = document.querySelector<T>(selector);
   if (!element) throw new Error(`Required element is missing: ${selector}`);
@@ -82,12 +93,25 @@ let previewBootstrapped = false;
 let initialPreviewRetired = false;
 let initialPreviewRetirement: Promise<void> | null = null;
 
-// Proof-mode authorization (set by issue21.ts's auto-proof entry). Read by
-// `bootstrap` to authorise the child bridge proof surface. Product never sets
-// it, so the product bootstrap always sends `issue021Proof:false`.
-let proofModeAuthorized = false;
-export const isProofModeAuthorized = () => proofModeAuthorized;
-export const setProofModeAuthorized = (value: boolean) => { proofModeAuthorized = value; };
+// Neutral bootstrap augmentation seam. Optional, separately-loaded extensions
+// (proof only) may register a contributor that adds fields to the child
+// bootstrap message. The PRODUCT build registers nothing, so the product
+// bootstrap carries only the neutral protocol fields (`type`,
+// `contextGeneration`, and `previewId` for the preview child) and no proof
+// authorization variable.
+type BootstrapAugmentation = (kind: "compiler" | "preview") => Record<string, unknown>;
+const bootstrapAugmentations: BootstrapAugmentation[] = [];
+export function registerBootstrapAugmentation(augment: BootstrapAugmentation): void {
+  bootstrapAugmentations.push(augment);
+}
+// Applies every registered augmentation for a bootstrap `kind`, returning the
+// merged extra fields. Product registers no augmentation, so this returns `{}`
+// and product bootstrap messages carry only neutral protocol fields. Used by
+// both the compiler-context `bootstrap()` and the product live-preview Run path.
+export function bootstrapAugmentationFields(kind: "compiler" | "preview"): Record<string, unknown> {
+  return bootstrapAugmentations.reduce(
+    (acc, augment) => ({ ...acc, ...augment(kind) }), {} as Record<string, unknown>);
+}
 
 // The current live in-page preview iframe (product Run + in-page proof runners
 // share this so a restart retires the previous one).
@@ -124,9 +148,12 @@ function bootstrap(
   if ((kind === "compiler" && compilerBootstrapped) || (kind === "preview" && previewBootstrapped)) return;
   const target = frame.contentWindow;
   if (!target) throw new Error(`${kind} contentWindow is unavailable.`);
-  const bootstrapMessage = kind === "preview"
-    ? { type: "protocol.bootstrap", contextGeneration: generation, previewId, issue021Proof: proofModeAuthorized }
-    : { type: "protocol.bootstrap", contextGeneration: generation, issue021Proof: proofModeAuthorized };
+  const bootstrapMessage = {
+    type: "protocol.bootstrap",
+    contextGeneration: generation,
+    ...(kind === "preview" ? { previewId } : {}),
+    ...bootstrapAugmentationFields(kind),
+  };
   const transfer = bridge ? [channel.port2, bridge.childPort] : [channel.port2];
   target.postMessage(
     bootstrapMessage,
@@ -229,13 +256,13 @@ export async function ensureContexts(allowLockedSession = false, compilerOnly = 
   if (!compilerOnly) void initialPreviewBridge.ready.then(() => { previewReady = true; });
   const deadline = performance.now() + 180_000;
   while ((!compilerBootstrapped || (!compilerOnly && !previewBootstrapped) ||
-          compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts !== 1 ||
+          compilerFrame.contentWindow?.__playgroundCompilerRuntimeStarts !== 1 ||
           !previewReady) &&
          performance.now() < deadline) {
     await new Promise(resolve => window.setTimeout(resolve, 100));
   }
   if (!compilerBootstrapped || (!compilerOnly && !previewBootstrapped) ||
-      compilerFrame.contentWindow?.compilerIssue21Proof?.runtimeStarts !== 1 ||
+      compilerFrame.contentWindow?.__playgroundCompilerRuntimeStarts !== 1 ||
       !previewReady) {
     throw new Error("Compiler or preview runtime did not become ready.");
   }

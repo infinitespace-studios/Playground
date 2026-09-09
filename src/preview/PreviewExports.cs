@@ -51,7 +51,7 @@ public static partial class PreviewExports
     {
         var monoGameAssembly = typeof(Game).Assembly;
         var monoGameIdentity = monoGameAssembly.GetName();
-        var proof = new PreviewContextProof(
+        var proof = new PreviewContextInfo(
             ProtocolVersion: 1,
             Message: "preview-context-alive",
             RuntimeIdentity,
@@ -69,42 +69,28 @@ public static partial class PreviewExports
             MonoGameSourceSha256,
             SafeMetadataType: typeof(Game).FullName!);
 
-        return JsonSerializer.Serialize(proof, PreviewJsonContext.Default.PreviewContextProof);
+        return JsonSerializer.Serialize(proof, PreviewJsonContext.Default.PreviewContextInfo);
     }
 
-    [JSExport]
-    public static string Issue034FileSystemProbe()
-    {
-        var paths = new[]
-        {
-            "/issue034-controlled-canary.txt",
-            "tests/security/fixtures/issue034-canary.txt",
-            "/Users/issue034-controlled-canary.txt",
-        };
-        var results = paths.Select((path, index) =>
-        {
-            try
-            {
-                _ = File.ReadAllText(path);
-                return new { probe = index, read = true, error = (string?)null };
-            }
-            catch (Exception exception)
-            {
-                return new
-                {
-                    probe = index,
-                    read = false,
-                    error = (string?)exception.GetType().Name
-                };
-            }
-        }).ToArray();
-        return JsonSerializer.Serialize(new
-        {
-            currentDirectory = Environment.CurrentDirectory,
-            results,
-            anyRead = results.Any(result => result.read),
-        });
-    }
+    // Proof-only mount write-fault seam. In the product build this partial
+    // method has no implementation, so every call site is elided by the
+    // compiler and the shipped runtime contains no fault-injection path. The
+    // proof build supplies the body in PreviewExports.Proof.cs.
+    static partial void InjectMountWriteFault(int writeIndex);
+
+    // Proof-only game-instance reflection counter seams. The counters
+    // (FrameCount/UpdateCount/DisposeCount/CallbackAfterDisposedCount) exist
+    // only on the proof scenario game fixtures, never on real user games, so
+    // reading them is proof instrumentation. In the product build these partial
+    // methods have no implementation, so the call sites are elided and the
+    // shipped runtime contains no reflection-counter reads or their name
+    // literals; the teardown/failure counter fields simply stay null. The proof
+    // build supplies the bodies (via ReadProofCounter) in PreviewExports.Proof.cs.
+    static partial void ObserveStoppedGameCounters(
+        Type? gameType, ref int? frameCount, ref int? disposeCount);
+    static partial void ObserveRuntimeFailureCounters(
+        Type? gameType, ref int? frameCount, ref int? updateCount,
+        ref int? disposeCount, ref int? callbackAfterDisposedCount);
 
     private static readonly object AssetMountGate = new();
     private static readonly Dictionary<string, byte[]> MountedAssets = new(StringComparer.Ordinal);
@@ -112,56 +98,11 @@ public static partial class PreviewExports
     private static string _contentRootDirectory = "Content";
     private static bool _assetsMountedSuccessfully;
     private static bool _startupAdmitted;
-    private static readonly byte[] Issue039GoodXnb =
-    [
-        0x58, 0x4e, 0x42, 0x62, 0x05, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x01, 0x7a,
-        0x4d, 0x69, 0x63, 0x72, 0x6f, 0x73, 0x6f, 0x66, 0x74, 0x2e, 0x58, 0x6e,
-        0x61, 0x2e, 0x46, 0x72, 0x61, 0x6d, 0x65, 0x77, 0x6f, 0x72, 0x6b, 0x2e,
-        0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x2e, 0x54, 0x65, 0x78, 0x74,
-        0x75, 0x72, 0x65, 0x32, 0x44, 0x52, 0x65, 0x61, 0x64, 0x65, 0x72, 0x2c,
-        0x20, 0x4d, 0x6f, 0x6e, 0x6f, 0x47, 0x61, 0x6d, 0x65, 0x2e, 0x46, 0x72,
-        0x61, 0x6d, 0x65, 0x77, 0x6f, 0x72, 0x6b, 0x2c, 0x20, 0x56, 0x65, 0x72,
-        0x73, 0x69, 0x6f, 0x6e, 0x3d, 0x33, 0x2e, 0x38, 0x2e, 0x35, 0x2e, 0x31,
-        0x2c, 0x20, 0x43, 0x75, 0x6c, 0x74, 0x75, 0x72, 0x65, 0x3d, 0x6e, 0x65,
-        0x75, 0x74, 0x72, 0x61, 0x6c, 0x2c, 0x20, 0x50, 0x75, 0x62, 0x6c, 0x69,
-        0x63, 0x4b, 0x65, 0x79, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x3d, 0x6e, 0x75,
-        0x6c, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        0x40, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-        0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0xff,
-        0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff,
-        0xff, 0x80, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0xff, 0xc0, 0xcb, 0xff,
-        0x80, 0x80, 0x80, 0xff, 0x64, 0x95, 0xed, 0xff, 0x64, 0x95, 0xed, 0xff,
-        0x64, 0x95, 0xed, 0xff, 0x64, 0x95, 0xed, 0xff,
-    ];
-    private static readonly byte[] Issue039WrongPlatformXnb =
-    [
-        0x58, 0x4e, 0x42, 0x64, 0x05, 0x00, 0xe0, 0x00, 0x00, 0x00, 0x01, 0x7a,
-        0x4d, 0x69, 0x63, 0x72, 0x6f, 0x73, 0x6f, 0x66, 0x74, 0x2e, 0x58, 0x6e,
-        0x61, 0x2e, 0x46, 0x72, 0x61, 0x6d, 0x65, 0x77, 0x6f, 0x72, 0x6b, 0x2e,
-        0x43, 0x6f, 0x6e, 0x74, 0x65, 0x6e, 0x74, 0x2e, 0x54, 0x65, 0x78, 0x74,
-        0x75, 0x72, 0x65, 0x32, 0x44, 0x52, 0x65, 0x61, 0x64, 0x65, 0x72, 0x2c,
-        0x20, 0x4d, 0x6f, 0x6e, 0x6f, 0x47, 0x61, 0x6d, 0x65, 0x2e, 0x46, 0x72,
-        0x61, 0x6d, 0x65, 0x77, 0x6f, 0x72, 0x6b, 0x2c, 0x20, 0x56, 0x65, 0x72,
-        0x73, 0x69, 0x6f, 0x6e, 0x3d, 0x33, 0x2e, 0x38, 0x2e, 0x35, 0x2e, 0x31,
-        0x2c, 0x20, 0x43, 0x75, 0x6c, 0x74, 0x75, 0x72, 0x65, 0x3d, 0x6e, 0x65,
-        0x75, 0x74, 0x72, 0x61, 0x6c, 0x2c, 0x20, 0x50, 0x75, 0x62, 0x6c, 0x69,
-        0x63, 0x4b, 0x65, 0x79, 0x54, 0x6f, 0x6b, 0x65, 0x6e, 0x3d, 0x6e, 0x75,
-        0x6c, 0x6c, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00,
-        0x04, 0x00, 0x00, 0x00, 0x04, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00,
-        0x40, 0x00, 0x00, 0x00, 0xff, 0x00, 0x00, 0xff, 0x00, 0xff, 0x00, 0xff,
-        0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x00, 0xff,
-        0x00, 0xff, 0xff, 0xff, 0xff, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0xff,
-        0xff, 0x80, 0x00, 0xff, 0x80, 0x00, 0xff, 0xff, 0xff, 0xc0, 0xcb, 0xff,
-        0x80, 0x80, 0x80, 0xff, 0x64, 0x95, 0xed, 0xff, 0x64, 0x95, 0xed, 0xff,
-        0x64, 0x95, 0xed, 0xff, 0x64, 0x95, 0xed, 0xff,
-    ];
 
     private static string? _pendingMountId;
     private static string? _pendingMountRoot;
     private static List<(string canonical, int byteLength, string sha256)>? _pendingMountPaths;
     private static readonly List<(string virtualPath, byte[] bytes, string sha256)> _stagedAssets = new();
-    private static int _proofInjectWriteFailureAtIndex = -1;
 
     /// Phase 1: Validate paths, limits, duplicates. Accept metadata-only JSON (no bytes).
     /// Returns phase:"validated" on success so the caller can proceed to MountSingleAsset calls.
@@ -449,8 +390,7 @@ public static partial class PreviewExports
                     if (!string.IsNullOrEmpty(directory))
                         Directory.CreateDirectory(directory);
 
-                    if (_proofInjectWriteFailureAtIndex == writtenPaths.Count)
-                        throw new IOException("Injected proof write failure");
+                    InjectMountWriteFault(writtenPaths.Count);
 
                     File.WriteAllBytes(virtualPath, bytes);
                     MountedAssets[virtualPath] = bytes;
@@ -463,7 +403,7 @@ public static partial class PreviewExports
                 _assetsMountedSuccessfully = true;
 
                 // Build mounted files proof
-                var mountedFiles = new List<MountedFileProof>();
+                var mountedFiles = new List<MountedFileDescriptor>();
                 var totalBytes = 0;
                 foreach (var path in _pendingMountPaths)
                 {
@@ -473,7 +413,7 @@ public static partial class PreviewExports
                         totalBytes += MountedAssets[vp].Length;
                         var h = Convert.ToHexString(
                             System.Security.Cryptography.SHA256.HashData(MountedAssets[vp])).ToLowerInvariant();
-                        mountedFiles.Add(new MountedFileProof(path.canonical, vp, MountedAssets[vp].Length, h));
+                        mountedFiles.Add(new MountedFileDescriptor(path.canonical, vp, MountedAssets[vp].Length, h));
                     }
                 }
 
@@ -575,310 +515,6 @@ public static partial class PreviewExports
         }
     }
 
-    /// Query game state counters for issue039 proof.
-    /// Returns FrameCount, DisposeCount, RunCount, StaticConstructorCount from the
-    /// loaded Game type's static properties (if any), plus GameRunner snapshot.
-    [JSExport]
-    public static string QueryIssue039State()
-    {
-        lock (LifecycleGate)
-        {
-            var runner = _gameRunner;
-            if (runner is null)
-            {
-                return JsonSerializer.Serialize(
-                    new Issue039StateResult("stopped", 0, 0, false, false, 0, null, null, null, null),
-                    PreviewJsonContext.Default.Issue039StateResult);
-            }
-            var snapshot = runner.Snapshot();
-            return JsonSerializer.Serialize(
-                new Issue039StateResult(
-                    snapshot.State,
-                    snapshot.ConstructionAttempts,
-                    snapshot.RunAttempts,
-                    snapshot.RunReturned,
-                    snapshot.Disposed,
-                    snapshot.DisposeAttempts,
-                    snapshot.GameType is null ? null : ReadProofCounter(snapshot.GameType, "FrameCount"),
-                    snapshot.GameType is null ? null : ReadProofCounter(snapshot.GameType, "DisposeCount"),
-                    snapshot.GameType is null ? null : ReadProofCounter(snapshot.GameType, "RunCount"),
-                    snapshot.GameType is null ? null : ReadProofCounter(snapshot.GameType, "StaticConstructorCount")),
-                PreviewJsonContext.Default.Issue039StateResult);
-        }
-    }
-
-    /// Reports the loaded game's own audio lifecycle counters for the issue 040 proof.
-    /// The values come from public static members the running game exposes about itself;
-    /// nothing here can start, stop, or observe audio on the game's behalf.
-    [JSExport]
-    public static string QueryIssue040AudioState()
-    {
-        GameRunner? runner;
-        lock (LifecycleGate)
-        {
-            runner = _gameRunner;
-        }
-
-        var gameType = runner?.Snapshot().GameType ?? _lastStoppedGameType;
-        if (gameType is null)
-        {
-            return JsonSerializer.Serialize(
-                new Issue040AudioStateResult(
-                    false, null, null, null, null, null, null, null, null, null, null, null, null, null),
-                PreviewJsonContext.Default.Issue040AudioStateResult);
-        }
-
-        return JsonSerializer.Serialize(
-            new Issue040AudioStateResult(
-                true,
-                ReadProofCounter(gameType, "SoundLoadedCount"),
-                ReadProofString(gameType, "SoundAssetName"),
-                ReadProofCounter(gameType, "SoundDurationMilliseconds"),
-                ReadProofCounter(gameType, "PlayInvocationCount"),
-                ReadProofCounter(gameType, "StopInvocationCount"),
-                ReadProofString(gameType, "StateAfterPlay"),
-                ReadProofString(gameType, "StateAtStopCall"),
-                ReadProofString(gameType, "StateAfterStop"),
-                ReadProofString(gameType, "CurrentInstanceState"),
-                ReadProofCounter(gameType, "ObservedPlayingUpdateCount"),
-                ReadProofCounter(gameType, "TriggerObservationCount"),
-                ReadProofString(gameType, "LastTriggerSource"),
-                ReadProofString(gameType, "AudioErrorText")),
-            PreviewJsonContext.Default.Issue040AudioStateResult);
-    }
-
-    [JSExport]
-    public static string RunContentValidatorSelfTest()        => JsonSerializer.Serialize(
-            ContentValidator.RunSelfTestCases(),
-            (JsonTypeInfo<Dictionary<string, ContentValidator.SelfTestCaseResult>>)
-            PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, ContentValidator.SelfTestCaseResult>))!);
-
-    // Issue 052: round-trip self-test for the raw WAV -> XNB SoundEffect
-    // transcoder (each supported WAV transcodes AND validates as XNB; each
-    // unsupported WAV is rejected).
-    [JSExport]
-    public static string RunWavToXnbSelfTest() => JsonSerializer.Serialize(
-            WavToXnb.RunSelfTestCases(),
-            (JsonTypeInfo<Dictionary<string, WavToXnb.WavSelfTestCaseResult>>)
-            PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, WavToXnb.WavSelfTestCaseResult>))!);
-
-    // Issue 052: magic-byte image validation self-test (png/jpg/jpeg/bmp accepted;
-    // empty/garbage/mislabelled rejected).
-    [JSExport]
-    public static string RunImageContentSelfTest() => JsonSerializer.Serialize(
-            ImageContent.RunSelfTestCases(),
-            (JsonTypeInfo<Dictionary<string, ImageContent.ImageSelfTestCaseResult>>)
-            PreviewJsonContext.Default.GetTypeInfo(typeof(Dictionary<string, ImageContent.ImageSelfTestCaseResult>))!);
-
-    [JSExport]
-    public static string RunAtomicMountSelfTest()
-    {
-        static AssetMountPhaseResult? DeserializePhase(string json) =>
-            JsonSerializer.Deserialize(json, PreviewJsonContext.Default.AssetMountPhaseResult);
-
-        static AssetMountResult? DeserializeMount(string json) =>
-            JsonSerializer.Deserialize(json, PreviewJsonContext.Default.AssetMountResult);
-
-        ClearAllMountState();
-        try
-        {
-            var goodSha = Convert.ToHexString(SHA256.HashData(Issue039GoodXnb)).ToLowerInvariant();
-            var badSha = Convert.ToHexString(SHA256.HashData(Issue039WrongPlatformXnb)).ToLowerInvariant();
-            var firstMountId = "issue039-atomic-selftest-1";
-            var staleMountId = "issue039-atomic-selftest-2";
-            var replacementMountId = "issue039-atomic-selftest-3";
-
-            var firstMetadata = JsonSerializer.Serialize(
-                new[]
-                {
-                    new AssetMetaEntry("textures/good_fixture.xnb", Issue039GoodXnb.Length, goodSha),
-                    new AssetMetaEntry("textures/bad_fixture.xnb", Issue039WrongPlatformXnb.Length, badSha),
-                },
-                PreviewJsonContext.Default.AssetMetaEntryArray);
-            var firstPhase = DeserializePhase(MountContentAssets(firstMountId, "Content", firstMetadata));
-            var firstStage = DeserializePhase(MountSingleAsset(
-                firstMountId,
-                "Content",
-                "textures/good_fixture.xnb",
-                Issue039GoodXnb.ToArray(),
-                goodSha));
-            var secondStage = DeserializeMount(MountSingleAsset(
-                firstMountId,
-                "Content",
-                "textures/bad_fixture.xnb",
-                Issue039WrongPlatformXnb.ToArray(),
-                badSha));
-
-            int mountedCountAfterAbort;
-            int stagedCountAfterAbort;
-            bool pendingMountClearedAfterAbort;
-            lock (AssetMountGate)
-            {
-                mountedCountAfterAbort = MountedAssets.Count;
-                stagedCountAfterAbort = _stagedAssets.Count;
-                pendingMountClearedAfterAbort = _pendingMountId is null;
-            }
-
-            var rollbackMountId = "issue039-atomic-selftest-rollback";
-            var rollbackVirtualPath1 = ContentPathNormalizer.ResolveVirtualPath("Content", "textures/rollback_a.xnb");
-            var rollbackVirtualPath2 = ContentPathNormalizer.ResolveVirtualPath("Content", "textures/rollback_b.xnb");
-            var rollbackMetadata = JsonSerializer.Serialize(
-                new[]
-                {
-                    new AssetMetaEntry("textures/rollback_a.xnb", Issue039GoodXnb.Length, goodSha),
-                    new AssetMetaEntry("textures/rollback_b.xnb", Issue039GoodXnb.Length, goodSha),
-                },
-                PreviewJsonContext.Default.AssetMetaEntryArray);
-            bool rollbackAttempted;
-            bool rollbackFirstFileDeleted;
-            bool rollbackMountedAssetsZero;
-            bool rollbackCommittedIdAbsent;
-            bool rollbackMountedSuccessUnchanged;
-            var mountedSuccessBeforeRollback = _assetsMountedSuccessfully;
-            try
-            {
-                _proofInjectWriteFailureAtIndex = 1;
-                var rollbackPhase = DeserializePhase(MountContentAssets(rollbackMountId, "Content", rollbackMetadata));
-                var rollbackStage1 = DeserializePhase(MountSingleAsset(
-                    rollbackMountId,
-                    "Content",
-                    "textures/rollback_a.xnb",
-                    Issue039GoodXnb.ToArray(),
-                    goodSha));
-                var rollbackStage2 = DeserializePhase(MountSingleAsset(
-                    rollbackMountId,
-                    "Content",
-                    "textures/rollback_b.xnb",
-                    Issue039GoodXnb.ToArray(),
-                    goodSha));
-                var rollbackCommit = DeserializeMount(CommitMount(rollbackMountId));
-                rollbackAttempted =
-                    rollbackPhase?.Success == true &&
-                    rollbackStage1?.Success == true &&
-                    rollbackStage2?.Success == true &&
-                    rollbackCommit?.Success == false &&
-                    rollbackCommit.Error?.Code == "FILESYSTEM_ERROR";
-                lock (AssetMountGate)
-                {
-                    rollbackMountedAssetsZero = MountedAssets.Count == 0;
-                    rollbackCommittedIdAbsent = !CommittedMountIds.Contains(rollbackMountId);
-                    rollbackMountedSuccessUnchanged = _assetsMountedSuccessfully == mountedSuccessBeforeRollback;
-                }
-                rollbackFirstFileDeleted =
-                    !File.Exists(rollbackVirtualPath1) &&
-                    !File.Exists(rollbackVirtualPath2);
-            }
-            finally
-            {
-                _proofInjectWriteFailureAtIndex = -1;
-            }
-
-            // Test 4: Startup-admitted race prevention
-            // Validate and stage an asset, then mark startup admitted
-            // CommitMount must reject with zero writes and clear staging
-            bool startupCommitRejected;
-            bool startupMountedZero;
-            bool startupStagingCleared;
-            bool startupPendingCleared;
-            {
-                var raceId = "issue039-atomic-selftest-race";
-                var raceMetadata = JsonSerializer.Serialize(
-                    new[]
-                    {
-                        new AssetMetaEntry("textures/race_fixture.xnb", Issue039GoodXnb.Length, goodSha),
-                    },
-                    PreviewJsonContext.Default.AssetMetaEntryArray);
-                var racePhase = DeserializePhase(MountContentAssets(raceId, "Content", raceMetadata));
-                var raceStage = DeserializePhase(MountSingleAsset(
-                    raceId, "Content", "textures/race_fixture.xnb",
-                    Issue039GoodXnb.ToArray(), goodSha));
-                // Simulate startup admission
-                Volatile.Write(ref _startupAdmitted, true);
-                var raceCommit = DeserializeMount(CommitMount(raceId));
-                startupCommitRejected = raceCommit?.Success == false &&
-                    raceCommit.Error?.Code == "INVALID_STATE";
-                lock (AssetMountGate)
-                {
-                    startupMountedZero = MountedAssets.Count == 0;
-                    startupStagingCleared = _stagedAssets.Count == 0;
-                    startupPendingCleared = _pendingMountId is null;
-                }
-                Volatile.Write(ref _startupAdmitted, false); // reset for remaining tests
-            }
-
-            var staleMetadata = JsonSerializer.Serialize(
-                new[]
-                {
-                    new AssetMetaEntry("textures/stale_fixture.xnb", Issue039GoodXnb.Length, goodSha),
-                },
-                PreviewJsonContext.Default.AssetMetaEntryArray);
-            var stalePhase = DeserializePhase(MountContentAssets(staleMountId, "Content", staleMetadata));
-            var staleStage = DeserializePhase(MountSingleAsset(
-                staleMountId,
-                "Content",
-                "textures/stale_fixture.xnb",
-                Issue039GoodXnb.ToArray(),
-                goodSha));
-
-            var replacementMetadata = JsonSerializer.Serialize(
-                new[]
-                {
-                    new AssetMetaEntry("textures/replacement_fixture.xnb", Issue039GoodXnb.Length, goodSha),
-                },
-                PreviewJsonContext.Default.AssetMetaEntryArray);
-            var replacementPhase = DeserializePhase(MountContentAssets(
-                replacementMountId,
-                "Content",
-                replacementMetadata));
-            var staleCommit = DeserializeMount(CommitMount(staleMountId));
-
-            bool staleStagingCleared;
-            string? pendingMountIdAfterReplacement;
-            int mountedCountAfterReplacement;
-            int stagedCountAfterReplacement;
-            lock (AssetMountGate)
-            {
-                staleStagingCleared = _stagedAssets.Count == 0 && _pendingMountId == replacementMountId;
-                pendingMountIdAfterReplacement = _pendingMountId;
-                mountedCountAfterReplacement = MountedAssets.Count;
-                stagedCountAfterReplacement = _stagedAssets.Count;
-            }
-
-            return JsonSerializer.Serialize(
-                new AtomicMountSelfTestResult(
-                    firstPhase?.Success == true && firstPhase.Phase == "validated",
-                    firstStage?.Success == true && firstStage.Phase == "staging" && firstStage.AssetCount == 1,
-                    secondStage?.Success == false &&
-                        secondStage.Error?.Code == "PREVIEW_LOAD_FAILED" &&
-                        secondStage.Diagnostic?.Id == "PG0010_CONTENT_PLATFORM_MISMATCH",
-                    mountedCountAfterAbort,
-                    stagedCountAfterAbort,
-                    pendingMountClearedAfterAbort,
-                    stalePhase?.Success == true && stalePhase.Phase == "validated",
-                    staleStage?.Success == true && staleStage.Phase == "staged" && staleStage.AssetCount == 1,
-                    replacementPhase?.Success == true && replacementPhase.Phase == "validated",
-                    rollbackAttempted,
-                    rollbackFirstFileDeleted,
-                    rollbackMountedAssetsZero,
-                    rollbackCommittedIdAbsent,
-                    rollbackMountedSuccessUnchanged,
-                    staleStagingCleared,
-                    staleCommit?.Success == false && staleCommit.Error?.Code == "INVALID_STATE",
-                    mountedCountAfterReplacement,
-                    stagedCountAfterReplacement,
-                    pendingMountIdAfterReplacement,
-                    startupCommitRejected,
-                    startupMountedZero,
-                    startupStagingCleared,
-                    startupPendingCleared),
-                PreviewJsonContext.Default.AtomicMountSelfTestResult);
-        }
-        finally
-        {
-            ClearAllMountState();
-        }
-    }
-
     private static string SerializeMountFailure(
         string code, string message,
         string? diagnosticId = null, string? diagnosticMessage = null) =>
@@ -953,55 +589,6 @@ public static partial class PreviewExports
         return ContentKind.Unknown;
     }
 
-    private static void ClearAllMountState()
-    {
-        lock (AssetMountGate)
-        {
-            foreach (var path in MountedAssets.Keys.ToArray())
-            {
-                try { File.Delete(path); } catch { /* best effort cleanup */ }
-            }
-            MountedAssets.Clear();
-            CommittedMountIds.Clear();
-            _assetsMountedSuccessfully = false;
-            Volatile.Write(ref _startupAdmitted, false);
-            _contentRootDirectory = "Content";
-            ResetPendingMountState();
-        }
-    }
-
-    [JSExport]
-    public static string RunForwardingTextWriterSelfTest()
-    {
-        var received = new List<string>();
-        ForwardingTextWriter? writer = null;
-        writer = new ForwardingTextWriter(text =>
-        {
-            received.Add(text);
-            if (text == "reenter")
-                writer!.WriteLine("nested");
-        });
-        writer.Write('a');
-        writer.Write("b\r");
-        writer.Write('\n');
-        writer.WriteLine("");
-        writer.Write("partial");
-        writer.Flush();
-        writer.WriteLine("reenter");
-        writer.WriteLine(string.Concat(Enumerable.Repeat("🙂", 5_000)));
-        writer.Dispose();
-        var expected = new[] {
-            "ab", "", "partial", "reenter", "nested",
-            string.Concat(Enumerable.Repeat("🙂", 4_096)),
-            string.Concat(Enumerable.Repeat("🙂", 904)),
-        };
-        return JsonSerializer.Serialize(new {
-            success = received.SequenceEqual(expected),
-            eventCount = received.Count,
-            utf8ByteLengths = received.Select(Encoding.UTF8.GetByteCount).ToArray(),
-        });
-    }
-
     [JSExport]
     public static string LoadUserAssembly(
         byte[]? dllBytes,
@@ -1072,7 +659,7 @@ public static partial class PreviewExports
                 new AssemblyLoadResult(
                     true,
                     true,
-                    new AssemblyLoadProof(
+                    new AssemblyLoadEvidence(
                         fullName,
                         identity.Name,
                         dllBytes!.Length,
@@ -1185,46 +772,7 @@ public static partial class PreviewExports
     }
 
     [JSExport]
-    public static string RunGameRunnerBehavioralSelfTest()
-    {
-        var game = new RunnerSelfTestGame();
-        GameRunner? runner = null;
-        GameRunner.StartResult? competing = null;
-        GameRunner.DisposalResult? racingTeardown = null;
-        var callbacks = 0;
-        runner = new GameRunner(game, _ =>
-        {
-            callbacks++;
-            competing = runner!.RunGame();
-            racingTeardown = runner.Teardown();
-        });
-        var admitted = runner.RunGame();
-        var repeatedTeardown = runner.Teardown();
-        var fatal = new Dictionary<string, bool>
-        {
-            [nameof(OutOfMemoryException)] = GameRunner.IsFatal(new OutOfMemoryException()),
-            [nameof(StackOverflowException)] = GameRunner.IsFatal(new StackOverflowException()),
-            [nameof(AccessViolationException)] = GameRunner.IsFatal(new AccessViolationException()),
-            [nameof(AppDomainUnloadedException)] = GameRunner.IsFatal(new AppDomainUnloadedException()),
-            [nameof(CannotUnloadAppDomainException)] = GameRunner.IsFatal(new CannotUnloadAppDomainException()),
-            [nameof(InvalidOperationException)] = GameRunner.IsFatal(new InvalidOperationException()),
-        };
-        return JsonSerializer.Serialize(
-            new RunnerBehavioralSelfTest(
-                callbacks,
-                admitted.RunAttempts,
-                admitted.RetainedGame,
-                admitted.Disposed,
-                competing?.Error?.Code,
-                racingTeardown?.DisposeAttempts ?? 0,
-                repeatedTeardown.HadGame,
-                game.DisposeCount,
-                fatal),
-            PreviewJsonContext.Default.RunnerBehavioralSelfTest);
-    }
-
-    [JSExport]
-    public static string QueryRunState(bool includeProofGameCounters)
+    public static string QueryRunState()
     {
         GameRunner? runner;
         lock (LifecycleGate)
@@ -1240,17 +788,10 @@ public static partial class PreviewExports
         }
 
         var snapshot = runner.Snapshot();
-        int? frameCount = null;
-        int? proofDisposeCount = null;
-        int? runCount = null;
-        int? staticConstructorCount = null;
-        if (includeProofGameCounters && snapshot.GameType is not null)
-        {
-            frameCount = ReadProofCounter(snapshot.GameType, "FrameCount");
-            proofDisposeCount = ReadProofCounter(snapshot.GameType, "DisposeCount");
-            runCount = ReadProofCounter(snapshot.GameType, "RunCount");
-            staticConstructorCount = ReadProofCounter(snapshot.GameType, "StaticConstructorCount");
-        }
+        // Responsibility-neutral product run state: the shipping runtime reports
+        // lifecycle facts only. Game-instance reflection counters are proof-only
+        // instrumentation and are produced by `QueryRunStateProof` in the proof
+        // build; the product result leaves those fields null.
         return JsonSerializer.Serialize(
             new GameRunStateResult(
                 snapshot.State,
@@ -1261,10 +802,10 @@ public static partial class PreviewExports
                 snapshot.RetainedGame,
                 snapshot.Disposed,
                 snapshot.DisposeAttempts,
-                frameCount,
-                proofDisposeCount,
-                runCount,
-                staticConstructorCount),
+                null,
+                null,
+                null,
+                null),
             PreviewJsonContext.Default.GameRunStateResult);
     }
 
@@ -1304,6 +845,11 @@ public static partial class PreviewExports
             {
                 RestoreConsoleCapture();
             }
+            // Product path leaves the game-instance reflection counters null; the
+            // proof build supplies them via the ObserveStoppedGameCounters seam.
+            int? stoppedFrameCount = null;
+            int? stoppedDisposeCount = null;
+            ObserveStoppedGameCounters(gameType, ref stoppedFrameCount, ref stoppedDisposeCount);
             return JsonSerializer.Serialize(
                 new GameTeardownResult(
                     disposal.Success,
@@ -1312,8 +858,8 @@ public static partial class PreviewExports
                     disposal.RetainedGame,
                     disposal.Error is null ? null : new LoadError(disposal.Error.Code, disposal.Error.Message),
                     false,
-                    gameType is null ? null : ReadProofCounter(gameType, "FrameCount"),
-                    gameType is null ? null : ReadProofCounter(gameType, "DisposeCount")),
+                    stoppedFrameCount,
+                    stoppedDisposeCount),
                 PreviewJsonContext.Default.GameTeardownResult);
         }
     }
@@ -1335,17 +881,25 @@ public static partial class PreviewExports
                 return;
             var teardown = JsonSerializer.Deserialize(
                 StopGameCore(true), PreviewJsonContext.Default.GameTeardownResult);
+            // Product path leaves the game-instance reflection counters null; the
+            // proof build supplies them via the ObserveRuntimeFailureCounters seam.
+            int? failureFrameCount = null;
+            int? failureUpdateCount = null;
+            int? failureDisposeCount = null;
+            int? failureCallbackAfterDisposedCount = null;
+            ObserveRuntimeFailureCounters(
+                _lastStoppedGameType,
+                ref failureFrameCount,
+                ref failureUpdateCount,
+                ref failureDisposeCount,
+                ref failureCallbackAfterDisposedCount);
             failure = failure with {
                 CleanupSucceeded = teardown?.Success == true,
                 DisposeAttempts = teardown?.DisposeAttempts,
-                FrameCount = _lastStoppedGameType is null
-                    ? null : ReadProofCounter(_lastStoppedGameType, "FrameCount"),
-                UpdateCount = _lastStoppedGameType is null
-                    ? null : ReadProofCounter(_lastStoppedGameType, "UpdateCount"),
-                ProofDisposeCount = _lastStoppedGameType is null
-                    ? null : ReadProofCounter(_lastStoppedGameType, "DisposeCount"),
-                CallbackAfterDisposedCount = _lastStoppedGameType is null
-                    ? null : ReadProofCounter(_lastStoppedGameType, "CallbackAfterDisposedCount"),
+                FrameCount = failureFrameCount,
+                UpdateCount = failureUpdateCount,
+                ProofDisposeCount = failureDisposeCount,
+                CallbackAfterDisposedCount = failureCallbackAfterDisposedCount,
             };
             CompleteManagedRuntimeFailure(JsonSerializer.Serialize(
                 failure, PreviewJsonContext.Default.RuntimeExceptionReport));
@@ -1384,22 +938,6 @@ public static partial class PreviewExports
         error?.Dispose();
     }
 
-    [JSExport]
-    public static string QueryStoppedGameProof()
-    {
-        var gameType = _lastStoppedGameType;
-        return JsonSerializer.Serialize(
-            new GameStoppedProof(
-                gameType is null ? null : ReadProofCounter(gameType, "FrameCount"),
-                gameType is null ? null : ReadProofCounter(gameType, "UpdateCount"),
-                gameType is null ? null : ReadProofCounter(gameType, "DisposeCount"),
-                gameType is null ? null : ReadProofCounter(gameType, "CallbackAfterDisposedCount"),
-                gameType is null ? null : ReadProofCounter(gameType, "AudioCreateCount"),
-                gameType is null ? null : ReadProofCounter(gameType, "AudioPlayCount"),
-                gameType is null ? null : ReadProofCounter(gameType, "AudioDisposeCount")),
-            PreviewJsonContext.Default.GameStoppedProof);
-    }
-
     private static bool IsExpectedAssemblyLoadFailure(Exception exception) =>
         exception is ArgumentException or
             BadImageFormatException or
@@ -1407,36 +945,6 @@ public static partial class PreviewExports
             FileNotFoundException or
             TypeLoadException or
             NotSupportedException;
-
-    private static int? ReadProofCounter(Type type, string name)
-    {
-        try
-        {
-            var property = type.GetProperty(
-                name, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
-            return property?.PropertyType == typeof(int) ? (int?)property.GetValue(null) : null;
-        }
-        catch (Exception exception) when (!GameRunner.IsFatal(exception))
-        {
-            return null;
-        }
-    }
-
-    private static string? ReadProofString(Type type, string name)
-    {
-        try
-        {
-            var property = type.GetProperty(
-                name, BindingFlags.Public | BindingFlags.Static | BindingFlags.FlattenHierarchy);
-            if (property?.PropertyType != typeof(string)) return null;
-            var value = property.GetValue(null) as string;
-            return value is null || value.Length <= 512 ? value : value[..512];
-        }
-        catch (Exception exception) when (!GameRunner.IsFatal(exception))
-        {
-            return null;
-        }
-    }
 
     private static ValidatedLoad ValidateLoad(
         byte[]? dllBytes,
@@ -1585,7 +1093,10 @@ public static partial class PreviewExports
     internal sealed record AssetMetaEntry(string Path, int ByteLength, string Sha256);
     internal sealed record AssetMountPhaseResult(
         bool Success, string Phase, int AssetCount, string RootDir);
-    internal sealed record MountedFileProof(
+    // Content-integrity descriptor for one mounted asset (asset path, virtual
+    // path, byte length, SHA-256). Product mount evidence — not proof
+    // instrumentation. Wire property names are unchanged.
+    internal sealed record MountedFileDescriptor(
         string AssetPath, string VirtualPath, int ByteLength, string Sha256);
     internal sealed record MountDiagnostic(string Id, string Message);
     internal sealed record AssetMountResult(
@@ -1594,7 +1105,7 @@ public static partial class PreviewExports
         int MountedFileCount,
         int MountedByteLength,
         string? ContentRootDirectory,
-        MountedFileProof[]? MountedFiles,
+        MountedFileDescriptor[]? MountedFiles,
         LoadError? Error,
         MountDiagnostic? Diagnostic = null);
     internal sealed record AssetMountStateResult(
@@ -1604,42 +1115,11 @@ public static partial class PreviewExports
         int CommittedMountCount,
         string ContentRootDirectory,
         string[] CommittedMountIds);
-    internal sealed record AtomicMountSelfTestResult(
-        bool InitialMountValidated,
-        bool FirstAssetStaged,
-        bool SecondAssetFailed,
-        int MountedCountAfterAbort,
-        int StagedCountAfterAbort,
-        bool PendingMountClearedAfterAbort,
-        bool StaleMountValidated,
-        bool StaleAssetStaged,
-        bool ReplacementMountValidated,
-        bool RollbackAttempted,
-        bool RollbackFirstFileDeleted,
-        bool RollbackMountedAssetsZero,
-        bool RollbackCommittedIdAbsent,
-        bool RollbackMountedSuccessUnchanged,
-        bool StaleStagingCleared,
-        bool StaleCommitRejected,
-        int MountedCountAfterReplacement,
-        int StagedCountAfterReplacement,
-        string? PendingMountIdAfterReplacement,
-        bool StartupCommitRejected,
-        bool StartupMountedZero,
-        bool StartupStagingCleared,
-        bool StartupPendingCleared);
-    internal sealed record Issue039StateResult(
-        string State,
-        int ConstructionAttempts,
-        int RunAttempts,
-        bool RunReturned,
-        bool Disposed,
-        int DisposeAttempts,
-        int? FrameCount,
-        int? DisposeCount,
-        int? RunCount,
-        int? StaticConstructorCount);
-    internal sealed record PreviewContextProof(
+    // Preview runtime context descriptor returned by Ping (protocol version,
+    // runtime identity, configuration/build flags, MonoGame identity). Product
+    // attestation of the shipped runtime — not proof instrumentation. Wire
+    // property names are unchanged.
+    internal sealed record PreviewContextInfo(
         int ProtocolVersion,
         string Message,
         string RuntimeIdentity,
@@ -1657,7 +1137,11 @@ public static partial class PreviewExports
         string MonoGameSourceSha256,
         string SafeMetadataType);
 
-    internal sealed record AssemblyLoadProof(
+    // Compiled-binary supply-chain evidence for a loaded user assembly (assembly
+    // and PDB SHA-256, byte lengths, source paths, CodeView/PDB identity).
+    // Product binary-integrity evidence — not proof instrumentation. Wire
+    // property names are unchanged.
+    internal sealed record AssemblyLoadEvidence(
         string AssemblyFullName,
         string AssemblySimpleName,
         int AssemblyByteLength,
@@ -1677,7 +1161,7 @@ public static partial class PreviewExports
     internal sealed record AssemblyLoadResult(
         bool Success,
         bool MutationStarted,
-        AssemblyLoadProof? Proof,
+        AssemblyLoadEvidence? Proof,
         LoadError? Error);
 
     internal sealed record LoadError(string Code, string Message);
@@ -1724,49 +1208,6 @@ public static partial class PreviewExports
         int? ProofDisposeCount,
         int? RunCount,
         int? StaticConstructorCount);
-    internal sealed record RunnerBehavioralSelfTest(
-        int RunCallbacks,
-        int RunAttempts,
-        bool RetainedGame,
-        bool Disposed,
-        string? CompetingErrorCode,
-        int RacingDisposeAttempts,
-        bool RepeatedTeardownHadGame,
-        int GameDisposeCount,
-        Dictionary<string, bool> FatalClassifications);
-    internal sealed record GameStoppedProof(
-        int? FrameCount,
-        int? UpdateCount,
-        int? DisposeCount,
-        int? CallbackAfterDisposedCount,
-        int? AudioCreateCount,
-        int? AudioPlayCount,
-        int? AudioDisposeCount);
-    internal sealed record Issue040AudioStateResult(
-        bool GameTypeObserved,
-        int? SoundLoadedCount,
-        string? SoundAssetName,
-        int? SoundDurationMilliseconds,
-        int? PlayInvocationCount,
-        int? StopInvocationCount,
-        string? StateAfterPlay,
-        string? StateAtStopCall,
-        string? StateAfterStop,
-        string? CurrentInstanceState,
-        int? ObservedPlayingUpdateCount,
-        int? TriggerObservationCount,
-        string? LastTriggerSource,
-        string? AudioErrorText);
-    private sealed class RunnerSelfTestGame : Game
-    {
-        public int DisposeCount { get; private set; }
-
-        protected override void Dispose(bool disposing)
-        {
-            if (disposing) DisposeCount++;
-            base.Dispose(disposing);
-        }
-    }
     private sealed record ValidatedLoad(
         string AssemblySha256,
         string PdbSha256,
@@ -1782,25 +1223,17 @@ public static partial class PreviewExports
 }
 
 [JsonSourceGenerationOptions(JsonSerializerDefaults.Web)]
-[JsonSerializable(typeof(PreviewExports.PreviewContextProof))]
+[JsonSerializable(typeof(PreviewExports.PreviewContextInfo))]
 [JsonSerializable(typeof(PreviewExports.AssemblyLoadResult))]
 [JsonSerializable(typeof(PreviewExports.GamePipelineResult))]
 [JsonSerializable(typeof(PreviewExports.GameTeardownResult))]
 [JsonSerializable(typeof(PreviewExports.GameStartResult))]
 [JsonSerializable(typeof(PreviewExports.GameRunStateResult))]
-[JsonSerializable(typeof(PreviewExports.RunnerBehavioralSelfTest))]
-[JsonSerializable(typeof(PreviewExports.GameStoppedProof))]
 [JsonSerializable(typeof(PreviewExports.AssetMountResult))]
 [JsonSerializable(typeof(PreviewExports.AssetMountStateResult))]
-[JsonSerializable(typeof(PreviewExports.AtomicMountSelfTestResult))]
-[JsonSerializable(typeof(PreviewExports.Issue039StateResult))]
-[JsonSerializable(typeof(PreviewExports.Issue040AudioStateResult))]
 [JsonSerializable(typeof(PreviewExports.AssetMetaEntry[]))]
 [JsonSerializable(typeof(PreviewExports.AssetMountPhaseResult))]
 [JsonSerializable(typeof(PreviewExports.AssetEntry[]))]
-[JsonSerializable(typeof(Dictionary<string, ContentValidator.SelfTestCaseResult>))]
-[JsonSerializable(typeof(Dictionary<string, WavToXnb.WavSelfTestCaseResult>))]
-[JsonSerializable(typeof(Dictionary<string, ImageContent.ImageSelfTestCaseResult>))]
 [JsonSerializable(typeof(RuntimeExceptionReport))]
 [JsonSerializable(typeof(string[]))]
 internal sealed partial class PreviewJsonContext : JsonSerializerContext;

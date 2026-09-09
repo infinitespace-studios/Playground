@@ -95,7 +95,7 @@ export function setApplicationDirtyState(dirty: boolean): void {
   // trusted top-level frontend can reach this command (ACL-gated per issue 34);
   // it is absent in the sandboxed preview, where __TAURI_INTERNALS__ is never
   // injected, so the optional-chaining call simply no-ops there.
-  (window as any).__TAURI_INTERNALS__?.invoke?.("issue050_set_dirty", { dirty });
+  (window as any).__TAURI_INTERNALS__?.invoke?.("workspace_set_dirty", { dirty });
 
   const indicator = document.getElementById("dirty-indicator-text");
   const indicatorDot = document.getElementById("dirty-indicator");
@@ -190,10 +190,10 @@ export function installDirtyStateTracker(
         // Step 1: Show native save dialog via our approved application
         // command. The trusted webview may only invoke the app's own
         // registered commands (never plugin commands like
-        // "plugin:dialog|save" directly), so issue050_save_dialog wraps the
+        // "plugin:dialog|save" directly), so workspace_save_dialog wraps the
         // dialog plugin on the Rust side and returns the chosen path.
         const result = await (window as any).__TAURI_INTERNALS__.invoke(
-          "issue050_save_dialog",
+          "workspace_save_dialog",
           {
             defaultPath: suggestedName,
           },
@@ -210,7 +210,7 @@ export function installDirtyStateTracker(
 
         // Step 2: Write file atomically using our Rust command
         await (window as any).__TAURI_INTERNALS__.invoke(
-          "issue050_write_file",
+          "workspace_write_file",
           {
             path: filePath,
             content: content,
@@ -257,7 +257,7 @@ export function installDirtyStateTracker(
         // Show native open dialog via our approved application command.
         // Returns [path, content] or null if cancelled.
         const result = await (window as any).__TAURI_INTERNALS__.invoke(
-          "issue050_open_dialog",
+          "workspace_open_dialog",
           {},
         );
         if (!result) {
@@ -279,7 +279,7 @@ export function installDirtyStateTracker(
 // ----- Application exit handling -----
 //
 // The desktop (Tauri) application's close is gated natively: the frontend
-// publishes its dirty state to the shell via `issue050_set_dirty` (see
+// publishes its dirty state to the shell via `workspace_set_dirty` (see
 // setApplicationDirtyState), and the shell's `CloseRequested` handler shows a
 // native discard-confirmation dialog when dirty. In a plain browser context
 // (no shell), fall back to the browser's own beforeunload confirmation.

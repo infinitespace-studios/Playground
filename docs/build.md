@@ -72,9 +72,15 @@ npm --prefix src/frontend run check:profile-product   # dist/ only
 npm --prefix src/frontend run check:profile-proof     # dist-proof/ only
 
 # Fresh-build verification: product -> proof -> product (proves the product
-# build after a proof build stays clean). Stages once, then vite-only builds.
+# build after a proof build stays clean). Performs a REAL fresh per-profile
+# staging sequence — stage PRODUCT, build; stage PROOF, build; restage PRODUCT,
+# build — because the .NET compiler/preview staging is profile-dependent (the
+# proof runtime carries a proof extension/observer that the product must not).
+# It also asserts the staged .NET runtime copied into each dist tree matches its
+# profile. Takes no arguments; the former `--skip-stage` shortcut was removed
+# (a single reused .generated-public/ holds only one profile and cannot prove
+# both profile-specific staged sets).
 npm --prefix src/frontend run verify:profiles
-npm --prefix src/frontend run verify:profiles -- --skip-stage   # reuse staging
 ```
 
 ### Checker (`scripts/check-profile-artifacts.mjs`)
@@ -138,8 +144,15 @@ merging `src-tauri/tauri.proof.conf.json`, which overrides:
 
 ```bash
 npm --prefix src/desktop run tauri -- build \
-  --config src-tauri/tauri.proof.conf.json
+  --config src-tauri/tauri.proof.conf.json \
+  --features proof-harness
 ```
+
+The proof package additionally passes the non-default `proof-harness` Cargo
+feature (Stage 6). Without it the crate compiles only the eight product commands;
+with it the full 78-command proof surface, the proof-only Rust relay/state, and
+the proof capability/permission overlay are compiled in. The release/product
+default never passes the feature.
 
 The distinct `productName`/`identifier` mean the proof package bundles as
 `MonoGame Playground Proof.app` with bundle id `com.monogame.playground.proof`,
@@ -157,6 +170,42 @@ packaged proof runner scripts (`prove-issue03x/04x`) that exercise the raw
 release binary therefore run whichever frontend was embedded by the most recent
 build; they build the proof profile immediately beforehand so the binary embeds
 the proof frontend.
+
+### Compiled-artifact command-inventory enforcement (Stage 6 slice 6)
+
+Because the raw release binary path is shared and overwritten per profile (above),
+a compiled-artifact checker guards the *packaged* executable and staged assets so
+a stale or wrong-profile artifact cannot pass as product:
+
+```bash
+# self-test the checker (proves it fails on injected/wrong-path/wrong-profile/empty)
+npm --prefix src/desktop run check:binary:self-test
+
+# scan the freshly built PRODUCT bundle (8 commands only, zero proof surface)
+npm --prefix src/desktop run check:binary:product
+
+# scan the freshly built PROOF bundle (78 commands, proof symbols, 8 scenarios)
+npm --prefix src/desktop run check:binary:proof
+
+# build + check in one step
+npm --prefix src/desktop run package:product
+npm --prefix src/desktop run package:proof
+```
+
+`scripts/check-binary-command-inventory.mjs` derives the canonical command
+inventories (8 product / 70 proof / 78 total) by parsing `build.rs` — it holds no
+duplicate list — and asserts they are disjoint and their union equals
+`HANDLER_ORDER`. It resolves the mode-correct `.app` by `CFBundleIdentifier`
+(`com.monogame.playground` vs `…playground.proof`), refusing a wrong-profile
+bundle, and cross-checks the staged `dist`/`dist-proof` `profile-manifest.json`.
+It is pure-Node (no system `strings`/`nm`/`plutil`) so it runs on every CI leg.
+Product mode requires all eight product commands + product runtime floors present
+and **zero** old command names, proof commands, `issue0NN` tokens, proof
+env/report markers, proof Rust relays, proof C# exports, proof JS globals, or
+proof extension assets. Proof mode requires all 78 commands + representative proof
+symbols/assets and exactly eight scenarios. The proof packaged runner
+(`prove-scenarios-macos.sh`) runs the proof check after building; the release
+workflow runs the product check after packaging.
 
 ### Stage-2 boundary (production/proof module extraction, done)
 

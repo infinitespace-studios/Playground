@@ -7,10 +7,11 @@
 // (`proof-compile-run-stop.ts`, via the issue24-controller.ts façade) drive it.
 //
 // `issue24-controller.ts` re-exports these symbols under their historical names
-// as a compatibility façade for proof callers and the protocol test.
+// as a compatibility façade for proof callers and the protocol test. The
+// deprecated issue-numbered lifecycle alias lives ONLY in that issue-numbered
+// façade, so this product domain module carries no issue-numbered identifier
+// (Stage 6 remediation).
 export type PreviewLifecycleState = "loading" | "running" | "stopped" | "error";
-/** @deprecated historical name; use PreviewLifecycleState. */
-export type Issue052PreviewLifecycle = PreviewLifecycleState;
 
 export function createRunStopController<T>({
   start,

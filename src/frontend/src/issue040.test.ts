@@ -221,13 +221,17 @@ test("issue040 proof commands are gated and registered in every ACL inventory", 
     "issue040_dispatch_preview_input",
   ];
   const buildRs = (await repositoryFile("src/desktop/src-tauri/build.rs")).toString("utf8");
-  const permission = (await repositoryFile("src/desktop/src-tauri/permissions/main.toml")).toString("utf8");
+  const permission = (await repositoryFile("src/desktop/src-tauri/permissions/proof.toml")).toString("utf8");
+  const mainPermission = (await repositoryFile("src/desktop/src-tauri/permissions/main.toml")).toString("utf8");
   const lib = (await repositoryFile("src/desktop/src-tauri/src/lib.rs")).toString("utf8");
   const issue34 = (await repositoryFile("src/frontend/src/proof-preview-security.ts")).toString("utf8");
   const approvedCommands = issue34.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[0] ?? "";
   for (const command of commands) {
     assert.ok(buildRs.includes(`"${command}"`), `${command} missing from build.rs`);
-    assert.ok(permission.includes(`"${command}"`), `${command} missing from main.toml`);
+    // Stage 6 binary separation: issue040 proof commands live in the proof-only
+    // ACL overlay (proof.toml), never the product permission (main.toml).
+    assert.ok(permission.includes(`"${command}"`), `${command} missing from proof.toml`);
+    assert.ok(!mainPermission.includes(`"${command}"`), `${command} leaked into main.toml`);
     assert.ok(lib.includes(command), `${command} missing from lib.rs`);
     assert.ok(
       approvedCommands.includes(`"${command}"`),
@@ -241,27 +245,40 @@ test("issue040 proof commands are gated and registered in every ACL inventory", 
 });
 
 test("issue040 preview instrumentation stays gated behind the proof flag", async () => {
+  // The proof audio instrumentation moved out of the shipping preview runtime
+  // into the PROOF-only extension (Stage 6 slice 4). Assert the gating lives in
+  // the extension and that the product preview.js carries none of it.
   const preview = (await repositoryFile("src/preview/wwwroot/preview.js")).toString("utf8");
+  const extension =
+    (await repositoryFile("src/preview/wwwroot/preview-proof-extension.js")).toString("utf8");
   for (const action of ["issue040-audio-arm", "issue040-audio-sample"]) {
-    const index = preview.indexOf(`action === "${action}"`);
+    const index = extension.indexOf(`action === "${action}"`);
     assert.ok(index > 0, `${action} bridge action missing`);
-    const guard = preview.slice(index, index + 220);
+    const guard = extension.slice(index, index + 220);
     assert.ok(
       guard.includes("previewIssue040Proof.enabled"),
       `${action} must be gated on the issue 040 proof flag`,
     );
+    assert.ok(
+      !preview.includes(`action === "${action}"`),
+      `${action} must not appear in the product preview runtime`,
+    );
   }
   for (const snapshot of ["issue040-audio", "issue040-managed-audio"]) {
-    const index = preview.indexOf(`name === "${snapshot}"`);
+    const index = extension.indexOf(`name === "${snapshot}"`);
     assert.ok(index > 0, `${snapshot} snapshot missing`);
-    const guard = preview.slice(index, index + 220);
+    const guard = extension.slice(index, index + 220);
     assert.ok(
       guard.includes("previewIssue040Proof.enabled"),
       `${snapshot} must be gated on the issue 040 proof flag`,
     );
   }
   assert.ok(
-    preview.includes("if (globalThis.previewIssue040Proof.enabled) installIssue040AudioProbe();"),
+    extension.includes("if (globalThis.previewIssue040Proof.enabled) installIssue040AudioProbe();"),
     "the audio probe must only be installed for the gated proof",
+  );
+  assert.ok(
+    !preview.includes("installIssue040AudioProbe"),
+    "the product preview runtime must not reference the audio probe",
   );
 });
