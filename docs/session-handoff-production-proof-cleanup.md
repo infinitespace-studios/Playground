@@ -1,7 +1,7 @@
 # Session handoff: production/proof architecture cleanup
 
 **Last updated:** 2026-09-08
-**Next stage:** Stage 6 — compile proof surfaces out of release binaries
+**Next stage:** Stage 7 — final architecture enforcement and cleanup
 **Working-tree expectation:** clean
 
 ## Read first
@@ -175,6 +175,50 @@ Accepted evidence:
 Detailed inventory and verification matrix:
 [`stage5-issue038-retirement.md`](stage5-issue038-retirement.md).
 
+### Stage 6 — compile proof surfaces out of release binaries
+
+Commit: `19ecadb build: compile proof harness out of product releases`
+
+Delivered:
+
+- Non-default `proof-harness` Cargo feature: PRODUCT compiles eight
+  responsibility-named commands; PROOF adds 70 feature-gated commands.
+- Four dead issue039 transfer commands and their inert state/routes were
+  removed, leaving 78 commands in the proof package.
+- PRODUCT and PROOF have separate capability/permission inventories with
+  effective ACL counts of 10 and 82 respectively.
+- Product commands, Rust state/helpers, frontend callers, types, constants, and
+  first-run DOM identifiers were renamed by responsibility.
+- Preview and compiler C#/JS proof exports/actions/globals/assets were split into
+  proof-only compilation and staging units.
+- Compiler/preview staging and PRODUCT → PROOF → PRODUCT verification are fully
+  profile-aware; a shared staged tree can no longer pass.
+- A cross-platform compiled binary/runtime checker with 11 negative self-tests
+  is wired into package scripts and release CI.
+
+Accepted evidence:
+
+- PRODUCT frontend graph: 21 modules, zero proof markers/scenarios. Its
+  identity-verified native package exposes exactly eight product commands and
+  no proof commands, gates, relay state, C# proof exports, JS proof globals, or
+  proof extension assets.
+- PROOF frontend graph: 42 modules, exactly eight scenarios, all 17 markers.
+  Its identity-verified package exposes all 78 commands and required proof
+  runtime assets.
+- TypeScript, 104 protocol tests, 51 focused tests, 32 performance tests, Rust
+  format/Clippy, and 23 PRODUCT plus 37 PROOF Rust tests passed.
+- All four compiler/preview staging-clean tests and the corrected independent
+  PRODUCT → PROOF → PRODUCT staging sequence passed.
+- The binary checker passed 11 negative tests and both package profiles.
+- All eight packaged scenarios, the process-sandboxed offline embedded proof,
+  and a fresh embedded startup/memory baseline passed with zero orphans.
+- Native PROOF built first and PRODUCT built last; both artifact checks passed.
+- `external/MonoGame` remained clean at the pinned commit. Independent strict
+  review accepted the implementation with no blocking findings.
+
+Detailed design and verification:
+[`stage6-proof-binary-separation.md`](stage6-proof-binary-separation.md).
+
 ### Orchestration record
 
 Each completed stage used:
@@ -201,55 +245,53 @@ The user-level worker/reviewer definitions are expected to select
 - Protocol validation, CSP, sandboxing, IPC denial, and lifecycle cleanup must
   not be weakened.
 
-## Next task: Stage 6
+## Next task: Stage 7
 
-Compile all remaining proof surfaces out of normal release binaries and rename
-remaining product command/API surfaces by responsibility.
+Complete final architecture enforcement, responsibility-based source cleanup,
+and release acceptance.
 
 Requirements:
 
-- Put Rust proof commands behind a non-default `proof-harness` Cargo feature or
-  move them to a separate proof crate/binary. Normal PRODUCT release binaries
-  must expose no proof commands or proof-only state.
-- Ensure the explicit PROOF package enables the proof harness while normal
-  npm/Tauri/release builds remain PRODUCT and use default Cargo features.
-- Split proof-only exports/actions from `PreviewExports.cs`, `preview.js`, and
-  the compiler harness so normal release runtime assets contain no proof
-  instrumentation.
-- Rename remaining PRODUCT Tauri commands, Rust handlers/state, frontend calls,
-  types, and constants by responsibility. Preserve behavior and use narrow
-  compatibility only in the explicit proof harness where necessary.
-- Reduce the current 82-command combined inventory toward approximately eight
-  domain-named PRODUCT commands; proof commands may exist only in the explicit
-  proof build.
-- Add binary/runtime artifact enforcement proving PRODUCT exposes no proof
-  commands, markers, issue-numbered implementation surfaces, or proof-only
-  assets, while PROOF retains the required scenario capabilities.
-- Preserve the eight Stage-4 scenarios and their packaged runner until durable
-  feature tests replace them.
-- Preserve ADR 0003's embedded product preview, compile-failure semantics, fresh
-  runtime per Run, content-before-start, protocol/CSP/sandbox/IPC boundaries,
-  binary ownership, and lifecycle cleanup.
-- Keep historical issue records and superseded ADRs unchanged.
-- Do not pull Stage-7 broad file-size/source-layout cleanup forward unless it is
-  required to establish the feature/build boundary.
+- Enforce in CI that PRODUCT frontend, staged compiler/preview assets, native
+  binary, ACL manifests, and packages contain no proof modules, markers,
+  commands, issue-numbered implementation identifiers, or proof-only assets.
+- Ensure production source paths contain no issue-numbered implementation
+  files. Keep only clearly documented proof/test compatibility files where the
+  explicit proof harness still requires them, or rename/remove them.
+- Split oversized Rust, TypeScript, C#, and runtime JavaScript files by domain
+  responsibility where necessary for maintainability; do not weaken the build
+  or security boundaries established in Stages 1–6.
+- Remove stale compatibility façades, comments, identifiers, scripts, and
+  documentation that no longer have consumers. Preserve historical issue
+  records and superseded ADRs as history.
+- Run final PRODUCT smoke, security, offline, package-size, startup, memory,
+  protocol, formatting, lint, and clean-clone/build gates across supported
+  platforms where available.
+- Confirm normal npm/Tauri/release builds remain PRODUCT by default; PROOF must
+  remain explicit via `proof-harness` and retain all eight scenarios.
+- Update architecture, build, security, content, performance, and contributor
+  documentation to describe the final product/proof architecture rather than
+  transitional stages.
+- Preserve ADR 0003's embedded preview, compile-failure behavior, fresh runtime
+  per Run, content-before-start, protocol/CSP/opaque-origin sandbox/IPC denial,
+  binary integrity, and lifecycle cleanup.
 
-Before implementation, inventory all 82 current commands and all frontend,
-Rust, C#, and generated-runtime proof markers/exports. Classify each as PRODUCT,
-PROOF, or dead, define the target domain command API, and establish the exact
-PRODUCT/PROOF binary and packaged verification matrix.
+Before implementation, inventory every remaining issue-numbered source file,
+compatibility façade, oversized module, transitional comment/doc, and final CI
+acceptance gap. Define the exact final architecture and verification matrix
+before deleting or splitting code.
 
 ## Resume procedure
 
 1. Run `git status --short --branch`. If the tree is not clean, stop and classify
    the changes before delegating.
-2. Confirm commits `6675761`, `f2f4013`, `0a45457`, `ad8b0a8`, and
-   `681be79` are reachable.
-3. Invoke a fresh `worker` agent with the Stage-6 scope above and instruct it not
+2. Confirm commits `6675761`, `f2f4013`, `0a45457`, `ad8b0a8`, `681be79`,
+   and `19ecadb` are reachable.
+3. Invoke a fresh `worker` agent with the Stage-7 scope above and instruct it not
    to commit.
 4. Invoke a separate `reviewer` agent after implementation.
 5. Resolve every critical finding and rerun review if necessary.
 6. Perform independent source, module-graph, test, and package checks.
 7. Update both this handoff and `production-proof-cleanup-plan.md` with the
    accepted stage commit/evidence.
-8. Commit only the accepted Stage-6 scope, then leave a clean tree for Stage 7.
+8. Commit only the accepted Stage-7 scope, then leave a clean tree.

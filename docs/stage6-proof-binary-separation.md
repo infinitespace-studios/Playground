@@ -1,15 +1,40 @@
 # Stage 6 — proof-surface binary separation (inventory & executable design)
 
-**Status:** slices 1–6 implemented (PRODUCT rename, dead-command removal, the
-`proof-harness` Cargo feature + build wiring, the preview C#/JS proof split, the
-compiler/shared `Issue21Endpoints.js` C#/JS proof split, and the compiled-binary
-command-inventory CI enforcement tool). Nothing
-committed; plan/handoff unaltered; `external/MonoGame` untouched.
+**Status:** complete — `19ecadb build: compile proof harness out of product releases`
 
-> **Implementation status (this task):** see the new
-> “## Implementation status — slices 1–3” section at the end of this document for
-> the exact files, counts, build invocation, decisions, and verification run.
-> The design body below is the original record and is retained as-is.
+> **As-built Stage-6 boundary:** PRODUCT has 8 responsibility-named commands and
+> an effective ACL count of 10. PROOF adds 70 feature-gated commands for 78 total
+> and an effective ACL count of 82. These as-built counts supersede the original
+> 82-command design baseline retained below.
+>
+> Implementation details are recorded in the “Implementation status” sections
+> at the end of this document. The original design body remains as the inventory
+> and decision record.
+
+### Accepted evidence
+
+- PRODUCT frontend graph: 21 modules, zero proof markers/scenario modules;
+  PRODUCT native package: exactly 8 product commands and no proof commands,
+  gates, relay state, C# proof exports, JS proof globals, or proof extension
+  assets.
+- PROOF frontend graph: 42 modules, exactly eight scenarios, all 17 markers;
+  PROOF native package: all 78 commands and required proof runtime assets.
+- Effective ACL counts are 10 PRODUCT and 82 PROOF; build-time inventory and
+  handler-gating assertions passed for both profiles.
+- TypeScript and 104 protocol tests, 51 focused content/project tests, 32
+  performance tests, and Rust format/Clippy plus 23 PRODUCT and 37 PROOF tests
+  passed.
+- Clean compiler/preview staging tests passed in both profiles. The corrected
+  verification sequence restaged PRODUCT → PROOF → PRODUCT and proved no staged
+  runtime contamination.
+- The compiled-artifact checker passed 11 negative self-tests, the identity-
+  verified PROOF bundle, and the identity-verified PRODUCT bundle built last.
+- All eight packaged scenarios and the process-sandboxed offline embedded audio
+  proof passed with zero orphan processes and clean invoke-key scans.
+- A fresh embedded startup/memory baseline passed after the runtime split.
+- `external/MonoGame` remained at pinned commit `8372206266d2c09626d83b4ad9702fa072ec0aaa`
+  with a clean tree. Independent strict review accepted the final implementation
+  with no blocking findings.
 
 **Decision basis:** ADR 0003 (embedded opaque-origin product preview);
 `production-proof-cleanup-plan.md` Stage 6; `session-handoff-production-proof-cleanup.md`.

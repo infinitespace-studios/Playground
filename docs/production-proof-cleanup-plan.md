@@ -221,15 +221,50 @@ Accepted evidence:
 Detailed inventory and evidence:
 [`stage5-issue038-retirement.md`](stage5-issue038-retirement.md).
 
-### Stage 6 — Compile all remaining proof surfaces out of release binaries — PENDING
+### Stage 6 — Compile all remaining proof surfaces out of release binaries — COMPLETE
 
-- Put Rust proof commands behind a non-default `proof-harness` Cargo feature or
-  a separate proof crate/binary.
-- Split proof exports/actions from `PreviewExports.cs`, `preview.js`, and the
-  compiler harness.
-- Rename the remaining product Tauri commands by responsibility.
-- Target approximately eight domain-named product commands instead of the
-  current 82-command combined inventory.
+**Commit:** `19ecadb build: compile proof harness out of product releases`
+
+Delivered:
+
+- Added a non-default `proof-harness` Cargo feature. PRODUCT compiles only eight
+  responsibility-named commands; PROOF adds 70 feature-gated commands.
+- Removed four dead issue039 transfer commands and their inert Rust/protocol
+  state, reducing the proof command surface from 82 to 78.
+- Split PRODUCT/PROOF capabilities and permissions. Effective ACL counts are 10
+  for PRODUCT and 82 for PROOF.
+- Renamed the product command API to workspace, project, and first-run
+  responsibilities, with no product aliases for the old issue-numbered names.
+- Split preview and compiler C#/JS proof exports, actions, globals, observers,
+  and DOM/assets into proof-only compilation/staging units.
+- Made compiler/preview staging profile-aware and changed profile verification
+  to stage PRODUCT → PROOF → PRODUCT independently.
+- Added a compiled binary/runtime checker with negative self-tests and release
+  CI enforcement. PRODUCT checks require product floors while rejecting proof
+  commands, gates, relay state, exports, globals, and assets; PROOF checks
+  require the full harness and exactly eight scenarios.
+
+Accepted evidence:
+
+- PRODUCT frontend graph: 21 modules and zero proof markers/scenarios. The
+  identity-verified native package exposes exactly eight product commands and
+  no proof runtime surface.
+- PROOF frontend graph: 42 modules, exactly eight scenarios, and all 17 proof
+  markers. The identity-verified package exposes all 78 commands and required
+  proof assets.
+- TypeScript, 104 protocol tests, 51 focused tests, 32 performance tests, Rust
+  format/Clippy, and 23 PRODUCT plus 37 PROOF Rust tests passed.
+- All compiler/preview staging-clean tests and the honest profile-specific
+  PRODUCT → PROOF → PRODUCT contamination sequence passed.
+- The binary checker passed 11 negative self-tests and both native package
+  profiles.
+- All eight packaged scenarios, the process-sandboxed offline embedded proof,
+  and the fresh startup/memory baseline passed with zero orphans.
+- Independent strict review accepted the final implementation with no blocking
+  findings.
+
+Detailed design and evidence:
+[`stage6-proof-binary-separation.md`](stage6-proof-binary-separation.md).
 
 ### Stage 7 — Final architecture enforcement and cleanup — PENDING
 
