@@ -95,7 +95,7 @@ let livePreviewFrame: HTMLIFrameElement | null = null;
 export const getLivePreviewFrame = () => livePreviewFrame;
 export const setLivePreviewFrame = (frame: HTMLIFrameElement | null) => { livePreviewFrame = frame; };
 
-// The last primary (non-auxiliary) isolated-window run frame (issue 038 proof).
+// The last primary (non-auxiliary) run frame (former issue 038 proof naming).
 let lastPrimaryRunFrame: HTMLIFrameElement | null = null;
 export const getLastPrimaryRunFrame = () => lastPrimaryRunFrame;
 export const setLastPrimaryRunFrame = (frame: HTMLIFrameElement | null) => { lastPrimaryRunFrame = frame; };

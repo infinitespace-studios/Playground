@@ -1317,8 +1317,8 @@ export async function compileLoadStartIssue23(input: {
         void retireFrame("frame.remove");
       },
       // Properties for proof reports
-      className: "issue038-isolated-preview",
-      title: "Running Game in isolated preview",
+      className: "embedded-proof-adapter-frame",
+      title: "Running Game in embedded sandboxed preview",
       id: input.auxiliary ? "" : "preview-frame",
       src: "",
       sandbox: { contains: () => false },
@@ -1334,7 +1334,8 @@ export async function compileLoadStartIssue23(input: {
 
     await bridge.ready;
     mark("preview.bridge.ready");
-    // Skip frame visibility check — isolated window is managed by Rust
+    // Skip frame visibility check — the embedded sandboxed preview iframe is
+    // managed by createEmbeddedProofPreview, not a Rust-managed window.
     const frameReadiness = {
       first: 0,
       second: 0,

@@ -112,9 +112,11 @@ inventory is maintained and cross-checked in four places:
 `build.rs`, `permissions/main.toml`, `generate_handler!`, and the packaged
 proof inventory. It consists of
 the issue 009–037 proof enable/checkpoint/report commands,
-`prepare_packaged_proof_window`, the issue-034 marker commands, and the
-issue-038 isolated-window commands retained for the historical proof harness.
-Those issue-038 commands are not used by the production Run path. No
+`prepare_packaged_proof_window`, and the issue-034 marker commands. **Stage 5
+removed the fifteen issue-038 isolated-window commands** (ADR 0003 makes the
+embedded opaque-origin iframe the product preview), reducing the effective ACL
+from 99 to 84 entries (one capability, one composite permission, and 82
+generated permissions). No
 filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
 arbitrary command-forwarding command is registered.
 The structured policy validator requires exactly one permission table with
@@ -213,8 +215,11 @@ Capability labels cannot distinguish an iframe from its containing webview:
 both belong to `main`. The nested-frame boundary therefore additionally
 depends on Tauri's supported main-frame-only initialization behavior, the
 unavailable invoke key/transforms, opaque-origin sandbox, CSP, and the absence
-of plugin scripts. Issue 034 does not claim arbitrary-code OS isolation;
-those remain issues 036–038.
+of plugin scripts. Issue 034 does not claim arbitrary-code OS isolation; under
+ADR 0003 the product preview provides defence-in-depth boundaries, not process,
+CPU, memory, or malicious-code isolation, and synchronous non-yielding user code
+is unsupported (issue 038's isolated-window force-stop harness was retired in
+Stage 5).
 
 ## Navigation and network denial (issue 035)
 
@@ -442,11 +447,18 @@ shared WebView thread; in that case in-app Stop cannot execute and the user must
 terminate and relaunch the application. This is an accepted product limitation,
 not a process-isolation guarantee.
 
-## Historical issue 038 isolated-window proof harness
+## Historical issue 038 isolated-window proof harness (removed in Stage 5)
 
-The following architecture was proven by issue 038 and remains temporarily in
-the repository for older packaged proofs. It is not used by the production Run
-path and must not be presented as the product UX.
+The following architecture was proven by issue 038 and **was removed from the
+repository in Stage 5** (see
+[`stage5-issue038-retirement.md`](stage5-issue038-retirement.md)). It was never
+used by the production Run path and must not be presented as the product UX. It
+is retained here only as a design record; the code, commands, ACL entries,
+protocol routes, and assets it describes no longer exist in the tree. The
+authoritative historical evidence is `issues/038-*` and ADR 0002, which are left
+unaltered. ADR 0003 supersedes it: the product preview is the embedded
+opaque-origin sandboxed iframe, and the hostile synchronous non-yielding program
+is classified as unsupported and is never run inside the product WebView.
 
 ### Architecture
 
@@ -509,7 +521,12 @@ WebView2 renderer process.
 - Browser process is shared per user data folder but renderer isolation
   remains per-origin.
 
-### Issue 038 commands
+### Issue 038 commands (removed in Stage 5)
+
+The fifteen isolated-window commands below were removed from `generate_handler!`,
+`APP_COMMANDS` (`build.rs`), `permissions/main.toml`, and
+`ISSUE034_APPROVED_COMMANDS` in Stage 5. They are listed only as a historical
+record of what existed; **none are registered in the current binary.**
 
 | Command | Purpose | Proof-gated |
 |---|---|---|
@@ -525,6 +542,7 @@ WebView2 renderer process.
 | `issue038_destroy_all_previews` | Destroy all preview windows on exit | No |
 | `issue038_bootstrap_preview` | Inject typed bootstrap data into preview | No |
 | `issue038_inject_script` | Inject raw JS into preview (proof-only, 4KB limit) | Yes |
+| `issue038_create_no_wasm_eval_window` | Create isolated preview window without `'wasm-unsafe-eval'` | No |
 | `issue038_emit_checkpoint` | Emit proof checkpoint line | Yes |
 | `issue038_emit_report` | Emit packaged proof report | Yes |
 | `issue039_is_proof_enabled` | Check proof env gate | No |
@@ -535,15 +553,15 @@ WebView2 renderer process.
 | `issue040_emit_report` | Emit packaged proof report and exit | Yes |
 | `issue040_dispatch_preview_input` | Register/retire the single embedded-preview input target and deliver one trusted Space/Escape/click AppKit event to the authorized preview | Yes |
 
-All twenty-one are registered in `generate_handler!`, `APP_COMMANDS`, `main.toml`,
-and `ISSUE034_APPROVED_COMMANDS`.  They are accessible only from the trusted
-`main` window and inaccessible from the isolated preview.
+The six issue039/issue040 commands above are registered in `generate_handler!`,
+`APP_COMMANDS`, `main.toml`, and `ISSUE034_APPROVED_COMMANDS`. They are
+accessible only from the trusted `main` window. (The fifteen `issue038_*`
+commands in the table above were removed in Stage 5.)
 
 `issue040_dispatch_preview_input` is the only command that synthesises input,
 and it also owns the embedded-preview input-authorization lifecycle. It refuses
 to run unless `MONOGAME_ISSUE040_PROOF=1` is set and the caller is the trusted
-`main` window. Beyond the legacy isolated path (an active issue 038 generation
-targets its own isolated preview window), the command exposes two narrowly
+`main` window. The command exposes two narrowly
 scoped lifecycle operations: the trusted host `register`s the exact generation
 of the embedded opaque-origin preview iframe it created as the single active
 embedded input target, and `retire`s it on every iframe cleanup/error path.
@@ -551,8 +569,9 @@ Rust-managed state holds at most one active embedded generation. A
 `dispatch` only accepts the five fixed gestures the audio proof needs (`click`,
 `space-down`, `space-up`, `escape-down`, `escape-up`) and only reaches the main
 Workbench window when its generation is exactly the registered one; unknown,
-random, and stale-after-retire generations fail closed. The isolated path still
-requires a generation that is still active under the isolated-preview prefix.
+random, and stale-after-retire generations fail closed. **Stage 5 removed the
+legacy isolated-preview dispatch branch, so the pinned `main` window hosting the
+embedded iframe is the sole remaining dispatch target.**
 The event is handed to the addressed window's AppKit responder chain, so WebKit
 routes it through its normal trusted-input path; nothing fabricates DOM events,
 bypasses the autoplay policy, or gives the opaque preview any IPC.

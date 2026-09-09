@@ -8,6 +8,17 @@ feature tests. No Tauri command renames, no Rust proof-compilation
 boundary/feature changes (Stage 6), no issue-038 isolated-window retirement
 (Stage 5).
 
+> **Stage-5 follow-up (done):** the isolated-window issue038 force-stop harness
+> that this document describes as "retained" was retired in Stage 5. `issue38.ts`,
+> `issue38-bridge.ts`, the fifteen `issue038_*` commands/ACL/build entries, the
+> `Issue038*` Rust bridge/transfer state, the isolated `_isolated*.html` /
+> `_bridge-setup.js` / `_bridge/send` / `_transfer/*` routes, and the
+> `Issue040DispatchTarget::IsolatedPreview` branch no longer exist. This file is
+> kept as the accepted Stage-4 record; the forward-looking "Stage-5 readiness"
+> and "next stages" notes below have been superseded by
+> [`stage5-issue038-retirement.md`](stage5-issue038-retirement.md). Historical
+> evidence remains in `issues/038-*` and ADR 0002.
+
 ## What the strict review rejected, and what changed
 
 The earlier Stage-4 attempt was rejected as **mechanical namespace

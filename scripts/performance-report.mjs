@@ -246,8 +246,9 @@ export const PHASES = [
         comparison: "lte",
         prdText: "preview visibly active within 3 seconds after successful compilation at p95",
         definition:
-          "First preview start in a fresh application process: no preview window, " +
-          "preview runtime or preview asset has been instantiated in the process yet.",
+          "First preview start in a fresh application process: no embedded preview " +
+          "iframe, preview runtime or preview asset has been instantiated in the " +
+          "process yet.",
       },
       warm: {
         thresholdMs: 3_000,
@@ -255,7 +256,7 @@ export const PHASES = [
         prdText: "preview visibly active within 3 seconds after successful compilation at p95",
         definition:
           "A later preview start in the same process, after a previous preview was " +
-          "started and stopped, so the isolated preview runtime assets are already " +
+          "started and stopped, so the embedded preview runtime assets are already " +
           "in the process's caches.",
       },
     },

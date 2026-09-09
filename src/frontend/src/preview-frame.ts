@@ -136,9 +136,11 @@ export function previewBridgeFor(frame: HTMLIFrameElement): PreviewBridge {
 }
 
 export function assertPreviewSandbox(frame: HTMLIFrameElement): void {
-  // In the isolated WebviewWindow architecture, there is no sandbox attribute.
-  // Security is via process isolation + ACL + CSP.
-  if (frame.className === "issue038-isolated-preview") return;
+  // The embedded proof adapter frame (compileLoadStartIssue23) is a lightweight
+  // stand-in object for the real opaque-origin sandboxed iframe managed by
+  // createEmbeddedProofPreview; it carries no sandbox attribute because the real
+  // sandbox lives on the embedded iframe. Skip the attribute assertion for it.
+  if (frame.className === "embedded-proof-adapter-frame") return;
   const tokens = [...frame.sandbox].sort();
   if (frame.getAttribute("sandbox") !== PREVIEW_SANDBOX ||
       tokens.length !== 1 ||

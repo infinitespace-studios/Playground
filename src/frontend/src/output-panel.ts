@@ -11,8 +11,10 @@
 // managed and native output both captured and tagged.
 // PRD 8.5: on an unhandled runtime exception the preview stops, the exception
 // appears with the user's source file/line (when the PDB resolved it), and the
-// editor stays responsive. Responsiveness is guaranteed upstream (the isolated
-// preview is torn down off the editor's thread); this module only renders.
+// editor stays responsive. Per ADR 0003 the embedded preview shares the
+// Workbench WebView thread, so responsiveness holds for supported code that
+// yields between frames (a synchronous non-yielding callback is outside the
+// supported contract); this module only renders the captured output.
 
 import type { PreviewOutput } from "../../shared/MessageContracts";
 

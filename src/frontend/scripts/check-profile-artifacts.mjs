@@ -17,12 +17,11 @@
 //       entrySource === src/entry.product.ts, non-empty module/chunk inventory.
 //     * src/entry.product.ts present in the emitted module graph.
 //     * src/entry.proof.ts and every proof-only module (issue21 shared
-//       toolkit, the retained issue38 isolated-window force-stop harness, and
-//       the eight proof-* scenario suites) ABSENT from the module graph. Any
-//       issue-numbered source module in the product graph is a HARD FAILURE via
-//       ISSUE_NUMBERED_MODULE_REGEX; the scenario proof-* modules AND the
-//       retained issue38 harness are enumerated in PROOF_ONLY_MODULES so they
-//       are also a HARD FAILURE if they leak into PRODUCT.
+//       toolkit and the eight proof-* scenario suites) ABSENT from the module
+//       graph. Any issue-numbered source module in the product graph is a HARD
+//       FAILURE via ISSUE_NUMBERED_MODULE_REGEX; the scenario proof-* modules
+//       are enumerated in PROOF_ONLY_MODULES so they are also a HARD FAILURE if
+//       they leak into PRODUCT.
 //     * the extracted production domain modules (compiler-context, live-preview,
 //       run-stop, lifecycle-controller, first-run-warning, plus the Stage-3
 //       responsibility-named UI modules: theme-controller, monaco-editor,
@@ -93,14 +92,15 @@ const COMMENT_ONLY_MARKERS = new Set([
 // old issue-numbered drivers (issue22/23/24/25/27/28/29/30/31/32/33/34/35/36/
 // 37/039/040/041) were folded into these eight `proof-*` scenario modules,
 // preserving every packaged proof marker and Tauri report command verbatim. The
-// shared proof runtime toolkit (issue21), the shared scenario driver
-// (scenario-runner.ts), and the retained isolated-window force-stop harness
-// (issue38, plus its issue38-bridge helper) remain proof-only. issue21 and
-// issue38 are still issue-numbered, so ISSUE_NUMBERED_MODULE_REGEX also forbids
-// them in PRODUCT; they are additionally enumerated here (and issue38 is thus
-// proven PRESENT in the proof graph, not merely tolerated). Any src/proof-*.ts
-// module is structurally forbidden in PRODUCT by PROOF_MODULE_PREFIX_REGEX
-// below, independently of this list.
+// shared proof runtime toolkit (issue21) and the shared scenario driver
+// (scenario-runner.ts) remain proof-only. issue21 is still issue-numbered, so
+// ISSUE_NUMBERED_MODULE_REGEX also forbids it in PRODUCT; it is additionally
+// enumerated here. Any src/proof-*.ts module is structurally forbidden in
+// PRODUCT by PROOF_MODULE_PREFIX_REGEX below, independently of this list.
+//
+// Stage 5 retired the isolated-window force-stop harness (former issue38.ts and
+// its issue38-bridge helper); those modules no longer exist, so they are no
+// longer enumerated or asserted present in PROOF.
 //
 // SCENARIO_MODULES is the CANONICAL, EXACT set of eight durable scenario
 // suites: PROOF must contain all eight, PROOF must contain NO other proof-*
@@ -120,7 +120,6 @@ const EXPECTED_SCENARIO_COUNT = 8;
 const PROOF_ONLY_MODULES = [
   "src/entry.proof.ts",
   "src/issue21.ts",
-  "src/issue38.ts",
   "src/scenario-runner.ts",
   ...SCENARIO_MODULES,
 ];
@@ -435,13 +434,11 @@ function checkProof() {
     );
   }
 
-  // Explicit retained-harness assertions (Stage 4 keeps issue21 shared toolkit +
-  // issue38 isolated-window force-stop harness in PROOF; Stage 5 retires issue38).
+  // Explicit retained-harness assertion (Stage 4 keeps the issue21 shared
+  // toolkit in PROOF). Stage 5 retired the issue38 isolated-window force-stop
+  // harness, so it is no longer asserted present.
   if (!modules.has("src/issue21.ts")) {
     fail("PROOF module graph is missing the shared proof toolkit src/issue21.ts.");
-  }
-  if (!modules.has("src/issue38.ts")) {
-    fail("PROOF module graph is missing the retained issue038 force-stop harness src/issue38.ts.");
   }
 
   const emitted = markersEmittedIn(distDir);

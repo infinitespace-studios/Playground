@@ -1,12 +1,12 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-04T20:06:00.477Z",
+  "generatedAt": "2026-09-09T07:43:39.855Z",
   "issue": "041-measure-startup-compile-preview-stop-timings",
   "prdReferences": [
     "17",
     "20.2"
   ],
-  "overallVerdict": "FAIL",
+  "overallVerdict": "PASS",
   "sampleCountViolations": [],
   "machine": {
     "facts": [
@@ -82,30 +82,30 @@
     ]
   },
   "provenance": {
-    "repositoryCommit": "a585b567ad2a44d5db4e26545c6e7b6042b9f6c7",
-    "repositoryDirtyFileCount": 26,
+    "repositoryCommit": "26fdb2100b5cc613491616de3e84c8c9b08e5c88",
+    "repositoryDirtyFileCount": 29,
     "nodeVersion": "v26.3.0",
     "binaryPath": "src/desktop/src-tauri/target/release/monogame-playground",
-    "binarySha256": "6f2d02be02c87dbf5a25aacb7a52996eae712c5244e10128dfd08d4a6088e48f",
-    "binaryByteLength": 114827360,
-    "binaryModifiedAt": "2026-09-03T22:27:52.091Z",
+    "binarySha256": "f4b50b5b1ae890ff5b175815f5a312776382191f2b7377dd44e2cee4eb7ed836",
+    "binaryByteLength": 124137360,
+    "binaryModifiedAt": "2026-09-09T07:40:10.835Z",
     "consoleSessionAtStart": {
       "determined": true,
       "screenLocked": false,
       "onConsole": true,
-      "checkedAt": "2026-09-04T20:00:44.155Z",
+      "checkedAt": "2026-09-09T07:42:57.320Z",
       "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
     },
     "consoleSessionAtEnd": {
       "determined": true,
       "screenLocked": false,
       "onConsole": true,
-      "checkedAt": "2026-09-04T20:06:00.477Z",
+      "checkedAt": "2026-09-09T07:43:39.855Z",
       "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
     },
     "sleepAssertionsAtStart": {
       "determined": true,
-      "preventUserIdleDisplaySleep": 0,
+      "preventUserIdleDisplaySleep": 1,
       "source": "pmset -g assertions (PreventUserIdleDisplaySleep)"
     },
     "windowActivation": {
@@ -191,32 +191,32 @@
     "attempts": [
       {
         "attempt": 1,
-        "startedAt": "2026-09-04T20:00:44.174Z",
+        "startedAt": "2026-09-09T07:42:57.332Z",
         "retryReason": null,
         "consoleSessionBefore": {
           "determined": true,
           "screenLocked": false,
           "onConsole": true,
-          "checkedAt": "2026-09-04T20:00:44.187Z",
+          "checkedAt": "2026-09-09T07:42:57.344Z",
           "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
         },
         "consoleSessionAfter": {
           "determined": true,
           "screenLocked": false,
           "onConsole": true,
-          "checkedAt": "2026-09-04T20:05:59.957Z",
+          "checkedAt": "2026-09-09T07:43:39.332Z",
           "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
         },
         "launches": [
           {
             "mode": "full",
             "shellLaunchKind": "cold",
-            "pid": 8430,
+            "pid": 40025,
             "outcome": "ok",
             "exitCode": 0,
             "signal": null,
             "timedOut": false,
-            "wallClockMs": 30110.23841691017,
+            "wallClockMs": 5223.811375141144,
             "failure": null,
             "phaseFailures": [],
             "phaseReached": "complete",
@@ -225,12 +225,12 @@
           {
             "mode": "shell-only",
             "shellLaunchKind": "warm",
-            "pid": 8437,
+            "pid": 40030,
             "outcome": "ok",
             "exitCode": 0,
             "signal": null,
             "timedOut": false,
-            "wallClockMs": 305.8304171562195,
+            "wallClockMs": 457.71620893478394,
             "failure": null,
             "phaseFailures": [],
             "phaseReached": "shell-only",
@@ -239,12 +239,12 @@
           {
             "mode": "memory-baseline",
             "shellLaunchKind": "baseline",
-            "pid": 8442,
+            "pid": 40035,
             "outcome": "ok",
             "exitCode": 0,
             "signal": null,
             "timedOut": false,
-            "wallClockMs": 280341.97479200363,
+            "wallClockMs": 31280.323709011078,
             "failure": null,
             "phaseFailures": [],
             "phaseReached": null,
@@ -301,11 +301,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 350.8209578990936,
-          "maxMs": 350.8209578990936,
-          "meanMs": 350.8209578990936,
-          "p50Ms": 350.8209578990936,
-          "p95Ms": 350.8209578990936,
+          "minMs": 505.3397080898285,
+          "maxMs": 505.3397080898285,
+          "meanMs": 505.3397080898285,
+          "p50Ms": 505.3397080898285,
+          "p95Ms": 505.3397080898285,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -318,13 +318,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 350.8209578990936,
+              "valueMs": 505.3397080898285,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "driver wall clock: spawn() → ISSUE041_SHELL_READY",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -332,17 +332,17 @@
             }
           ],
           "samplesMs": [
-            350.8209578990936
+            505.3397080898285
           ],
           "sortedSamplesMs": [
-            350.8209578990936
+            505.3397080898285
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 2649.1790421009064,
+            "marginMs": 2494.6602919101715,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -352,11 +352,11 @@
         "warm": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 298.97866702079773,
-          "maxMs": 298.97866702079773,
-          "meanMs": 298.97866702079773,
-          "p50Ms": 298.97866702079773,
-          "p95Ms": 298.97866702079773,
+          "minMs": 431.91758394241333,
+          "maxMs": 431.91758394241333,
+          "meanMs": 431.91758394241333,
+          "p50Ms": 431.91758394241333,
+          "p95Ms": 431.91758394241333,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -369,13 +369,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 298.97866702079773,
+              "valueMs": 431.91758394241333,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "shell-only/warm",
-                "pid": 8437,
+                "pid": 40030,
                 "source": "driver wall clock: spawn() → ISSUE041_SHELL_READY",
                 "log": "artifacts/issue041/attempt-01-shell-only-warm.log"
               },
@@ -383,17 +383,17 @@
             }
           ],
           "samplesMs": [
-            298.97866702079773
+            431.91758394241333
           ],
           "sortedSamplesMs": [
-            298.97866702079773
+            431.91758394241333
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 2701.0213329792023,
+            "marginMs": 2568.0824160575867,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -410,11 +410,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 1271,
-          "maxMs": 1271,
-          "meanMs": 1271,
-          "p50Ms": 1271,
-          "p95Ms": 1271,
+          "minMs": 1033,
+          "maxMs": 1033,
+          "meanMs": 1033,
+          "p50Ms": 1033,
+          "p95Ms": 1033,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -427,13 +427,13 @@
           "comparison": "lt",
           "samples": [
             {
-              "valueMs": 1271,
+              "valueMs": 1033,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "compiler-context boot + first compilation in that context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -441,17 +441,17 @@
             }
           ],
           "samplesMs": [
-            1271
+            1033
           ],
           "sortedSamplesMs": [
-            1271
+            1033
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 5000,
             "comparison": "lt",
             "comparisonSymbol": "<",
-            "marginMs": 3729,
+            "marginMs": 3967,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -461,11 +461,11 @@
         "warm": {
           "sampleCount": 10,
           "count": 10,
-          "minMs": 171,
-          "maxMs": 246,
-          "meanMs": 194,
-          "p50Ms": 185.00000000000045,
-          "p95Ms": 246,
+          "minMs": 160.99999999999955,
+          "maxMs": 232,
+          "meanMs": 181,
+          "p50Ms": 170,
+          "p95Ms": 232,
           "censoredCount": 0,
           "observedCount": 10,
           "p50Censored": false,
@@ -478,130 +478,130 @@
           "comparison": "lt",
           "samples": [
             {
-              "valueMs": 246,
+              "valueMs": 232,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #1 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 219,
+              "valueMs": 204,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #2 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 201,
+              "valueMs": 188,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #3 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 197,
+              "valueMs": 185,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #4 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 192,
+              "valueMs": 179,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #5 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 185.00000000000045,
+              "valueMs": 170,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #6 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 177,
+              "valueMs": 165,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #7 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 177.99999999999955,
+              "valueMs": 164.00000000000045,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #8 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 171,
+              "valueMs": 160.99999999999955,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #9 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 174,
+              "valueMs": 162,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "warm compilation #10 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -609,35 +609,35 @@
             }
           ],
           "samplesMs": [
-            246,
-            219,
-            201,
-            197,
-            192,
-            185.00000000000045,
-            177,
-            177.99999999999955,
-            171,
-            174
+            232,
+            204,
+            188,
+            185,
+            179,
+            170,
+            165,
+            164.00000000000045,
+            160.99999999999955,
+            162
           ],
           "sortedSamplesMs": [
-            171,
-            174,
-            177,
-            177.99999999999955,
-            185.00000000000045,
-            192,
-            197,
-            201,
-            219,
-            246
+            160.99999999999955,
+            162,
+            164.00000000000045,
+            165,
+            170,
+            179,
+            185,
+            188,
+            204,
+            232
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 2000,
             "comparison": "lt",
             "comparisonSymbol": "<",
-            "marginMs": 1754,
+            "marginMs": 1768,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -654,11 +654,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 12345.000000000002,
-          "maxMs": 12345.000000000002,
-          "meanMs": 12345.000000000002,
-          "p50Ms": 12345.000000000002,
-          "p95Ms": 12345.000000000002,
+          "minMs": 237.00000000000045,
+          "maxMs": 237.00000000000045,
+          "meanMs": 237.00000000000045,
+          "p50Ms": 237.00000000000045,
+          "p95Ms": 237.00000000000045,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -666,18 +666,18 @@
           "maxCensored": false,
           "meanIsLowerBound": false,
           "prdText": "preview visibly active within 3 seconds after successful compilation at p95",
-          "definition": "First preview start in a fresh application process: no preview window, preview runtime or preview asset has been instantiated in the process yet.",
+          "definition": "First preview start in a fresh application process: no embedded preview iframe, preview runtime or preview asset has been instantiated in the process yet.",
           "thresholdMs": 3000,
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 12345.000000000002,
+              "valueMs": 237.00000000000045,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "preview cycle 0: compile response → first drawn frame",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -685,31 +685,31 @@
             }
           ],
           "samplesMs": [
-            12345.000000000002
+            237.00000000000045
           ],
           "sortedSamplesMs": [
-            12345.000000000002
+            237.00000000000045
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": -9345.000000000002,
+            "marginMs": 2762.9999999999995,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
-            "verdict": "FAIL",
+            "verdict": "PASS",
             "censoringNote": null
           }
         },
         "warm": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 12342,
-          "maxMs": 12342,
-          "meanMs": 12342,
-          "p50Ms": 12342,
-          "p95Ms": 12342,
+          "minMs": 221,
+          "maxMs": 221,
+          "meanMs": 221,
+          "p50Ms": 221,
+          "p95Ms": 221,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -717,18 +717,18 @@
           "maxCensored": false,
           "meanIsLowerBound": false,
           "prdText": "preview visibly active within 3 seconds after successful compilation at p95",
-          "definition": "A later preview start in the same process, after a previous preview was started and stopped, so the isolated preview runtime assets are already in the process's caches.",
+          "definition": "A later preview start in the same process, after a previous preview was started and stopped, so the embedded preview runtime assets are already in the process's caches.",
           "thresholdMs": 3000,
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 12342,
+              "valueMs": 221,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "preview cycle 1: compile response → first drawn frame",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -736,20 +736,20 @@
             }
           ],
           "samplesMs": [
-            12342
+            221
           ],
           "sortedSamplesMs": [
-            12342
+            221
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": -9342,
+            "marginMs": 2779,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
-            "verdict": "FAIL",
+            "verdict": "PASS",
             "censoringNote": null
           }
         }
@@ -763,11 +763,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 282,
-          "maxMs": 282,
-          "meanMs": 282,
-          "p50Ms": 282,
-          "p95Ms": 282,
+          "minMs": 120,
+          "maxMs": 120,
+          "meanMs": 120,
+          "p50Ms": 120,
+          "p95Ms": 120,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -780,13 +780,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 282,
+              "valueMs": 120,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "preview cycle 0: Stop → controller idle",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -794,17 +794,17 @@
             }
           ],
           "samplesMs": [
-            282
+            120
           ],
           "sortedSamplesMs": [
-            282
+            120
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 2000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 1718,
+            "marginMs": 1880,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -814,11 +814,11 @@
         "warm": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 241,
-          "maxMs": 241,
-          "meanMs": 241,
-          "p50Ms": 241,
-          "p95Ms": 241,
+          "minMs": 117,
+          "maxMs": 117,
+          "meanMs": 117,
+          "p50Ms": 117,
+          "p95Ms": 117,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -831,13 +831,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 241,
+              "valueMs": 117,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 8430,
+                "pid": 40025,
                 "source": "preview cycle 1: Stop → controller idle",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -845,17 +845,17 @@
             }
           ],
           "samplesMs": [
-            241
+            117
           ],
           "sortedSamplesMs": [
-            241
+            117
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 2000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 1759,
+            "marginMs": 1883,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -869,158 +869,141 @@
     {
       "title": "Shell startup measured inside the process (Rust process-start instant → shell ready)",
       "count": 2,
-      "p50Ms": 293.56850000000003,
-      "p95Ms": 333.79025,
+      "p50Ms": 423.20620799999995,
+      "p95Ms": 488.323542,
       "note": "Excludes exec/dyld time before `main`; the PASS/FAIL phase above uses the driver's wall clock from `spawn()`, which is the strict superset."
     },
     {
       "title": "Compiler-context boot alone (no compilation)",
       "count": 1,
-      "p50Ms": 348,
-      "p95Ms": 348,
+      "p50Ms": 101,
+      "p95Ms": 101,
       "note": "The cold compilation phase above is this value plus the first compile."
     },
     {
       "title": "Compile response → `preview.started` lifecycle event (cold)",
       "count": 1,
-      "p50Ms": 12175,
-      "p95Ms": 12175,
+      "p50Ms": 233.00000000000045,
+      "p95Ms": 233.00000000000045,
       "note": "Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing."
     },
     {
       "title": "Compile response → `preview.started` lifecycle event (warm)",
       "count": 1,
-      "p50Ms": 12193,
-      "p95Ms": 12193,
+      "p50Ms": 218,
+      "p95Ms": 218,
       "note": "Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing."
     },
     {
       "title": "Issue 024 in-protocol Stop latency (cold)",
       "count": 1,
-      "p50Ms": 281,
-      "p95Ms": 281,
+      "p50Ms": 118.99999999999955,
+      "p95Ms": 118.99999999999955,
       "note": "Stop request sent → `preview.stopped` observed and resources released, inside the shell."
     },
     {
       "title": "Issue 024 in-protocol Stop latency (warm)",
       "count": 1,
-      "p50Ms": 241,
-      "p95Ms": 241,
+      "p50Ms": 117,
+      "p95Ms": 117,
       "note": "Stop request sent → `preview.stopped` observed and resources released, inside the shell."
     },
     {
       "title": "Stop latency restricted to previews that had drawn frames",
       "count": 2,
-      "p50Ms": 241,
-      "p95Ms": 282,
+      "p50Ms": 117,
+      "p95Ms": 120,
       "note": "Same measurement as the Stop phase above, restricted to cycles whose preview was confirmed drawing. Published so the Stop distribution can be read with and without the non-rendering cycles; the PASS/FAIL phase above includes every Stop."
     },
     {
       "title": "Measured lower bound on the first-frame instant (compile response → `preview.start.request`)",
       "count": 2,
-      "p50Ms": 12023,
-      "p95Ms": 12083,
+      "p50Ms": 186,
+      "p95Ms": 198,
       "note": "The Game cannot draw before the start request leaves the shell, so the true first-frame time is bracketed between this row and the reported first-frame sample."
     },
     {
       "title": "Frame-rate corrected estimate of the first-frame instant",
       "count": 2,
-      "p50Ms": 12136.200000000003,
-      "p95Ms": 12139.222222222223,
+      "p50Ms": 221,
+      "p95Ms": 237.00000000000045,
       "note": "The reported sample minus (frames already drawn at the first observation - 1) divided by the frame rate measured immediately afterwards. An estimate only: no verdict uses it."
     },
     {
       "title": "Frame rate of the running preview (frames per second)",
       "count": 2,
-      "p50Ms": 49.31506849315068,
-      "p95Ms": 57.47126436781639,
+      "p50Ms": 19.841269841269877,
+      "p95Ms": 23.715415019762844,
       "note": "Measured after the first-frame sample was taken, over a 250 ms window, from the Game's own frame counter. Used only to quantify the first-frame overshoot."
     },
     {
       "title": "Bridge round trip of the observation that saw the first frame",
       "count": 2,
-      "p50Ms": 42.99999999999636,
-      "p95Ms": 85.00000000000182,
+      "p50Ms": 3,
+      "p95Ms": 3.0000000000004547,
       "note": "The preview-bridge round trip that returned the observation, plus one 5 ms poll interval when polling was needed. This bounds only the latency of the final observation, not the whole overshoot: frames drawn before that observation are accounted for by the frame-rate corrected estimate above."
     },
     {
-      "title": "Preview startup breakdown: `issue038_create_preview_window` invoke",
+      "title": "Preview startup breakdown: embedded preview iframe created (compile response → iframe invoked)",
       "count": 2,
-      "p50Ms": 39,
-      "p95Ms": 46,
-      "note": "Creating the isolated preview WebviewWindow through the Rust command."
+      "p50Ms": 0,
+      "p95Ms": 2,
+      "note": "Creating the embedded opaque-origin sandboxed preview iframe and setting its srcdoc in-page (ADR 0003). There is no isolated OS window and no Rust window-create command."
     },
     {
-      "title": "Preview startup breakdown: fixed settle delay",
+      "title": "Preview startup breakdown: sandboxed preview document load",
       "count": 2,
-      "p50Ms": 1515,
-      "p95Ms": 1518,
-      "note": "Unconditional 1500 ms sleep in `createIsolatedPreview` after the window is created."
+      "p50Ms": 8,
+      "p95Ms": 17.000000000000455,
+      "note": "The embedded preview iframe document finishing loading. This is real in-page document load time; the retired isolated-window path instead slept a fixed 1500 ms here."
     },
     {
-      "title": "Preview startup breakdown: real preview-runtime work (settle → `preview.bridge.ready`)",
+      "title": "Preview startup breakdown: real preview-runtime work (document load → `preview.bridge.ready`)",
       "count": 2,
-      "p50Ms": 65.00000000000364,
-      "p95Ms": 88,
-      "note": "Measured on the bridge-readiness promise itself, observed passively inside `createIsolatedPreview`, so it is the instant the preview .NET/MonoGame WASM runtime actually reported readiness."
-    },
-    {
-      "title": "Preview startup breakdown: bootstrap-loop wait after the runtime was already ready",
-      "count": 2,
-      "p50Ms": 10261,
-      "p95Ms": 10311.999999999996,
-      "note": "`createIsolatedPreview` starts a background message drain before its bootstrap loop, and that drain consumes `preview.bridge.ready`. The bootstrap loop therefore never sees the readiness message it polls for and can only exit when its fixed 10 000 ms deadline expires. This row is that fixed wait, not preview runtime work and not poll quantisation."
-    },
-    {
-      "title": "Preview startup breakdown: whole bootstrap interval (settle → loop exit)",
-      "count": 2,
-      "p50Ms": 10349,
-      "p95Ms": 10377,
-      "note": "The sum of the two rows above: real runtime readiness plus the fixed deadline the bootstrap loop waits out."
+      "p50Ms": 153,
+      "p95Ms": 154,
+      "note": "Measured on the in-page bridge-readiness promise itself, observed passively inside `createEmbeddedProofPreview`, so it is the instant the preview .NET/MonoGame WASM runtime actually reported readiness. No Rust bootstrap-loop deadline is involved on this path."
     },
     {
       "title": "Preview startup breakdown: assembly load + start → `preview.started`",
       "count": 2,
-      "p50Ms": 262,
-      "p95Ms": 262,
-      "note": "Everything after the preview runtime is ready: DLL/PDB transfer, `preview.load` and `preview.start`."
+      "p50Ms": 210,
+      "p95Ms": 214,
+      "note": "Everything after the preview runtime is ready: DLL/PDB transfer inline over the in-page protocol port, `preview.load` and `preview.start`."
     }
   ],
   "previewEvidence": {
     "cyclesObserved": 2,
     "cyclesThatRendered": 2,
     "cyclesCensoredWithoutAFrame": 0,
-    "bootstrapLoopExitedOnDeadline": 2,
-    "bootstrapLoopExitedOnReadyMessage": 0,
-    "minimumFrameCountBeforeStop": 29,
+    "previewTransport": "embedded-in-page-opaque-origin-iframe",
+    "minimumFrameCountBeforeStop": 6,
     "framesAlreadyDrawnAtFirstObservation": {
-      "min": 11,
-      "max": 13
+      "min": 1,
+      "max": 1
     },
     "everyCycleFreshGameState": true,
     "everyCycleDisposedExactlyOnce": true,
     "callbacksIntoDisposedState": 0
   },
   "caveats": [
-    "Cold shell samples in this report span 351-351 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.",
+    "Cold shell samples in this report span 505-505 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.",
     "Cold/warm for the shell phase is defined by process and cache state that this driver controls: cold launches are preceded by an enforced idle gap with no application process running, warm launches start immediately after the previous process exited. The OS page cache cannot be purged without root, so \"cold\" here means cold application state, not a cold file cache.",
-    "Preview startup includes a fixed 1500 ms settle delay that the current isolated-preview implementation performs after creating the preview window (`createIsolatedPreview` in `src/frontend/src/issue38-bridge.ts`). It is production code on the measured path, so it is measured; removing it is optimization work and is out of scope for this measurement issue (PRD 24 / issue 44 gate).",
-    "Preview startup also includes a fixed 10 000 ms bootstrap wait, and this report measures it as such rather than describing it as runtime work or poll quantisation. `createIsolatedPreview` starts a background message drain before its bootstrap loop; the drain consumes the `preview.bridge.ready` message, so the loop that polls for that same message never observes it and exits only when its fixed 10 000 ms deadline expires. Measured passively on the readiness promise itself, the preview runtime is actually ready 65 ms (p50) after the settle delay, while the bootstrap loop then waits a further 10261 ms (p50) / 10312 ms (p95) with the runtime already ready. 2 of 2 measured cycles exited that loop on the deadline rather than on the message. Removing the race is optimization work and is out of scope here (PRD 24 / issue 44 gate).",
+    "Preview startup is measured on the embedded opaque-origin sandboxed-iframe path that the product ships (ADR 0003): the preview is an in-page iframe created and driven inside the Workbench WebView, not a separate isolated OS window. The retired isolated-window harness performed a fixed 1500 ms settle sleep and could wait out a 10 000 ms Rust bootstrap-loop deadline after creating a second WebviewWindow; neither exists on this path, so neither is measured. Historical isolated-window measurements are recorded separately and are not presented as measurements of this embedded product path.",
+    "The embedded preview-start breakdown is entirely real in-page work: the sandboxed preview iframe document loads in 8 ms (p50) / 17 ms (p95), and the preview .NET/MonoGame WASM runtime then reports readiness 153 ms (p50) / 154 ms (p95) later, measured passively on the in-page bridge-readiness promise inside `createEmbeddedProofPreview`. There is no fixed settle sleep and no bootstrap-loop deadline race to subtract.",
     "The measured Run path enables the issue 021/023/024 preview proof instrumentation, because the frame counters that prove the preview is visibly active are exposed by that instrumentation. Each reported sample therefore contains that instrumentation's own cost, so as an estimate of the same phase in an uninstrumented build every observed sample is an upper bound. This is a separate statement from the observation bounds above: a censored sample is a lower bound on the instrumented run itself and implies nothing about an uninstrumented one.",
     "The benchmark harness and its Tauri commands are inert unless `MONOGAME_ISSUE041_BENCHMARK=1` is set in the process environment.",
-    "Uncensored preview-startup samples are upper bounds on the true first-frame instant: the observation is a poll through the preview bridge, and the Game had already drawn 11-13 frames when the observation landed. The overshoot is therefore larger than the bridge round trip alone. It is quantified in the supplementary table by the frame-rate corrected estimate (measured frame rate p50 49.3 fps), and the true first-frame instant is bracketed below by the measured compile-response to `preview.start.request` interval. Censored samples are the opposite case: they are lower bounds, and are marked as such wherever they appear.",
-    "Samples were collected on one machine in one session; they are a feasibility baseline, not a cross-machine guarantee.",
-    "At least one threshold FAILED. Per this issue's scope, no optimization was attempted; the failure is recorded as a known gap for the issue 044 feasibility gate review."
+    "Uncensored preview-startup samples are upper bounds on the true first-frame instant: the observation is a poll through the preview bridge, and the Game had already drawn 1-1 frames when the observation landed. The overshoot is therefore larger than the bridge round trip alone. It is quantified in the supplementary table by the frame-rate corrected estimate (measured frame rate p50 19.8 fps), and the true first-frame instant is bracketed below by the measured compile-response to `preview.start.request` interval. Censored samples are the opposite case: they are lower bounds, and are marked as such wherever they appear.",
+    "Samples were collected on one machine in one session; they are a feasibility baseline, not a cross-machine guarantee."
   ],
   "reproduction": {
     "commands": [
-      "npm --prefix src/frontend run build",
-      "npm --prefix src/desktop run tauri -- build",
+      "npm --prefix src/desktop run tauri -- build --config src-tauri/tauri.proof.conf.json",
       "caffeinate -di node scripts/measure-performance.mjs --runs 1 --memory-baseline --warm-compiles-baseline 99 --preview-cycles-baseline 20 --cooling-seconds 5 --max-attempts 3",
       "node --test scripts/performance-report.test.mjs scripts/measure-performance.test.mjs"
     ],
     "notes": [
-      "The driver requires the macOS packaged release binary at `src/desktop/src-tauri/target/release/monogame-playground`.",
+      "The driver requires the macOS proof-profile release binary at `src/desktop/src-tauri/target/release/monogame-playground`; build it with `src-tauri/tauri.proof.conf.json` immediately before measuring because the raw Cargo target path is shared by product and proof builds.",
       "Run it under `caffeinate -di` on an unlocked console session: the measured Run path requires the application window to activate and paint, which macOS suppresses while the display sleeps or the screen is locked. The driver reads the console session state before every attempt and refuses to measure a locked or off-console session.",
       "The driver publishes a run whose launches failed, provided every phase still reached its required sample count: the failures, the censored samples and the attempts are all part of the report. It refuses to publish only when a phase is short of samples or the report fails schema validation, in which case it writes `artifacts/issue041/rejected-report.json` and leaves the committed documents untouched.",
       "Per-launch stdout is written to `artifacts/issue041/attempt-NN-<mode>-<kind>.log`.",
@@ -1032,12 +1015,12 @@
       "attempt": 1,
       "mode": "full",
       "shellLaunchKind": "cold",
-      "pid": 8430,
+      "pid": 40025,
       "exitCode": 0,
       "signal": null,
       "timedOut": false,
-      "wallClockMs": 30110.23841691017,
-      "shellReadyWallClockMs": 350.8209578990936,
+      "wallClockMs": 5223.811375141144,
+      "shellReadyWallClockMs": 505.3397080898285,
       "shellReady": {
         "detail": {
           "devicePixelRatio": 2,
@@ -1046,27 +1029,27 @@
           "firstPaintedFrames": 2,
           "innerHeight": 768,
           "innerWidth": 1280,
-          "macrotaskLatencyMs": 0,
+          "macrotaskLatencyMs": 2,
           "shellElementsExpected": 5,
-          "shellElementsPresent": 5,
-          "timeOriginToShellReadyMs": 103,
+          "shellElementsPresent": 4,
+          "timeOriginToShellReadyMs": 203,
           "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
         },
-        "processStartToShellReadyMs": 333.79025,
+        "processStartToShellReadyMs": 488.323542,
         "windowFocused": true,
         "windowMinimized": false,
         "windowVisible": true
       },
       "outcome": "ok",
       "cleanup": {
-        "pid": 8430,
+        "pid": 40025,
         "terminated": true,
         "escalated": false
       },
       "checkpointCount": 9,
       "lastCheckpoint": {
         "name": "preview-cycle-end",
-        "atMs": 29854,
+        "atMs": 4912,
         "cycle": 1
       },
       "failure": null,
@@ -1077,56 +1060,12 @@
       "attempt": 1,
       "mode": "shell-only",
       "shellLaunchKind": "warm",
-      "pid": 8437,
+      "pid": 40030,
       "exitCode": 0,
       "signal": null,
       "timedOut": false,
-      "wallClockMs": 305.8304171562195,
-      "shellReadyWallClockMs": 298.97866702079773,
-      "shellReady": {
-        "detail": {
-          "devicePixelRatio": 2,
-          "documentReadyState": "complete",
-          "documentVisibilityState": "visible",
-          "firstPaintedFrames": 2,
-          "innerHeight": 768,
-          "innerWidth": 1280,
-          "macrotaskLatencyMs": 0,
-          "shellElementsExpected": 5,
-          "shellElementsPresent": 5,
-          "timeOriginToShellReadyMs": 98,
-          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
-        },
-        "processStartToShellReadyMs": 293.56850000000003,
-        "windowFocused": true,
-        "windowMinimized": false,
-        "windowVisible": true
-      },
-      "outcome": "ok",
-      "cleanup": {
-        "pid": 8437,
-        "terminated": true,
-        "escalated": false
-      },
-      "checkpointCount": 1,
-      "lastCheckpoint": {
-        "name": "shell-ready",
-        "atMs": 98
-      },
-      "failure": null,
-      "phaseFailures": [],
-      "log": "artifacts/issue041/attempt-01-shell-only-warm.log"
-    },
-    {
-      "attempt": 1,
-      "mode": "memory-baseline",
-      "shellLaunchKind": "baseline",
-      "pid": 8442,
-      "exitCode": 0,
-      "signal": null,
-      "timedOut": false,
-      "wallClockMs": 280341.97479200363,
-      "shellReadyWallClockMs": 303.60774993896484,
+      "wallClockMs": 457.71620893478394,
+      "shellReadyWallClockMs": 431.91758394241333,
       "shellReady": {
         "detail": {
           "devicePixelRatio": 2,
@@ -1137,25 +1076,69 @@
           "innerWidth": 1280,
           "macrotaskLatencyMs": 1,
           "shellElementsExpected": 5,
-          "shellElementsPresent": 5,
-          "timeOriginToShellReadyMs": 99,
+          "shellElementsPresent": 4,
+          "timeOriginToShellReadyMs": 192,
           "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
         },
-        "processStartToShellReadyMs": 298.90741599999996,
+        "processStartToShellReadyMs": 423.20620799999995,
         "windowFocused": true,
         "windowMinimized": false,
         "windowVisible": true
       },
       "outcome": "ok",
       "cleanup": {
-        "pid": 8442,
+        "pid": 40030,
+        "terminated": true,
+        "escalated": false
+      },
+      "checkpointCount": 1,
+      "lastCheckpoint": {
+        "name": "shell-ready",
+        "atMs": 198
+      },
+      "failure": null,
+      "phaseFailures": [],
+      "log": "artifacts/issue041/attempt-01-shell-only-warm.log"
+    },
+    {
+      "attempt": 1,
+      "mode": "memory-baseline",
+      "shellLaunchKind": "baseline",
+      "pid": 40035,
+      "exitCode": 0,
+      "signal": null,
+      "timedOut": false,
+      "wallClockMs": 31280.323709011078,
+      "shellReadyWallClockMs": 424.08754205703735,
+      "shellReady": {
+        "detail": {
+          "devicePixelRatio": 2,
+          "documentReadyState": "complete",
+          "documentVisibilityState": "visible",
+          "firstPaintedFrames": 2,
+          "innerHeight": 768,
+          "innerWidth": 1280,
+          "macrotaskLatencyMs": 2,
+          "shellElementsExpected": 5,
+          "shellElementsPresent": 4,
+          "timeOriginToShellReadyMs": 193,
+          "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
+        },
+        "processStartToShellReadyMs": 417.980709,
+        "windowFocused": true,
+        "windowMinimized": false,
+        "windowVisible": true
+      },
+      "outcome": "ok",
+      "cleanup": {
+        "pid": 40035,
         "terminated": true,
         "escalated": false
       },
       "checkpointCount": 26,
       "lastCheckpoint": {
         "name": "memory-baseline-complete",
-        "atMs": 280128
+        "atMs": 31044
       },
       "failure": null,
       "phaseFailures": [],
@@ -1168,7 +1151,7 @@
       "mode": "full",
       "report": {
         "schemaVersion": 2,
-        "generatedAt": "2026-09-04T20:01:19.290Z",
+        "generatedAt": "2026-09-09T07:43:07.564Z",
         "benchmarkMode": "MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=full",
         "mode": "full",
         "environment": {
@@ -1195,8 +1178,8 @@
           }
         },
         "proofRuntimeReadiness": {
-          "requestedAt": 107,
-          "readyAt": 375,
+          "requestedAt": 273,
+          "readyAt": 516,
           "nativeActivation": {
             "platform": "appkit",
             "activationPolicyRegular": true,
@@ -1208,14 +1191,13 @@
             "focused": true,
             "minimized": false,
             "attempts": 1,
-            "elapsedMilliseconds": 207
+            "elapsedMilliseconds": 220
           },
           "activationRounds": 1,
           "visibilityState": "visible",
-          "animationFrameProgressMilliseconds": 43,
-          "renderedFramesObserved": 2,
-          "frameIncrease": 2,
-          "runtimeState": "rendering"
+          "animationFrameProgressMilliseconds": 16,
+          "renderedFramesObserved": 0,
+          "frameIncrease": 0
         },
         "fixture": {
           "fileCount": 5,
@@ -1230,18 +1212,18 @@
           "totalCharacters": 12155
         },
         "preconditions": {
-          "shellSteadyStateMs": 0
+          "shellSteadyStateMs": 16
         },
         "compilerInit": {
           "kind": "cold",
-          "elapsedMs": 348,
+          "elapsedMs": 101,
           "compilerRuntimeStarts": 1
         },
         "compileSamples": [
           {
             "index": 0,
             "kind": "cold",
-            "elapsedMs": 923,
+            "elapsedMs": 932,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1249,7 +1231,7 @@
           {
             "index": 1,
             "kind": "warm",
-            "elapsedMs": 246,
+            "elapsedMs": 232,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1257,7 +1239,7 @@
           {
             "index": 2,
             "kind": "warm",
-            "elapsedMs": 219,
+            "elapsedMs": 204,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1265,7 +1247,7 @@
           {
             "index": 3,
             "kind": "warm",
-            "elapsedMs": 201,
+            "elapsedMs": 188,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1273,7 +1255,7 @@
           {
             "index": 4,
             "kind": "warm",
-            "elapsedMs": 197,
+            "elapsedMs": 185,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1281,7 +1263,7 @@
           {
             "index": 5,
             "kind": "warm",
-            "elapsedMs": 192,
+            "elapsedMs": 179,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1289,7 +1271,7 @@
           {
             "index": 6,
             "kind": "warm",
-            "elapsedMs": 185.00000000000045,
+            "elapsedMs": 170,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1297,7 +1279,7 @@
           {
             "index": 7,
             "kind": "warm",
-            "elapsedMs": 177,
+            "elapsedMs": 165,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1305,7 +1287,7 @@
           {
             "index": 8,
             "kind": "warm",
-            "elapsedMs": 177.99999999999955,
+            "elapsedMs": 164.00000000000045,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1313,7 +1295,7 @@
           {
             "index": 9,
             "kind": "warm",
-            "elapsedMs": 171,
+            "elapsedMs": 160.99999999999955,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1321,7 +1303,7 @@
           {
             "index": 10,
             "kind": "warm",
-            "elapsedMs": 174,
+            "elapsedMs": 162,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1335,35 +1317,35 @@
           {
             "cycle": 0,
             "kind": "cold",
-            "compileWithinRunMs": 170,
-            "previewStartedMs": 12175,
-            "previewFirstFrameMs": 12345.000000000002,
+            "compileWithinRunMs": 156,
+            "previewStartedMs": 233.00000000000045,
+            "previewFirstFrameMs": 237.00000000000045,
             "firstFrame": {
               "censored": false,
               "deadlineMs": 20000,
               "pollIntervalMs": 5,
-              "observationIntervalMs": 85.00000000000182,
+              "observationIntervalMs": 3.0000000000004547,
               "queryCount": 2,
               "queryFailureCount": 0,
               "lastQueryError": null,
-              "lowerBoundMs": 12023,
-              "estimateMs": 12136.200000000003,
+              "lowerBoundMs": 198,
+              "estimateMs": 237.00000000000045,
               "censorReason": null,
               "evidence": null
             },
-            "firstFrameObservationIntervalMs": 85.00000000000182,
+            "firstFrameObservationIntervalMs": 3.0000000000004547,
             "frameRate": {
-              "framesDrawn": 20,
-              "elapsedMs": 347.9999999999982,
-              "framesPerSecond": 57.47126436781639
+              "framesDrawn": 5,
+              "elapsedMs": 251.99999999999955,
+              "framesPerSecond": 19.841269841269877
             },
-            "stopControlReturnMs": 282,
-            "stopInstrumentedMs": 281,
+            "stopControlReturnMs": 120,
+            "stopInstrumentedMs": 118.99999999999955,
             "stopMeaningful": true,
             "previewRenderedBeforeStop": true,
-            "frameCountAtFirstObservation": 13,
-            "frameCountBeforeStop": 33,
-            "frameCountAfterStop": 38,
+            "frameCountAtFirstObservation": 1,
+            "frameCountBeforeStop": 6,
+            "frameCountAfterStop": 6,
             "keptDrawing": true,
             "runCount": 1,
             "staticConstructorCount": 1,
@@ -1372,72 +1354,66 @@
             "controllerIdleAfterStop": true,
             "previewWindowRemoved": true,
             "breakdown": {
-              "windowCreateInvokeMs": 46,
-              "fixedSettleDelayMs": 1518,
-              "previewRuntimeBootstrapMs": 10349,
-              "previewRuntimeReadyMs": 88,
-              "bootstrapLoopOverheadMs": 10261,
-              "loadAndStartMs": 262
+              "frameCreateInvokeMs": 2,
+              "documentLoadMs": 17.000000000000455,
+              "previewRuntimeReadyMs": 153,
+              "loadAndStartMs": 214
             },
             "bootstrapDetail": {
-              "deadlineMs": 10000,
-              "pollPeriodMs": 500,
-              "iterations": 20,
-              "elapsedMs": 10349,
-              "exitReason": "deadline-exhausted",
-              "readyPromiseResolved": true,
-              "readyPromiseResolvedAtMs": 5413,
-              "readinessConsumedByBackgroundDrain": true
+              "transport": "embedded-in-page",
+              "generation": "77210c91b1014f6dade0e98bd033fc76",
+              "previewId": "d0cf4fb8-7677-4e8c-a0c9-132e43dd1245",
+              "readyPromiseResolved": false,
+              "readyPromiseResolvedAtMs": null
             },
             "marks": {
-              "request.begin": 3591,
-              "contexts.ready": 3591,
-              "compile.response": 3761,
-              "preview.window.invoked": 3807,
-              "preview.window.settled": 5325,
-              "preview.bridge.ready.observed": 5413,
-              "preview.runtime.bootstrapped": 15674,
-              "preview.window.created": 15674,
-              "preview.binaries.transferred": 15697.000000000002,
-              "preview.bridge.ready": 15697.000000000002,
-              "preview.load.request": 15697.000000000002,
-              "preview.load.response": 15784,
-              "preview.start.request": 15784,
-              "preview.started": 15936
+              "request.begin": 3379,
+              "contexts.ready": 3537,
+              "compile.response": 3535,
+              "preview.window.invoked": 3537,
+              "preview.window.created": 3554.0000000000005,
+              "preview.window.settled": 3554.0000000000005,
+              "preview.runtime.bootstrapped": 3554.0000000000005,
+              "preview.bridge.ready.observed": 3707.0000000000005,
+              "preview.bridge.ready": 3707.0000000000005,
+              "preview.load.request": 3707.0000000000005,
+              "preview.load.response": 3733,
+              "preview.start.request": 3733,
+              "preview.started": 3768.0000000000005
             }
           },
           {
             "cycle": 1,
             "kind": "warm",
-            "compileWithinRunMs": 168,
-            "previewStartedMs": 12193,
-            "previewFirstFrameMs": 12342,
+            "compileWithinRunMs": 175,
+            "previewStartedMs": 218,
+            "previewFirstFrameMs": 221,
             "firstFrame": {
               "censored": false,
               "deadlineMs": 20000,
               "pollIntervalMs": 5,
-              "observationIntervalMs": 42.99999999999636,
+              "observationIntervalMs": 3,
               "queryCount": 2,
               "queryFailureCount": 0,
               "lastQueryError": null,
-              "lowerBoundMs": 12083,
-              "estimateMs": 12139.222222222223,
+              "lowerBoundMs": 186,
+              "estimateMs": 221,
               "censorReason": null,
               "evidence": null
             },
-            "firstFrameObservationIntervalMs": 42.99999999999636,
+            "firstFrameObservationIntervalMs": 3,
             "frameRate": {
-              "framesDrawn": 18,
-              "elapsedMs": 365,
-              "framesPerSecond": 49.31506849315068
+              "framesDrawn": 6,
+              "elapsedMs": 253,
+              "framesPerSecond": 23.715415019762844
             },
-            "stopControlReturnMs": 241,
-            "stopInstrumentedMs": 241,
+            "stopControlReturnMs": 117,
+            "stopInstrumentedMs": 117,
             "stopMeaningful": true,
             "previewRenderedBeforeStop": true,
-            "frameCountAtFirstObservation": 11,
-            "frameCountBeforeStop": 29,
-            "frameCountAfterStop": 35,
+            "frameCountAtFirstObservation": 1,
+            "frameCountBeforeStop": 7,
+            "frameCountAfterStop": 7,
             "keptDrawing": true,
             "runCount": 1,
             "staticConstructorCount": 1,
@@ -1446,38 +1422,32 @@
             "controllerIdleAfterStop": true,
             "previewWindowRemoved": true,
             "breakdown": {
-              "windowCreateInvokeMs": 39,
-              "fixedSettleDelayMs": 1515,
-              "previewRuntimeBootstrapMs": 10377,
-              "previewRuntimeReadyMs": 65.00000000000364,
-              "bootstrapLoopOverheadMs": 10311.999999999996,
-              "loadAndStartMs": 262
+              "frameCreateInvokeMs": 0,
+              "documentLoadMs": 8,
+              "previewRuntimeReadyMs": 154,
+              "loadAndStartMs": 210
             },
             "bootstrapDetail": {
-              "deadlineMs": 10000,
-              "pollPeriodMs": 500,
-              "iterations": 20,
-              "elapsedMs": 10377,
-              "exitReason": "deadline-exhausted",
-              "readyPromiseResolved": true,
-              "readyPromiseResolvedAtMs": 18525.000000000004,
-              "readinessConsumedByBackgroundDrain": true
+              "transport": "embedded-in-page",
+              "generation": "59f6720a0b894fa2a4dfbdae29a33c03",
+              "previewId": "195128c1-a70e-4f81-b65e-f1254fbbbe4f",
+              "readyPromiseResolved": false,
+              "readyPromiseResolvedAtMs": null
             },
             "marks": {
-              "request.begin": 16738,
-              "contexts.ready": 16738,
-              "compile.response": 16906,
-              "preview.window.invoked": 16945,
-              "preview.window.settled": 18460,
-              "preview.bridge.ready.observed": 18525.000000000004,
-              "preview.runtime.bootstrapped": 28837,
-              "preview.window.created": 28837,
-              "preview.binaries.transferred": 28859,
-              "preview.bridge.ready": 28859,
-              "preview.load.request": 28859,
-              "preview.load.response": 28989,
-              "preview.start.request": 28989,
-              "preview.started": 29099
+              "request.begin": 4146,
+              "contexts.ready": 4321,
+              "compile.response": 4321,
+              "preview.window.invoked": 4321,
+              "preview.window.created": 4329,
+              "preview.window.settled": 4329,
+              "preview.runtime.bootstrapped": 4329,
+              "preview.bridge.ready.observed": 4483,
+              "preview.bridge.ready": 4483,
+              "preview.load.request": 4483,
+              "preview.load.response": 4507,
+              "preview.start.request": 4507,
+              "preview.started": 4539
             }
           }
         ],
@@ -1491,7 +1461,7 @@
       "mode": "shell-only",
       "report": {
         "schemaVersion": 2,
-        "generatedAt": "2026-09-04T20:01:19.601Z",
+        "generatedAt": "2026-09-09T07:43:08.026Z",
         "benchmarkMode": "MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=shell-only",
         "mode": "shell-only",
         "environment": {
@@ -1531,191 +1501,191 @@
       "mode": "memory-baseline",
       "report": {
         "schemaVersion": 2,
-        "generatedAt": "2026-09-04T20:05:59.934Z",
+        "generatedAt": "2026-09-09T07:43:39.307Z",
         "benchmarkMode": "MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=memory-baseline",
         "mode": "memory-baseline",
         "compilerRssSamples": [
           {
-            "label": "RSS=215024 KB",
-            "bytes": 220184576,
-            "kilobytes": 215024,
-            "megabytes": 209.984375
+            "label": "RSS=179472 KB",
+            "bytes": 183779328,
+            "kilobytes": 179472,
+            "megabytes": 175.265625
           },
           {
-            "label": "RSS=215072 KB",
-            "bytes": 220233728,
-            "kilobytes": 215072,
-            "megabytes": 210.03125
+            "label": "RSS=179456 KB",
+            "bytes": 183762944,
+            "kilobytes": 179456,
+            "megabytes": 175.25
           },
           {
-            "label": "RSS=214928 KB",
-            "bytes": 220086272,
-            "kilobytes": 214928,
-            "megabytes": 209.890625
+            "label": "RSS=179456 KB",
+            "bytes": 183762944,
+            "kilobytes": 179456,
+            "megabytes": 175.25
           },
           {
-            "label": "RSS=214784 KB",
-            "bytes": 219938816,
-            "kilobytes": 214784,
-            "megabytes": 209.75
+            "label": "RSS=179152 KB",
+            "bytes": 183451648,
+            "kilobytes": 179152,
+            "megabytes": 174.953125
           },
           {
-            "label": "RSS=214736 KB",
-            "bytes": 219889664,
-            "kilobytes": 214736,
-            "megabytes": 209.703125
+            "label": "RSS=179152 KB",
+            "bytes": 183451648,
+            "kilobytes": 179152,
+            "megabytes": 174.953125
           },
           {
-            "label": "RSS=213872 KB",
-            "bytes": 219004928,
-            "kilobytes": 213872,
-            "megabytes": 208.859375
+            "label": "RSS=179152 KB",
+            "bytes": 183451648,
+            "kilobytes": 179152,
+            "megabytes": 174.953125
           },
           {
-            "label": "RSS=213888 KB",
-            "bytes": 219021312,
-            "kilobytes": 213888,
-            "megabytes": 208.875
+            "label": "RSS=179040 KB",
+            "bytes": 183336960,
+            "kilobytes": 179040,
+            "megabytes": 174.84375
           },
           {
-            "label": "RSS=213888 KB",
-            "bytes": 219021312,
-            "kilobytes": 213888,
-            "megabytes": 208.875
+            "label": "RSS=179040 KB",
+            "bytes": 183336960,
+            "kilobytes": 179040,
+            "megabytes": 174.84375
           },
           {
-            "label": "RSS=213888 KB",
-            "bytes": 219021312,
-            "kilobytes": 213888,
-            "megabytes": 208.875
+            "label": "RSS=179040 KB",
+            "bytes": 183336960,
+            "kilobytes": 179040,
+            "megabytes": 174.84375
           },
           {
-            "label": "RSS=213808 KB",
-            "bytes": 218939392,
-            "kilobytes": 213808,
-            "megabytes": 208.796875
+            "label": "RSS=179040 KB",
+            "bytes": 183336960,
+            "kilobytes": 179040,
+            "megabytes": 174.84375
           }
         ],
         "previewRssSamples": [
           {
             "label": "after-cycle-1-stop",
-            "bytes": 197312512,
-            "kilobytes": 192688,
-            "megabytes": 188.171875
+            "bytes": 184942592,
+            "kilobytes": 180608,
+            "megabytes": 176.375
           },
           {
             "label": "after-cycle-2-stop",
-            "bytes": 182534144,
-            "kilobytes": 178256,
-            "megabytes": 174.078125
+            "bytes": 184958976,
+            "kilobytes": 180624,
+            "megabytes": 176.390625
           },
           {
             "label": "after-cycle-3-stop",
-            "bytes": 191922176,
-            "kilobytes": 187424,
-            "megabytes": 183.03125
+            "bytes": 184991744,
+            "kilobytes": 180656,
+            "megabytes": 176.421875
           },
           {
             "label": "after-cycle-4-stop",
-            "bytes": 184025088,
-            "kilobytes": 179712,
-            "megabytes": 175.5
+            "bytes": 185024512,
+            "kilobytes": 180688,
+            "megabytes": 176.453125
           },
           {
             "label": "after-cycle-5-stop",
-            "bytes": 193413120,
-            "kilobytes": 188880,
-            "megabytes": 184.453125
+            "bytes": 185073664,
+            "kilobytes": 180736,
+            "megabytes": 176.5
           },
           {
             "label": "after-cycle-6-stop",
-            "bytes": 185417728,
-            "kilobytes": 181072,
-            "megabytes": 176.828125
+            "bytes": 185090048,
+            "kilobytes": 180752,
+            "megabytes": 176.515625
           },
           {
             "label": "after-cycle-7-stop",
-            "bytes": 194772992,
-            "kilobytes": 190208,
-            "megabytes": 185.75
+            "bytes": 185090048,
+            "kilobytes": 180752,
+            "megabytes": 176.515625
           },
           {
             "label": "after-cycle-8-stop",
-            "bytes": 186990592,
-            "kilobytes": 182608,
-            "megabytes": 178.328125
+            "bytes": 185106432,
+            "kilobytes": 180768,
+            "megabytes": 176.53125
           },
           {
             "label": "after-cycle-9-stop",
-            "bytes": 196345856,
-            "kilobytes": 191744,
-            "megabytes": 187.25
+            "bytes": 185106432,
+            "kilobytes": 180768,
+            "megabytes": 176.53125
           },
           {
             "label": "after-cycle-10-stop",
-            "bytes": 197033984,
-            "kilobytes": 192416,
-            "megabytes": 187.90625
+            "bytes": 185106432,
+            "kilobytes": 180768,
+            "megabytes": 176.53125
           },
           {
             "label": "after-cycle-11-stop",
-            "bytes": 197918720,
-            "kilobytes": 193280,
-            "megabytes": 188.75
+            "bytes": 185122816,
+            "kilobytes": 180784,
+            "megabytes": 176.546875
           },
           {
             "label": "after-cycle-12-stop",
-            "bytes": 198574080,
-            "kilobytes": 193920,
-            "megabytes": 189.375
+            "bytes": 185122816,
+            "kilobytes": 180784,
+            "megabytes": 176.546875
           },
           {
             "label": "after-cycle-13-stop",
-            "bytes": 199262208,
-            "kilobytes": 194592,
-            "megabytes": 190.03125
+            "bytes": 185155584,
+            "kilobytes": 180816,
+            "megabytes": 176.578125
           },
           {
             "label": "after-cycle-14-stop",
-            "bytes": 191315968,
-            "kilobytes": 186832,
-            "megabytes": 182.453125
+            "bytes": 173834240,
+            "kilobytes": 169760,
+            "megabytes": 165.78125
           },
           {
             "label": "after-cycle-15-stop",
-            "bytes": 200622080,
-            "kilobytes": 195920,
-            "megabytes": 191.328125
+            "bytes": 173867008,
+            "kilobytes": 169792,
+            "megabytes": 165.8125
           },
           {
             "label": "after-cycle-16-stop",
-            "bytes": 201457664,
-            "kilobytes": 196736,
-            "megabytes": 192.125
+            "bytes": 173867008,
+            "kilobytes": 169792,
+            "megabytes": 165.8125
           },
           {
             "label": "after-cycle-17-stop",
-            "bytes": 202178560,
-            "kilobytes": 197440,
-            "megabytes": 192.8125
+            "bytes": 173867008,
+            "kilobytes": 169792,
+            "megabytes": 165.8125
           },
           {
             "label": "after-cycle-18-stop",
-            "bytes": 202883072,
-            "kilobytes": 198128,
-            "megabytes": 193.484375
+            "bytes": 173883392,
+            "kilobytes": 169808,
+            "megabytes": 165.828125
           },
           {
             "label": "after-cycle-19-stop",
-            "bytes": 203538432,
-            "kilobytes": 198768,
-            "megabytes": 194.109375
+            "bytes": 173883392,
+            "kilobytes": 169808,
+            "megabytes": 165.828125
           },
           {
             "label": "after-cycle-20-stop",
-            "bytes": 204292096,
-            "kilobytes": 199504,
-            "megabytes": 194.828125
+            "bytes": 173899776,
+            "kilobytes": 169824,
+            "megabytes": 165.84375
           }
         ],
         "cleanupVerification": {
@@ -1726,7 +1696,7 @@
           "webglContextCount": 1,
           "messagePortCount": 2,
           "allCleared": true,
-          "detail": "AudioContext: ok (state=${audioContextState}) | WebGL: ok | Animation frames observed: 0 | MessagePort objects created/closed: 2 (ok) | All cleanup checks passed"
+          "detail": "AudioContext: ok (state=suspended) | WebGL: ok | Animation frames observed: 0 | MessagePort objects created/closed: 2 (ok) | All cleanup checks passed"
         },
         "compilationCount": 100,
         "previewCycleCount": 20,
@@ -1742,52 +1712,52 @@
     "failures": [],
     "compilerRssStability": {
       "sampleCount": 10,
-      "firstKilobytes": 215024,
-      "lastKilobytes": 213808,
-      "growthPercent": -0.5655182677282535,
+      "firstKilobytes": 179472,
+      "lastKilobytes": 179040,
+      "growthPercent": -0.2407060711420166,
       "thresholdPercent": 10,
       "verdict": "PASS",
       "samples": [
-        215024,
-        215072,
-        214928,
-        214784,
-        214736,
-        213872,
-        213888,
-        213888,
-        213888,
-        213808
+        179472,
+        179456,
+        179456,
+        179152,
+        179152,
+        179152,
+        179040,
+        179040,
+        179040,
+        179040
       ]
     },
     "previewRssStability": {
       "sampleCount": 20,
-      "firstKilobytes": 192688,
-      "lastKilobytes": 199504,
-      "growthPercent": 3.5373245868969527,
+      "firstKilobytes": 180608,
+      "lastKilobytes": 169824,
+      "growthPercent": -5.970942593905032,
       "thresholdPercent": 20,
       "verdict": "PASS",
       "samples": [
-        192688,
-        178256,
-        187424,
-        179712,
-        188880,
-        181072,
-        190208,
-        182608,
-        191744,
-        192416,
-        193280,
-        193920,
-        194592,
-        186832,
-        195920,
-        196736,
-        197440,
-        198128,
-        198768,
-        199504
+        180608,
+        180624,
+        180656,
+        180688,
+        180736,
+        180752,
+        180752,
+        180768,
+        180768,
+        180768,
+        180784,
+        180784,
+        180816,
+        169760,
+        169792,
+        169792,
+        169792,
+        169808,
+        169808,
+        169824
       ]
     },
     "cleanupVerification": {
@@ -1801,7 +1771,7 @@
           "webglContextCount": 1,
           "messagePortCount": 2,
           "allCleared": true,
-          "detail": "AudioContext: ok (state=${audioContextState}) | WebGL: ok | Animation frames observed: 0 | MessagePort objects created/closed: 2 (ok) | All cleanup checks passed"
+          "detail": "AudioContext: ok (state=suspended) | WebGL: ok | Animation frames observed: 0 | MessagePort objects created/closed: 2 (ok) | All cleanup checks passed"
         }
       ]
     }

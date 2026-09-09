@@ -95,21 +95,6 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "issue037_clear_store",
   "issue037_proof_phase",
   "issue037_emit_checkpoint",
-  "issue038_is_proof_enabled",
-  "issue038_store_transfer",
-  "issue038_clear_transfer",
-  "issue038_create_preview_window",
-  "issue038_destroy_preview_window",
-  "issue038_preview_window_exists",
-  "issue038_relay_to_preview",
-  "issue038_collect_bridge_messages",
-  "issue038_monotonic_nanos",
-  "issue038_destroy_all_previews",
-  "issue038_bootstrap_preview",
-  "issue038_inject_script",
-  "issue038_emit_checkpoint",
-  "issue038_create_no_wasm_eval_window",
-  "issue038_emit_report",
   "issue039_is_proof_enabled",
   "issue039_emit_checkpoint",
   "issue039_emit_report",
@@ -357,21 +342,21 @@ export async function runIssue033AutoProof(): Promise<void> {
   await preparePackagedProofRuntime();
   await checkpoint("runtime-ready");
 
-  // First run: compile and start in isolated window
+  // First run: compile and start in the embedded opaque-origin sandboxed iframe
   const first = await startIssue033Preview("Issue033First");
   await checkpoint("first-started");
 
-  // Isolated window has no sandbox attribute — security is via process
-  // isolation + ACL + CSP. Equivalent separation evidence:
-  // - serializedOrigin !== "tauri://localhost" (separate origin)
-  // - parentDomDenied (no cross-window DOM access)
-  // - CSP violations enforced in isolated context
+  // The embedded preview runs at an opaque origin (sandbox="allow-scripts", no
+  // allow-same-origin) with the preview CSP. Equivalent separation evidence:
+  // - serializedOrigin !== "tauri://localhost" (opaque origin)
+  // - parentDomDenied (no cross-document DOM access)
+  // - CSP violations enforced in the sandboxed context
 
-  // Probe security from inside the isolated preview context
+  // Probe security from inside the embedded preview context
   const security = await first.proof<SecurityEvidence>("issue033-security");
   await checkpoint("security-probed");
 
-  // Verify rendering works in isolated window
+  // Verify rendering works in the embedded sandboxed preview
   const pixels = await first.proof<{
     pixels: number[][];
     glError: number;
@@ -731,72 +716,12 @@ function testStructuralValidation() {
   };
 }
 
-// Bridge protocol attack tests — attack the Rust-mediated bridge surface
-async function testBridgeAttacks(invoke: Function) {
-  const attacks: Record<string, { sent: boolean; rejected: boolean }> = {};
-  const fakeGen = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-  const realGen = crypto.randomUUID().replace(/-/g, "").slice(0, 32);
-
-  // Attack 1: relay to non-existent generation
-  try {
-    await invoke("issue038_relay_to_preview", {
-      generation: fakeGen,
-      message: JSON.stringify({ channel: "protocol", data: { type: "attack" } }),
-    });
-    attacks.staleGeneration = { sent: true, rejected: false };
-  } catch {
-    attacks.staleGeneration = { sent: false, rejected: true };
-  }
-
-  // Attack 2: collect from non-existent generation
-  try {
-    const msgs = await invoke("issue038_collect_bridge_messages", { generation: fakeGen });
-    attacks.collectStaleGen = { sent: true, rejected: Array.isArray(msgs) && msgs.length === 0 };
-  } catch {
-    attacks.collectStaleGen = { sent: false, rejected: true };
-  }
-
-  // Attack 3: bootstrap non-existent window
-  try {
-    await invoke("issue038_bootstrap_preview", {
-      generation: fakeGen,
-      bootstrapJson: "{}",
-    });
-    attacks.bootstrapStale = { sent: true, rejected: false };
-  } catch {
-    attacks.bootstrapStale = { sent: false, rejected: true };
-  }
-
-  // Attack 4: invalid generation format
-  try {
-    await invoke("issue038_create_preview_window", { generation: "../escape" });
-    attacks.invalidGen = { sent: true, rejected: false };
-  } catch {
-    attacks.invalidGen = { sent: false, rejected: true };
-  }
-
-  // Attack 5: invalid transfer token
-  try {
-    await invoke("issue038_store_transfer", {
-      token: "../../escape", assembly: [0], pdb: [0],
-    });
-    attacks.invalidToken = { sent: true, rejected: false };
-  } catch {
-    attacks.invalidToken = { sent: false, rejected: true };
-  }
-
-  // Attack 6: oversized transfer
-  try {
-    await invoke("issue038_store_transfer", {
-      token: "test", assembly: [], pdb: [0],
-    });
-    attacks.emptyTransfer = { sent: true, rejected: false };
-  } catch {
-    attacks.emptyTransfer = { sent: false, rejected: true };
-  }
-
-  return attacks;
-}
+// Stage 5 retired the Rust-mediated isolated-window bridge (issue038_*) command
+// surface entirely, so there is no longer a bridge relay/transfer/window command
+// to attack. The forged/malformed/oversized-message rejection coverage that used
+// to probe those commands is preserved by `testStructuralValidation` (protocol
+// envelope validation) below and by the embedded opaque-origin sandboxed-iframe
+// transport, which has no IPC bridge at all (issue034).
 
 export async function runIssue036AutoProof(): Promise<void> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
@@ -804,19 +729,17 @@ export async function runIssue036AutoProof(): Promise<void> {
 
   await preparePackagedProofRuntime();
 
-  // Phase 1: structural validation (unit-level, no preview)
+  // Phase 1: structural validation (unit-level, no preview) — forged, malformed,
+  // oversized, and path-traversal envelopes are rejected before they can reach
+  // the transport.
   const structural = testStructuralValidation();
 
-  // Phase 2: bridge protocol attacks (Rust command surface). These issue038_*
-  // commands still exist and remain ACL-registered until task 4's deliberate
-  // retirement, so this continues to prove they reject forged/malformed input
-  // (stale/invalid generations, path-escape tokens, oversized/empty transfers).
-  const bridgeAttacks = await testBridgeAttacks(invoke);
-
-  // Phase 3: valid compile/run through the in-page opaque-origin sandboxed iframe
-  // (issue 052 task 3) — proves the forged-message attacks did not corrupt the
-  // transport the live path now uses. runInPagePreviewForProof waits for
-  // preview.started before returning.
+  // Phase 2: valid compile/run through the in-page opaque-origin sandboxed iframe
+  // (issue 052 task 3 / ADR 0003) — proves the forged-message rejections did not
+  // corrupt the transport the live path uses. The embedded preview has NO IPC
+  // bridge (opaque origin, no __TAURI_INTERNALS__), so a forged message cannot
+  // reach any Tauri command. runInPagePreviewForProof waits for preview.started
+  // before returning.
   const first = await runInPagePreviewForProof({
     assemblyName: "Issue036First",
     sourcePath: "src/Issue036Game.cs",
@@ -860,18 +783,17 @@ export async function runIssue036AutoProof(): Promise<void> {
 
   // Assertions
   const allStructural = Object.values(structural).every(v => v === true);
-  const allAttacksRejected = Object.values(bridgeAttacks).every(a => a.rejected);
   const pixelsOk = pixels.glError === 0 && !pixels.contextLost &&
     pixels.pixels.every(p => p[0] === 100 && p[1] === 149 && p[2] === 237 && p[3] === 255);
   const secondPixelsOk = secondPixels.glError === 0 && !secondPixels.contextLost &&
     secondPixels.pixels.every(p => p[0] === 100 && p[1] === 149 && p[2] === 237 && p[3] === 255);
 
-  if (!allStructural || !allAttacksRejected || !pixelsOk || !managedOutput ||
+  if (!allStructural || !pixelsOk || !managedOutput ||
       !secondPixelsOk || !(running as any).runReturned || !(secondRunning as any).runReturned ||
       (firstStopped.runtime as { stop?: { disposeAttempts?: number } })?.stop?.disposeAttempts !== 1 ||
       (secondStopped.runtime as { stop?: { disposeAttempts?: number } })?.stop?.disposeAttempts !== 1) {
     throw new Error(`Issue 036 protocol proof failed: ${JSON.stringify({
-      structural, bridgeAttacks, pixelsOk, secondPixelsOk, running, secondRunning,
+      structural, pixelsOk, secondPixelsOk, running, secondRunning,
     })}`);
   }
 
@@ -881,7 +803,6 @@ export async function runIssue036AutoProof(): Promise<void> {
       generatedAt: new Date().toISOString(),
       architecture: "in-page-sandboxed-iframe",
       structural,
-      bridgeAttacks,
       first: {
         frameCount: running.frameCount,
         pixelsOk,

@@ -206,7 +206,6 @@ pgrep -x monogame-playground >/dev/null 2>&1 && { echo "Gating: FAIL (orphan)"; 
 # ── Regressions ───────────────────────────────────────────────────
 if [ "$REGRESSIONS" -eq 1 ]; then
     run 039 MONOGAME_ISSUE039_PROOF ISSUE039_REPORT 180
-    run 038 MONOGAME_ISSUE038_PROOF ISSUE038_REPORT 90
     run 025 MONOGAME_ISSUE025_PROOF ISSUE025_REPORT 90
     run 024 MONOGAME_ISSUE024_PROOF ISSUE024_REPORT 90
 fi

@@ -196,7 +196,7 @@ After remaining valuable proofs no longer depend on it:
   compiler harness.
 - Rename the remaining product Tauri commands by responsibility.
 - Target approximately eight domain-named product commands instead of the
-  current 97-command combined inventory.
+  current 82-command combined inventory.
 
 ### Stage 7 — Final architecture enforcement and cleanup — PENDING
 

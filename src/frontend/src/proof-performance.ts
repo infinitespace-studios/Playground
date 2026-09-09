@@ -277,13 +277,16 @@ interface PreviewCycleSample {
   readonly callbackAfterDisposedCount: number;
   readonly controllerIdleAfterStop: boolean;
   readonly previewWindowRemoved: boolean;
-  /** Where the preview-start time is spent, all from the same mark series. */
+  /**
+   * Where the embedded opaque-origin preview-start time is spent, all from the
+   * same in-page mark series (ADR 0003). There is no isolated OS window, no
+   * fixed settle sleep, and no Rust bootstrap-loop deadline on this path; every
+   * value is real in-page work.
+   */
   readonly breakdown: {
-    readonly windowCreateInvokeMs: number;
-    readonly fixedSettleDelayMs: number;
-    readonly previewRuntimeBootstrapMs: number;
+    readonly frameCreateInvokeMs: number;
+    readonly documentLoadMs: number;
     readonly previewRuntimeReadyMs: number;
-    readonly bootstrapLoopOverheadMs: number;
     readonly loadAndStartMs: number;
   };
   readonly bootstrapDetail: Record<string, unknown> | null;
@@ -408,7 +411,6 @@ async function runPreviewCycle(cycle: number, kind: "cold" | "warm"): Promise<Pr
   const quiescent = stopped.runtime?.stop?.quiescent ?? {};
 
   const settledAt = marks["preview.window.settled"] ?? Number.NaN;
-  const bootstrappedAt = marks["preview.runtime.bootstrapped"] ?? Number.NaN;
   const readyObservedAt = marks["preview.bridge.ready.observed"] ?? Number.NaN;
 
   return {
@@ -453,16 +455,19 @@ async function runPreviewCycle(cycle: number, kind: "cold" | "warm"): Promise<Pr
     controllerIdleAfterStop: controller.state === "idle",
     previewWindowRemoved: stopped.iframeConnected === false,
     breakdown: {
-      windowCreateInvokeMs: (marks["preview.window.invoked"] ?? Number.NaN) - compileResponseAt,
-      fixedSettleDelayMs: (marks["preview.window.settled"] ?? Number.NaN) -
+      // The embedded opaque-origin iframe was created and its srcdoc set — the
+      // in-page analogue of the retired isolated-window create call. No Rust
+      // command and no separate OS window are involved.
+      frameCreateInvokeMs: (marks["preview.window.invoked"] ?? Number.NaN) - compileResponseAt,
+      // The sandboxed preview iframe document finished loading. This is real
+      // document load time, NOT a fixed settle sleep: the retired isolated path
+      // slept 1500 ms here, the embedded path does not.
+      documentLoadMs: (marks["preview.window.settled"] ?? Number.NaN) -
         (marks["preview.window.invoked"] ?? Number.NaN),
-      previewRuntimeBootstrapMs: bootstrappedAt - settledAt,
-      // Real preview-runtime work: settle → the instant the bridge readiness
-      // promise resolved, observed passively inside createEmbeddedProofPreview.
+      // Real preview-runtime work: document loaded → the instant the in-page
+      // bridge readiness promise resolved, observed passively inside
+      // createEmbeddedProofPreview. No Rust bootstrap-loop deadline is involved.
       previewRuntimeReadyMs: readyObservedAt - settledAt,
-      // Everything the bootstrap loop spent after the runtime was already
-      // ready: the fixed deadline it could not leave early.
-      bootstrapLoopOverheadMs: bootstrappedAt - readyObservedAt,
       loadAndStartMs: startedAt - (marks["preview.window.created"] ?? Number.NaN),
     },
     bootstrapDetail,

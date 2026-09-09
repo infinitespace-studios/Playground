@@ -13,11 +13,17 @@ import "./style.css";
 // Stage-4 durable scenario suite. `entry.proof.ts` no longer imports fifteen-plus
 // per-issue `runIssueNN` runners; it dispatches the EIGHT responsibility-named
 // durable scenario entrypoints below (plus the retained top-level-shell inline
-// proofs 009/010/011/020 and the isolated-window issue038 force-stop harness,
-// which are not per-issue driver modules). Each scenario driver owns its own
-// sub-proof selection and failure reporting; the existing Rust env gates and
-// report command names are preserved internally by the drivers for Stage-6
-// compatibility. PRODUCT (`entry.product.ts`) must NEVER import this module.
+// proofs 009/010/011/020, which are not per-issue driver modules). Each scenario
+// driver owns its own sub-proof selection and failure reporting; the existing
+// Rust env gates and report command names are preserved internally by the
+// drivers for Stage-6 compatibility. PRODUCT (`entry.product.ts`) must NEVER
+// import this module.
+//
+// Stage 5 retired the isolated-window issue038 force-stop harness (issue38.ts /
+// issue38-bridge.ts) and its Rust bridge/transfer/relay command surface. ADR
+// 0003 classifies the hostile synchronous non-yielding program as unsupported,
+// so it is never run inside the product WebView. Issue 038 remains historical
+// evidence in issues/038-* and ADR 0002.
 import { runCompileRunStopScenario } from "./proof-compile-run-stop";
 import { runCompilerDiagnosticsScenario } from "./proof-compiler-diagnostics";
 import { runRuntimeExceptionScenario } from "./proof-runtime-exception";
@@ -26,7 +32,6 @@ import { runContentWorkflowScenario } from "./proof-content";
 import { runPreviewSecurityScenario } from "./proof-preview-security";
 import { runProjectLifecycleScenario } from "./proof-project-lifecycle";
 import { runPerformanceScenario } from "./proof-performance";
-import { runIssue038ForceStopProof } from "./issue38";
 import { initTheme } from "./theme-controller";
 
 interface RuntimeDiagnostics {
@@ -1182,22 +1187,6 @@ void runOutputCaptureScenario();
 void runContentWorkflowScenario();
 void runPreviewSecurityScenario();
 void runProjectLifecycleScenario();
-
-// Retained isolated-window force-stop harness (issue038). Stage 5 retires it;
-// until then it stays runnable for regression. `issue38.ts` is now the ONLY
-// module that imports `issue38-bridge` (proof-content.ts and issue21.ts were
-// migrated to the embedded in-page preview path).
-void runIssue038ForceStopProof().catch((error: unknown) => {
-  void window.__TAURI_INTERNALS__?.invoke("issue038_emit_report", {
-    report: JSON.stringify({
-      schemaVersion: 1,
-      generatedAt: new Date().toISOString(),
-      failure: error instanceof Error ? error.message : String(error),
-      diagnostics,
-    }),
-  });
-  console.error("Issue 038 proof instrumentation failed", error);
-});
 
 // Workbench application controller wiring (imported after main module)
 import "./app";

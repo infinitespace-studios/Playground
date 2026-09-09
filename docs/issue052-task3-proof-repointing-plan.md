@@ -1,5 +1,16 @@
 # Plan — Issue 052 Task 3: Re-point the security proofs to the in-page iframe boundary
 
+> **⚠️ SUPERSEDED / HISTORICAL (Stage 5).** This plan is retained as a historical
+> record only. The security-proof re-pointing it describes was completed and
+> then folded into the Stage-4/Stage-5 embedded, opaque-origin iframe
+> consolidation; the isolated-window harness and its packaged runner
+> (`prove-issue038-macos.sh`) referenced below were removed in Stage 5 (see
+> `docs/stage5-issue038-retirement.md`). The current durable verification path is
+> the eight embedded scenarios in `scripts/prove-scenarios-macos.sh`. Do not
+> follow the step-by-step guidance here as if it were current; the ground-truth
+> records are `docs/stage5-issue038-retirement.md`, `docs/security-model.md`,
+> and ADR 0003. The `issues/` records and ADR 0002 are unchanged.
+
 ## STATUS (updated 2026-09-06)
 
 - **Issue 33 (+ 033nwe negative): DONE and packaged-verified** (commit `412171f`).

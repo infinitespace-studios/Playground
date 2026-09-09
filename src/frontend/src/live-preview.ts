@@ -2,7 +2,8 @@
 // flow, formerly `runLivePreviewInPage` in the mixed `issue21.ts`).
 //
 // The real Run flow renders the user's game in the on-page `#preview-frame`
-// panel iframe rather than the isolated WebviewWindow (issue 038). Per the issue
+// panel iframe (the embedded opaque-origin sandboxed preview of ADR 0003)
+// rather than a separate WebviewWindow. Per the issue
 // 052 decision: a same-process sandboxed iframe keeps the issue 033/034 security
 // boundary (opaque origin — `sandbox="allow-scripts"` with no
 // `allow-same-origin`, so `__TAURI_INTERNALS__` is never injected and no app
@@ -61,7 +62,7 @@ export interface LivePreviewHandle {
  * Compile the given sources and run the resulting game in a fresh sandboxed
  * iframe mounted into the preview panel. Returns a handle exposing the runtime
  * failure promise and a cooperative stop. Fires onDiagnostics (issue 048) and
- * onOutput (issue 049) exactly like the isolated path.
+ * onOutput (issue 049) for the embedded preview lifecycle.
  */
 export async function runLivePreviewInPage(input: {
   assemblyName: string;

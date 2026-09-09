@@ -568,11 +568,9 @@ export function collectSamples(runs, options) {
     firstFrameLowerBoundMs: [],
     firstFrameEstimateMs: [],
     previewFrameRateFps: [],
-    previewWindowCreateInvokeMs: [],
-    previewFixedSettleDelayMs: [],
-    previewRuntimeBootstrapMs: [],
+    previewFrameCreateInvokeMs: [],
+    previewDocumentLoadMs: [],
     previewRuntimeReadyMs: [],
-    previewBootstrapLoopOverheadMs: [],
     previewLoadAndStartMs: [],
   };
   const evidence = {
@@ -585,8 +583,6 @@ export function collectSamples(runs, options) {
     distinctAssemblyDigests: new Set(),
     censoredCycles: 0,
     renderedCycles: 0,
-    bootstrapDeadlineExhausted: 0,
-    bootstrapLoopObservedReady: 0,
   };
   const exclusions = [];
   const censored = [];
@@ -720,21 +716,11 @@ export function collectSamples(runs, options) {
       });
 
       supplementaryRaw.firstFrameObservationIntervalMs.push(measured.firstFrameObservationIntervalMs);
-      supplementaryRaw.previewWindowCreateInvokeMs.push(measured.breakdown.windowCreateInvokeMs);
-      supplementaryRaw.previewFixedSettleDelayMs.push(measured.breakdown.fixedSettleDelayMs);
-      supplementaryRaw.previewRuntimeBootstrapMs.push(measured.breakdown.previewRuntimeBootstrapMs);
+      supplementaryRaw.previewFrameCreateInvokeMs.push(measured.breakdown.frameCreateInvokeMs);
+      supplementaryRaw.previewDocumentLoadMs.push(measured.breakdown.documentLoadMs);
       supplementaryRaw.previewLoadAndStartMs.push(measured.breakdown.loadAndStartMs);
       if (Number.isFinite(measured.breakdown.previewRuntimeReadyMs)) {
         supplementaryRaw.previewRuntimeReadyMs.push(measured.breakdown.previewRuntimeReadyMs);
-      }
-      if (Number.isFinite(measured.breakdown.bootstrapLoopOverheadMs)) {
-        supplementaryRaw.previewBootstrapLoopOverheadMs.push(
-          measured.breakdown.bootstrapLoopOverheadMs);
-      }
-      if (measured.bootstrapDetail?.exitReason === "deadline-exhausted") {
-        evidence.bootstrapDeadlineExhausted++;
-      } else if (measured.bootstrapDetail?.exitReason === "loop-observed-ready") {
-        evidence.bootstrapLoopObservedReady++;
       }
       if (typeof measured.firstFrame?.lowerBoundMs === "number") {
         supplementaryRaw.firstFrameLowerBoundMs.push(measured.firstFrame.lowerBoundMs);
@@ -877,32 +863,23 @@ function supplementaryTable(supplementaryRaw) {
       "when polling was needed. This bounds only the latency of the final observation, not the " +
       "whole overshoot: frames drawn before that observation are accounted for by the " +
       "frame-rate corrected estimate above."],
-    ["previewWindowCreateInvokeMs",
-      "Preview startup breakdown: `issue038_create_preview_window` invoke",
-      "Creating the isolated preview WebviewWindow through the Rust command."],
-    ["previewFixedSettleDelayMs",
-      "Preview startup breakdown: fixed settle delay",
-      "Unconditional 1500 ms sleep in `createIsolatedPreview` after the window is created."],
+    ["previewFrameCreateInvokeMs",
+      "Preview startup breakdown: embedded preview iframe created (compile response → iframe invoked)",
+      "Creating the embedded opaque-origin sandboxed preview iframe and setting its srcdoc " +
+      "in-page (ADR 0003). There is no isolated OS window and no Rust window-create command."],
+    ["previewDocumentLoadMs",
+      "Preview startup breakdown: sandboxed preview document load",
+      "The embedded preview iframe document finishing loading. This is real in-page document " +
+      "load time; the retired isolated-window path instead slept a fixed 1500 ms here."],
     ["previewRuntimeReadyMs",
-      "Preview startup breakdown: real preview-runtime work (settle → `preview.bridge.ready`)",
-      "Measured on the bridge-readiness promise itself, observed passively inside " +
-      "`createIsolatedPreview`, so it is the instant the preview .NET/MonoGame WASM runtime " +
-      "actually reported readiness."],
-    ["previewBootstrapLoopOverheadMs",
-      "Preview startup breakdown: bootstrap-loop wait after the runtime was already ready",
-      "`createIsolatedPreview` starts a background message drain before its bootstrap loop, and " +
-      "that drain consumes `preview.bridge.ready`. The bootstrap loop therefore never sees the " +
-      "readiness message it polls for and can only exit when its fixed 10 000 ms deadline " +
-      "expires. This row is that fixed wait, not preview runtime work and not poll " +
-      "quantisation."],
-    ["previewRuntimeBootstrapMs",
-      "Preview startup breakdown: whole bootstrap interval (settle → loop exit)",
-      "The sum of the two rows above: real runtime readiness plus the fixed deadline the " +
-      "bootstrap loop waits out."],
+      "Preview startup breakdown: real preview-runtime work (document load → `preview.bridge.ready`)",
+      "Measured on the in-page bridge-readiness promise itself, observed passively inside " +
+      "`createEmbeddedProofPreview`, so it is the instant the preview .NET/MonoGame WASM runtime " +
+      "actually reported readiness. No Rust bootstrap-loop deadline is involved on this path."],
     ["previewLoadAndStartMs",
       "Preview startup breakdown: assembly load + start → `preview.started`",
-      "Everything after the preview runtime is ready: DLL/PDB transfer, `preview.load` and " +
-      "`preview.start`."],
+      "Everything after the preview runtime is ready: DLL/PDB transfer inline over the in-page " +
+      "protocol port, `preview.load` and `preview.start`."],
   ];
   return entries
     .filter(([key]) => supplementaryRaw[key].length > 0)
@@ -1151,28 +1128,24 @@ async function main() {
     "The OS page cache cannot be purged without root, so \"cold\" here means cold " +
     "application state, not a cold file cache.");
   caveats.push(
-    "Preview startup includes a fixed 1500 ms settle delay that the current isolated-preview " +
-    "implementation performs after creating the preview window " +
-    "(`createIsolatedPreview` in `src/frontend/src/issue38-bridge.ts`). It is production code " +
-    "on the measured path, so it is measured; removing it is optimization work and is out of " +
-    "scope for this measurement issue (PRD 24 / issue 44 gate).");
-  if (supplementaryRaw.previewBootstrapLoopOverheadMs.length > 0) {
-    const overhead = summarize(supplementaryRaw.previewBootstrapLoopOverheadMs);
+    "Preview startup is measured on the embedded opaque-origin sandboxed-iframe path that the " +
+    "product ships (ADR 0003): the preview is an in-page iframe created and driven inside the " +
+    "Workbench WebView, not a separate isolated OS window. The retired isolated-window harness " +
+    "performed a fixed 1500 ms settle sleep and could wait out a 10 000 ms Rust bootstrap-loop " +
+    "deadline after creating a second WebviewWindow; neither exists on this path, so neither is " +
+    "measured. Historical isolated-window measurements are recorded separately and are not " +
+    "presented as measurements of this embedded product path.");
+  if (supplementaryRaw.previewDocumentLoadMs.length > 0) {
+    const load = summarize(supplementaryRaw.previewDocumentLoadMs);
     const ready = summarize(supplementaryRaw.previewRuntimeReadyMs);
     caveats.push(
-      "Preview startup also includes a fixed 10 000 ms bootstrap wait, and this report " +
-      "measures it as such rather than describing it as runtime work or poll quantisation. " +
-      "`createIsolatedPreview` starts a background message drain before its bootstrap loop; " +
-      "the drain consumes the `preview.bridge.ready` message, so the loop that polls for that " +
-      "same message never observes it and exits only when its fixed 10 000 ms deadline " +
-      `expires. Measured passively on the readiness promise itself, the preview runtime is ` +
-      `actually ready ${ready.p50Ms.toFixed(0)} ms (p50) after the settle delay, while the ` +
-      `bootstrap loop then waits a further ${overhead.p50Ms.toFixed(0)} ms (p50) / ` +
-      `${overhead.p95Ms.toFixed(0)} ms (p95) with the runtime already ready. ` +
-      `${evidence.bootstrapDeadlineExhausted} of ` +
-      `${evidence.bootstrapDeadlineExhausted + evidence.bootstrapLoopObservedReady} measured ` +
-      "cycles exited that loop on the deadline rather than on the message. Removing the race " +
-      "is optimization work and is out of scope here (PRD 24 / issue 44 gate).");
+      "The embedded preview-start breakdown is entirely real in-page work: the sandboxed " +
+      `preview iframe document loads in ${load.p50Ms.toFixed(0)} ms (p50) / ` +
+      `${load.p95Ms.toFixed(0)} ms (p95), and the preview .NET/MonoGame WASM runtime then ` +
+      `reports readiness ${ready.p50Ms.toFixed(0)} ms (p50) / ${ready.p95Ms.toFixed(0)} ms ` +
+      "(p95) later, measured passively on the in-page bridge-readiness promise inside " +
+      "`createEmbeddedProofPreview`. There is no fixed settle sleep and no bootstrap-loop " +
+      "deadline race to subtract.");
   }
   caveats.push(
     "The measured Run path enables the issue 021/023/024 preview proof instrumentation, " +
@@ -1403,8 +1376,7 @@ async function main() {
       cyclesObserved: evidence.frameCounts.length + evidence.censoredCycles,
       cyclesThatRendered: evidence.renderedCycles,
       cyclesCensoredWithoutAFrame: evidence.censoredCycles,
-      bootstrapLoopExitedOnDeadline: evidence.bootstrapDeadlineExhausted,
-      bootstrapLoopExitedOnReadyMessage: evidence.bootstrapLoopObservedReady,
+      previewTransport: "embedded-in-page-opaque-origin-iframe",
       minimumFrameCountBeforeStop: evidence.frameCounts.length ? Math.min(...evidence.frameCounts) : null,
       framesAlreadyDrawnAtFirstObservation: evidence.firstObservationFrameCounts.length
         ? {

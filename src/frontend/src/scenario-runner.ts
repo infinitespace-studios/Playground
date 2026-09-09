@@ -12,8 +12,7 @@
 // that responsibility INTO each scenario driver: a scenario entrypoint declares
 // its ordered sub-proofs and the report command each one emits on failure, and
 // this runner executes them. `entry.proof.ts` now only dispatches the eight
-// scenario entrypoints (plus the retained top-level-shell inline proofs and the
-// issue038 force-stop harness).
+// scenario entrypoints (plus the retained top-level-shell inline proofs).
 //
 // Existing Rust env gates (`issueNN_is_proof_enabled`) and report command names
 // (`issueNN_emit_report`) are preserved verbatim for Stage-6 compatibility; each

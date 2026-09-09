@@ -192,7 +192,7 @@ export async function runIssue039ContentProof(): Promise<void> {
     const ctx = await createEmbeddedProofPreview({
       proofFlags: { issue024Proof: true, issue039Proof: true },
     });
-    await cp("isolated-preview-created");
+    await cp("embedded-preview-created");
 
     // Wait for bridge ready (WASM runtime needs time to boot)
     await cp("waiting-for-bridge-ready");

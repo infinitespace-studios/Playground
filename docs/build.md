@@ -91,15 +91,17 @@ Beyond the manifest it asserts, per profile:
   (`MONOGAME_ISSUE0xx_PROOF...`) appear in any emitted `.js/.html/.css`
   artifact. **Any** marker is a **hard failure** (no warnings, no downgrades).
   The proof-only set enumerated in the checker's `PROOF_ONLY_MODULES` is the
-  shared proof runtime toolkit (`issue21`), the retained isolated-window
-  force-stop harness (`issue38`, pending Stage 5), and the eight Stage-4
+  shared proof runtime toolkit (`issue21`) and the eight Stage-4
   scenario suites (`proof-compile-run-stop`, `proof-compiler-diagnostics`,
   `proof-output`, `proof-runtime-exception`, `proof-preview-security`,
   `proof-content`, `proof-project-lifecycle`, `proof-performance`); each is a
-  hard failure if it leaks into the product graph. Separately, **any**
+  hard failure if it leaks into the product graph. **Stage 5 retired the
+  isolated-window force-stop harness (`issue38.ts` / `issue38-bridge.ts`); those
+  modules no longer exist and are no longer enumerated or asserted present.**
+  Separately, **any**
   issue-numbered source module (`issueNN*.ts`) in the product graph is a hard
-  failure via a generic regex guard, so `issue21`/`issue38` are caught by that
-  guard too even though they are also enumerated explicitly. The checker
+  failure via a generic regex guard, so `issue21` is caught by that
+  guard too even though it is also enumerated explicitly. The checker
   additionally asserts that the Stage-2 extracted production domain modules
   (`compiler-context`, `live-preview`, `run-stop`, `lifecycle-controller`,
   `first-run-warning`, plus the Stage-3 responsibility-named UI modules) **are**
@@ -226,8 +228,10 @@ durable suite of **exactly eight** responsibility/scenario-named proof modules.
 Each module exposes a **single scenario entrypoint** that orchestrates its
 constituent sub-proofs and owns their failure reporting; `entry.proof.ts`
 dispatches those eight entrypoints (plus the retained top-level-shell inline
-proofs 009/010/011/020 and the issue038 force-stop harness) instead of the
-former fifteen-plus per-issue `runIssueNN` runners. The former per-issue driver
+proofs 009/010/011/020) instead of the
+former fifteen-plus per-issue `runIssueNN` runners. **Stage 5 retired the
+issue038 force-stop harness that Stage 4 still dispatched here.** The former
+per-issue driver
 bodies were merged into module scope with shared helpers deduplicated (not left
 as verbatim per-issue namespaces), and each module's issue-specific env
 selection + report emission is encapsulated inside its scenario driver. Every
@@ -272,14 +276,22 @@ feature tests do.
 Retained by genuine necessity: the shared proof runtime toolkit (`issue21.ts` +
 `issue21-controller.ts`), the neutral lifecycle façades (`issue23-controller.ts`,
 `issue24-controller.ts`, also imported by `protocol.test.ts`), the content
-fixtures/contract (`issue040-fixture.ts`, `issue040-contract.ts`), the Stage-3
-output/project façades (`issue049.ts`, `issue051.ts`), and — **intentionally,
-pending Stage 5, now the sole `issue38-bridge` importer** — the isolated-window
-force-stop harness (`issue38.ts`, `issue38-bridge.ts`).
+fixtures/contract (`issue040-fixture.ts`, `issue040-contract.ts`), and the
+Stage-3 output/project façades (`issue049.ts`, `issue051.ts`).
 
-**Stage-5 readiness (issue38-bridge migration) — complete:** the intended end
-state is now reached — **only `issue38.ts`** imports `issue38-bridge`, so Stage 5
-can delete the isolated-window harness cleanly. The embedded preview security
+**Stage 5 — isolated-window issue038 harness retired (done):** the isolated-window
+force-stop harness (`issue38.ts`, `issue38-bridge.ts`) and its Rust
+bridge/transfer/relay/window command surface (the fifteen `issue038_*`
+commands, ACL entries, `build.rs` inventory rows, custom
+`playground-preview://…/_isolated*.html`, `_bridge-setup.js`, `_bridge/send`,
+and `_transfer/*` routes, and the `Issue038*` Rust bridge/transfer state) were
+removed. ADR 0003 classifies the hostile synchronous non-yielding program as
+unsupported, so it is never run inside the product WebView. Historical evidence
+remains in `issues/038-*` and ADR 0002; the full inventory, durable
+replacements, and Stage-5 verification matrix are recorded in
+[`stage5-issue038-retirement.md`](stage5-issue038-retirement.md).
+
+The embedded preview security
 scenario (`proof-preview-security.ts`, issues 33–36) already ran entirely in the
 EMBEDDED opaque-origin sandboxed iframe (`runInPagePreviewForProof`) required by
 ADR 0003 and never imported `issue38-bridge`. In Stage 4 the shared toolkit's
@@ -287,22 +299,21 @@ ADR 0003 and never imported `issue38-bridge`. In Stage 4 the shared toolkit's
 (`proof-content.ts`, issues 039/040) were migrated off `issue38-bridge` onto the
 same embedded in-page opaque-origin iframe via the shared
 `createEmbeddedProofPreview` helper in `issue21.ts`; compiled binaries and
-content assets now transfer **INLINE** over the in-page protocol port instead of
+content assets transfer **INLINE** over the in-page protocol port instead of
 the isolated window. The one native-input dependency was resolved by narrowly
 adapting the EXISTING `issue040_dispatch_preview_input` command to fail-closed
-resolve an explicit target (active isolated preview *or* the pinned `main`
-window hosting the embedded iframe) so the trusted Space/Escape gesture that
-unlocks AudioContext autoplay reaches the embedded preview — **no Tauri command
-renamed/added/removed, no Cargo proof feature/boundary changed, no `issue038_*`
-asset/window/command touched**. `issue038` remains runnable for regression
-during Stage 4; Stage 5 only deletes the now-sole `issue38.ts` importer and its
-bridge.
+resolve the pinned `main` window hosting the embedded iframe as its **sole**
+remaining dispatch target (the isolated-preview branch was removed with the
+harness) so the trusted Space/Escape gesture that unlocks AudioContext autoplay
+reaches the embedded preview — **no product Tauri command renamed/added, no
+Cargo proof feature/boundary changed**.
 
 The checker (`check-profile-artifacts.mjs`) now: structurally rejects **any**
 `src/proof-*.ts` module in the PRODUCT graph (prefix regex, independent of the
 enumerated list); requires **exactly the eight** scenario modules in PROOF and
-rejects any unexpected `proof-*` module; retains explicit `issue21`/`issue38`
-presence checks in PROOF; and keeps the marker anti-drift floors unchanged. The
+rejects any unexpected `proof-*` module; retains an explicit `issue21`
+presence check in PROOF (the `issue38` presence check was removed with the
+harness in Stage 5); and keeps the marker anti-drift floors unchanged. The
 issue034 ACL rejection inventory (`ISSUE034_APPROVED_COMMANDS`) lives at module
 scope in `proof-preview-security.ts`; the Rust `build.rs` / `lib.rs` source path
 that scans it points there (no command renamed, no Cargo proof feature/boundary
@@ -311,8 +322,13 @@ changed).
 **Canonical packaged verification path:** `scripts/prove-scenarios-macos.sh`
 orchestrates the eight durable scenarios BY NAME while internally translating
 each to the existing per-issue env gates and report keys. Operators no longer
-think in per-issue ordering; `scripts/prove-issue03x/04x-macos.sh` and
-`prove-packaged-offline-macos.sh` remain as compatibility wrappers. See
+think in per-issue ordering; `scripts/prove-issue03x/04x-macos.sh` remain as
+compatibility wrappers. `prove-packaged-offline-macos.sh` proves offline
+rendering + trusted input by running the durable EMBEDDED issue040 content/audio
+sub-proof (bundled texture/audio, trusted native Space/Escape input, runtime
+cleanup, exiting report) under a process-scoped `(deny network*)` sandbox; it is
+bounded/fail-clean (a missing report cannot hang and only the owned process is
+terminated) and never alters system networking. See
 [`stage4-proof-consolidation.md`](stage4-proof-consolidation.md) for the full
 inventory→scenario mapping and verification matrix.
 
