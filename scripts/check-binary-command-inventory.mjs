@@ -5,8 +5,9 @@
 // frontend module-graph checker (src/frontend/scripts/check-profile-artifacts.mjs)
 // proves the PRODUCT Rollup graph carries no proof modules/markers; the staging
 // contamination guards (stage-preview.mjs / stage-compiler.mjs) prove the staged
-// C#/JS assets are profile-clean; build.rs asserts the effective ACL count per
-// profile. This tool closes the remaining loop: it reads the ACTUAL packaged
+// C#/JS assets are profile-clean; build.rs validates and resolves the exact ACL
+// inventory for each profile. This tool closes the remaining loop: it reads the
+// ACTUAL packaged
 // executable/bundle and the staged compiler/preview assets and proves the
 // compiled command inventory and every proof marker/export/global obeys the
 // profile boundary.
@@ -19,6 +20,7 @@
 //     product  — the default/release build. Non-vacuous:
 //                  * all 8 responsibility-named PRODUCT commands present
 //                  * known product runtime exports/assets present (floor)
+//                  * source capability/permission grants exactly the 8 product commands
 //                  * ZERO of the 8 old issue-numbered product command names
 //                  * ZERO of the 70 proof command strings; ZERO issueNN command tokens
 //                  * ZERO proof env/report markers (MONOGAME_ISSUE*_PROOF, PROOF relays,
@@ -83,6 +85,8 @@ const repoRoot = resolve(scriptDir, "..");
 const tauriRoot = join(repoRoot, "src/desktop/src-tauri");
 const buildRsPath = join(tauriRoot, "build.rs");
 const frontendRoot = join(repoRoot, "src/frontend");
+const productCapabilityPath = join(tauriRoot, "capabilities/main.json");
+const productPermissionPath = join(tauriRoot, "permissions/main.toml");
 
 // --------------------------------------------------------------------------
 // (1) Derive the canonical command inventories from build.rs — single source
@@ -213,9 +217,14 @@ const PROOF_REPORT_KEY_REGEX = /ISSUE0[0-9][0-9][A-Z0-9_]*_REPORT/;
 const ISSUE_COMMAND_TOKEN_REGEX = /issue0[0-9][0-9]_[a-z][a-z0-9_]*/;
 
 // Non-vacuous PRODUCT floors: things that MUST be present in a real product
-// artifact so the scan cannot pass on an empty/failed read.
+// artifact so the scan cannot pass on an empty/failed read. Composite Tauri
+// permission identifiers are intentionally not used as binary floors: Tauri
+// resolves them into command ACLs at build time, and release-linker retention of
+// the original identifier is architecture-dependent (arm64 retains
+// `main-commands`; x64 legitimately does not). The exact source ACL is checked
+// separately below, while all eight resolved product command names are required
+// in the executable on every architecture.
 const PRODUCT_BINARY_FLOOR = [
-  "main-commands", // resolved ACL grant name
   "createPreviewEndpoint", // embedded preview.js product export
   "verifyRuntimeAsset", // embedded preview.js product function
   "MountContentAssets", // embedded preview runtime product export ref
@@ -408,11 +417,68 @@ function readManifestProfile(dist) {
   }
 }
 
+// Tauri expands composite permissions into command ACL entries during its build.
+// The composite identifier itself is therefore not a portable executable string:
+// current arm64 release linkers retain `main-commands`, while x64 linkers remove
+// it after resolution. Validate the authoritative source ACL exactly instead of
+// treating that implementation detail as a packaged-binary invariant. build.rs
+// independently validates the same files and the generated effective ACL before
+// a package can compile.
+function checkProductAclSource(inv, fail, note) {
+  let capability;
+  try {
+    capability = JSON.parse(readFileSync(productCapabilityPath, "utf8"));
+  } catch (error) {
+    fail(`PRODUCT capability is missing or malformed: ${error.message}`);
+    return;
+  }
+
+  if (
+    capability.identifier !== "main" ||
+    capability.local !== true ||
+    JSON.stringify(capability.windows) !== JSON.stringify(["main"]) ||
+    JSON.stringify(capability.permissions) !== JSON.stringify(["main-commands"])
+  ) {
+    fail(
+      "PRODUCT capability must be local, target only the main window, and grant only main-commands.",
+    );
+  }
+
+  let permission;
+  try {
+    permission = readFileSync(productPermissionPath, "utf8");
+  } catch (error) {
+    fail(`PRODUCT permission is missing or unreadable: ${error.message}`);
+    return;
+  }
+  const sections = permission.match(/^\[\[permission\]\]$/gm) ?? [];
+  const identifier = permission.match(/^identifier\s*=\s*"([^"]+)"\s*$/m)?.[1];
+  const allowBody = permission.match(/commands\.allow\s*=\s*\[([\s\S]*?)\]/m)?.[1];
+  const allowed = allowBody
+    ? [...allowBody.matchAll(/"([^"]+)"/g)].map((match) => match[1])
+    : null;
+  if (
+    sections.length !== 1 ||
+    identifier !== "main-commands" ||
+    allowed === null ||
+    JSON.stringify(allowed) !== JSON.stringify(inv.product) ||
+    /^commands\.deny\s*=/m.test(permission)
+  ) {
+    fail(
+      `PRODUCT main-commands permission must grant exactly the ${inv.product.length} ` +
+        `canonical product commands and no deny list.`,
+    );
+    return;
+  }
+  note(`  source ACL: local main window -> main-commands -> ${allowed.length} product commands`);
+}
+
 // --------------------------------------------------------------------------
 // (5) The checks.
 // --------------------------------------------------------------------------
 
 function checkProduct(inv, opts, fail, note) {
+  checkProductAclSource(inv, fail, note);
   const res = resolveBinary("product", opts);
   if (res.error) return fail(res.error);
   note(`  binary:   ${res.binaryPath}`);
