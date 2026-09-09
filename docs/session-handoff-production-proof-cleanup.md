@@ -1,7 +1,7 @@
 # Session handoff: production/proof architecture cleanup
 
 **Last updated:** 2026-09-08
-**Next stage:** Stage 5 — retire the isolated-window issue038 harness
+**Next stage:** Stage 6 — compile proof surfaces out of release binaries
 **Working-tree expectation:** clean
 
 ## Read first
@@ -132,6 +132,49 @@ Accepted evidence:
 Detailed mapping and verification matrix:
 [`stage4-proof-consolidation.md`](stage4-proof-consolidation.md).
 
+### Stage 5 — retire the isolated-window issue038 harness
+
+Commit: `681be79 refactor: retire isolated preview harness`
+
+Delivered:
+
+- Removed `issue38.ts`, `issue38-bridge.ts`, the issue038 packaged runner,
+  isolated documents/assets/protocol routes, Rust bridge/transfer/relay state,
+  and the isolated issue040 dispatch branch.
+- Removed all fifteen `issue038_*` commands from Tauri handlers, build
+  inventories, permissions, and proof command inventories.
+- Application commands dropped from 97 to 82; effective ACL entries dropped
+  from 99 to 84.
+- Preserved durable security claims on the embedded opaque-origin iframe and
+  retained exactly eight scenario suites.
+- Re-pointed startup/performance measurement and the offline packaged proof to
+  the embedded product path.
+- Preserved issue 038 and ADR 0002 as unmodified historical evidence. No hostile
+  non-yielding program was moved into the product WebView.
+
+Accepted evidence:
+
+- PRODUCT graph: 21 modules, zero issue-numbered/scenario modules, and zero
+  proof markers.
+- PROOF graph: 42 modules, exactly eight scenarios, issue38 absent, and all 17
+  expected markers.
+- TypeScript, 102 protocol tests, 51 focused content/project tests, 32
+  performance tests, Cargo format/check/Clippy, and 38 Rust tests passed.
+- The canonical packaged suite passed all eight scenarios with zero orphans and
+  a clean invoke-key scan.
+- The process-sandboxed offline embedded texture/audio/input proof passed with
+  exactly one clean report and no orphan process.
+- The fresh embedded memory baseline passed. A separate 10-run timing
+  corroboration had no failed/censored samples or threshold violations;
+  embedded preview-start p95 was 239 ms cold and 229 ms warm.
+- Native PROOF and PRODUCT packages built successfully, with PRODUCT built last
+  and passing its artifact check.
+- Independent strict review accepted the final implementation with no blocking
+  findings.
+
+Detailed inventory and verification matrix:
+[`stage5-issue038-retirement.md`](stage5-issue038-retirement.md).
+
 ### Orchestration record
 
 Each completed stage used:
@@ -158,52 +201,55 @@ The user-level worker/reviewer definitions are expected to select
 - Protocol validation, CSP, sandboxing, IPC denial, and lifecycle cleanup must
   not be weakened.
 
-## Next task: Stage 5
+## Next task: Stage 6
 
-Retire the isolated-window issue038 harness now that Stage 4 moved every
-valuable non-force-stop scenario to the embedded preview path.
+Compile all remaining proof surfaces out of normal release binaries and rename
+remaining product command/API surfaces by responsibility.
 
 Requirements:
 
-- Remove `issue38.ts`, `issue38-bridge.ts`, isolated-window documents/assets,
-  Rust bridge/transfer state, custom protocol/relay handlers, isolated preview
-  commands, and all fifteen `issue038_*` ACL/handler/build inventory entries.
-- Remove or rewrite the retained issue038-specific phases in the preview
-  security scenario; preserve durable embedded-preview CSP, sandbox, protocol,
-  IPC-denial, navigation, malformed-message, and cleanup coverage.
-- Remove the issue038 packaged runner and references from the canonical scenario
-  workflow. Historical evidence remains in `issues/038-*` and ADR 0002.
-- Do not run the hostile synchronous non-yielding test inside the product
-  WebView; ADR 0003 classifies that behavior as unsupported.
-- Re-measure startup on the embedded product path; do not present historical
-  isolated-window measurements as product measurements.
-- Update profile/artifact checks so issue038 is no longer required in PROOF,
-  while PRODUCT and the eight Stage-4 scenarios remain strictly enforced.
-- Keep normal builds PRODUCT by default and preserve the explicit PROOF profile.
-- Preserve compile-failure behavior, fresh runtime per successful Run,
-  content-before-start, protocol validation, opaque-origin sandbox/CSP, IPC
-  denial, and lifecycle cleanup.
-- Do not pull Stage-6 work forward: no broad Tauri command renaming and no Cargo
-  proof-feature/separate-crate boundary change beyond removing issue038's dead
-  command surface.
+- Put Rust proof commands behind a non-default `proof-harness` Cargo feature or
+  move them to a separate proof crate/binary. Normal PRODUCT release binaries
+  must expose no proof commands or proof-only state.
+- Ensure the explicit PROOF package enables the proof harness while normal
+  npm/Tauri/release builds remain PRODUCT and use default Cargo features.
+- Split proof-only exports/actions from `PreviewExports.cs`, `preview.js`, and
+  the compiler harness so normal release runtime assets contain no proof
+  instrumentation.
+- Rename remaining PRODUCT Tauri commands, Rust handlers/state, frontend calls,
+  types, and constants by responsibility. Preserve behavior and use narrow
+  compatibility only in the explicit proof harness where necessary.
+- Reduce the current 82-command combined inventory toward approximately eight
+  domain-named PRODUCT commands; proof commands may exist only in the explicit
+  proof build.
+- Add binary/runtime artifact enforcement proving PRODUCT exposes no proof
+  commands, markers, issue-numbered implementation surfaces, or proof-only
+  assets, while PROOF retains the required scenario capabilities.
+- Preserve the eight Stage-4 scenarios and their packaged runner until durable
+  feature tests replace them.
+- Preserve ADR 0003's embedded product preview, compile-failure semantics, fresh
+  runtime per Run, content-before-start, protocol/CSP/sandbox/IPC boundaries,
+  binary ownership, and lifecycle cleanup.
+- Keep historical issue records and superseded ADRs unchanged.
+- Do not pull Stage-7 broad file-size/source-layout cleanup forward unless it is
+  required to establish the feature/build boundary.
 
-Before implementation, inventory every issue038 frontend/Rust/config/ACL/script
-reference and classify it as removable historical harness code or a durable
-embedded behavior that must be retained elsewhere. Define the exact Stage-5
-verification matrix, including packaged scenarios, embedded startup
-measurement, fresh profile checks, and native PRODUCT packaging.
+Before implementation, inventory all 82 current commands and all frontend,
+Rust, C#, and generated-runtime proof markers/exports. Classify each as PRODUCT,
+PROOF, or dead, define the target domain command API, and establish the exact
+PRODUCT/PROOF binary and packaged verification matrix.
 
 ## Resume procedure
 
 1. Run `git status --short --branch`. If the tree is not clean, stop and classify
    the changes before delegating.
-2. Confirm commits `6675761`, `f2f4013`, `0a45457`, and `ad8b0a8` are
-   reachable.
-3. Invoke a fresh `worker` agent with the Stage-5 scope above and instruct it not
+2. Confirm commits `6675761`, `f2f4013`, `0a45457`, `ad8b0a8`, and
+   `681be79` are reachable.
+3. Invoke a fresh `worker` agent with the Stage-6 scope above and instruct it not
    to commit.
 4. Invoke a separate `reviewer` agent after implementation.
 5. Resolve every critical finding and rerun review if necessary.
 6. Perform independent source, module-graph, test, and package checks.
 7. Update both this handoff and `production-proof-cleanup-plan.md` with the
    accepted stage commit/evidence.
-8. Commit only the accepted Stage-5 scope, then leave a clean tree for Stage 6.
+8. Commit only the accepted Stage-6 scope, then leave a clean tree for Stage 7.

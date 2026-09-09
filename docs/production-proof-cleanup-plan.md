@@ -175,18 +175,51 @@ Accepted evidence:
 - Independent strict review accepted the final implementation with no blocking
   findings.
 
-### Stage 5 — Retire isolated-window/issue-038 harness — PENDING
+### Stage 5 — Retire isolated-window/issue-038 harness — COMPLETE
 
-After remaining valuable proofs no longer depend on it:
+**Commit:** `681be79 refactor: retire isolated preview harness`
 
-- Remove `issue38.ts`, `issue38-bridge.ts`, isolated-window documents/assets,
-  Rust bridge state, custom transfer/bridge handlers, and isolated window
-  commands.
-- Remove the fifteen `issue038_*` ACL/handler/build inventory entries.
-- Preserve issue 038 and ADR 0002 as historical technical evidence.
-- Do not run the hostile non-yielding test inside the product WebView; ADR 0003
-  classifies that behavior as unsupported.
-- Re-measure startup on the embedded product path.
+Delivered:
+
+- Removed `issue38.ts`, `issue38-bridge.ts`, the isolated packaged runner,
+  isolated documents/assets/routes, Rust bridge/transfer/relay state, and the
+  isolated issue040 dispatch branch.
+- Removed all fifteen `issue038_*` commands from handlers, build inventories,
+  permissions, and proof command inventories. Application commands dropped
+  from 97 to 82; the effective ACL count dropped from 99 to 84.
+- Preserved durable security coverage on the embedded opaque-origin iframe and
+  kept exactly eight proof scenarios.
+- Re-pointed performance measurement to the embedded product path and replaced
+  the isolated-window baseline with a fresh embedded memory/timing baseline.
+- Re-pointed the process-sandboxed offline proof to the current embedded
+  texture/audio/input scenario with bounded owned-process cleanup and strict
+  report grading.
+- Preserved issue 038 and ADR 0002 as unmodified historical evidence. The
+  hostile synchronous non-yielding test was not moved into the product WebView.
+
+Accepted evidence:
+
+- PRODUCT graph: 21 modules, zero issue-numbered/scenario modules, and zero
+  proof markers.
+- PROOF graph: 42 modules, exactly eight scenarios, issue38 absent, and all 17
+  expected proof markers.
+- TypeScript, 102 protocol tests, 51 focused content/project tests, 32
+  performance tests, Cargo format/check/Clippy, and 38 Rust tests passed.
+- The canonical packaged suite passed all eight embedded scenarios with zero
+  orphans and a clean invoke-key scan.
+- The corrected offline packaged proof passed under process-scoped network
+  denial with trusted input, exactly one clean report, and no orphan process.
+- The embedded memory baseline passed; an independent 10-run timing
+  corroboration reached at least 10 samples per phase with zero failures,
+  censoring, or threshold violations. Embedded preview-start p95 was 239 ms
+  cold and 229 ms warm.
+- Native PROOF and PRODUCT packages built successfully, with PRODUCT built last
+  and passing the artifact check.
+- Independent strict review accepted the final implementation with no blocking
+  findings.
+
+Detailed inventory and evidence:
+[`stage5-issue038-retirement.md`](stage5-issue038-retirement.md).
 
 ### Stage 6 — Compile all remaining proof surfaces out of release binaries — PENDING
 

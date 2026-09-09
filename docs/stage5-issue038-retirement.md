@@ -1,6 +1,6 @@
 # Stage 5 — isolated-window issue038 harness retirement (inventory & verification)
 
-**Status:** implementation complete, pending orchestrator acceptance
+**Status:** complete — `681be79 refactor: retire isolated preview harness`
 **Decision basis:** ADR 0003 (embedded preview and non-yielding user code);
 `production-proof-cleanup-plan.md` Stage 5
 **Scope:** remove the isolated-window issue038 force-stop harness (frontend
