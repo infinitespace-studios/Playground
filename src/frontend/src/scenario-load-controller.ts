@@ -1,4 +1,4 @@
-export interface Issue21LoadSummary {
+export interface ProofLoadSummary {
   assemblySimpleName: string;
   visibleSequencePointCount: number;
 }
@@ -17,7 +17,7 @@ interface ProofOutcomeInput {
   retryExpectationRemoved?: boolean;
 }
 
-export function verifyIssue21ProofOutcomes(
+export function verifyProofLoadOutcomes(
   proofEnabled: boolean,
   readInput: () => ProofOutcomeInput,
 ): { expectedProbeRejections: ProbeRejection[]; assertionsPassed: boolean } {
@@ -46,13 +46,13 @@ export function verifyIssue21ProofOutcomes(
   return { expectedProbeRejections: input.expectedProbeRejections, assertionsPassed };
 }
 
-export function createIssue21LoadController<T>({
+export function createProofLoadController<T>({
   execute,
   setDisabled,
   setStatus,
   reportError,
 }: {
-  execute: () => Promise<{ value: T; summary: Issue21LoadSummary }>;
+  execute: () => Promise<{ value: T; summary: ProofLoadSummary }>;
   setDisabled: (disabled: boolean) => void;
   setStatus: (state: "busy" | "ready" | "error", text: string) => void;
   reportError: (error: unknown) => void;

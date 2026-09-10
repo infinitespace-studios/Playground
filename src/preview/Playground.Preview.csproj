@@ -42,14 +42,18 @@
   <ItemGroup Condition="'$(MonoGamePreviewProfile)' != 'proof'">
     <Compile Remove="PreviewExports.Proof.cs" />
     <Content Remove="wwwroot/preview-proof-extension.js" />
-    <Content Remove="wwwroot/issue033-negative-observer.js" />
+    <Content Remove="wwwroot/preview-proof-state.js" />
+    <Content Remove="wwwroot/preview-proof-audio.js" />
+    <Content Remove="wwwroot/preview-proof-bridge.js" />
+    <Content Remove="wwwroot/preview-proof-lifecycle.js" />
+    <Content Remove="wwwroot/preview-no-wasm-eval-observer.js" />
   </ItemGroup>
 
   <!-- Proof-only shared instrumentation (proof expectation registry + compiler
        proof-mode handshake). Deployed ONLY for the PROOF profile, so the product
        preview staging carries none of it. -->
   <ItemGroup Condition="'$(MonoGamePreviewProfile)' == 'proof'">
-    <WasmExtraFilesToDeploy Include="../shared/Issue21EndpointsProof.js" TargetPath="Issue21EndpointsProof.js" />
+    <WasmExtraFilesToDeploy Include="../shared/ProtocolEndpointsProof.js" TargetPath="ProtocolEndpointsProof.js" />
   </ItemGroup>
 
   <ItemGroup>
@@ -64,7 +68,7 @@
     <WasmExtraFilesToDeploy Include="wwwroot/index.html" />
     <WasmExtraFilesToDeploy Include="wwwroot/preview.css" />
     <WasmExtraFilesToDeploy Include="../shared/ProtocolRuntime.js" TargetPath="ProtocolRuntime.js" />
-    <WasmExtraFilesToDeploy Include="../shared/Issue21Endpoints.js" TargetPath="Issue21Endpoints.js" />
+    <WasmExtraFilesToDeploy Include="../shared/ProtocolEndpoints.js" TargetPath="ProtocolEndpoints.js" />
     <WasmExtraFilesToDeploy Include="../shared/PreviewStartRuntime.js" TargetPath="PreviewStartRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/PreviewStopRuntime.js" TargetPath="PreviewStopRuntime.js" />
     <WasmExtraFilesToDeploy Include="../shared/NativeOutputRuntime.js" TargetPath="NativeOutputRuntime.js" />

@@ -1,8 +1,8 @@
 # Session handoff: production/proof architecture cleanup
 
-**Last updated:** 2026-09-08
-**Next stage:** Stage 7 — final architecture enforcement and cleanup
-**Working-tree expectation:** clean
+**Last updated:** 2026-09-10
+**Next action:** commit/push locally accepted Stage 7, then require clean-clone CI
+**Working-tree expectation:** Stage 7 diff pending commit
 
 ## Read first
 
@@ -219,6 +219,57 @@ Accepted evidence:
 Detailed design and verification:
 [`stage6-proof-binary-separation.md`](stage6-proof-binary-separation.md).
 
+### Stage 7 — final architecture enforcement and cleanup
+
+Commit: pending
+
+Delivered:
+
+- Removed obsolete 009/010/011/020 inline proof surfaces and eleven native
+  commands. Final command inventories are 8 PRODUCT, 59 feature-gated proof, 67
+  total; effective ACL counts are 10 and 71.
+- Removed or responsibility-renamed the remaining issue-numbered implementation
+  files, compatibility façades, shared protocol endpoint assets, observer,
+  tests, fixtures, and superseded packaged wrappers. Historical issue/ADR/stage
+  evidence remains unchanged.
+- Split the Rust proof harness, TypeScript scenario support, C# preview exports,
+  and preview proof runtime JavaScript by responsibility.
+- Added generic staged-asset filename enforcement and retained frontend graph,
+  marker, ACL, package identity, and binary proof-surface guards.
+- Rebuilt the package-size checker as a cross-platform fail-closed PRODUCT gate
+  and added a bounded owned-process PRODUCT smoke gate.
+- Added fast clean-clone `quality.yml` checks and expanded `release.yml` with
+  post-staging Rust checks, per-artifact binary/size/smoke checks, and opt-in
+  packaged proof acceptance.
+- Rewrote current build/security/content/release/contributor documentation around
+  the final PRODUCT/PROOF architecture.
+
+Accepted local evidence:
+
+- TypeScript, 155 focused frontend tests, 32 performance-tool tests, all tool
+  negative self-tests, shell syntax/static tests, and profile round-trip passed.
+- PRODUCT graph: 21 modules and zero proof markers. PROOF graph: 45 modules,
+  exactly eight scenarios, three required support modules, and all 13 markers.
+- Rust format/Clippy plus 23 PRODUCT and 37 PROOF tests passed. Product and proof
+  native binary inventories passed.
+- Native macOS arm64 PRODUCT and PROOF packages and macOS x64 PRODUCT package
+  built. PRODUCT was built last. DMGs were 93.36 MiB arm64 and 92.57 MiB x64,
+  both under the 100 MiB limit.
+- All eight packaged scenarios passed with zero orphans and a clean invoke-key
+  scan. The process-sandboxed offline content/audio proof passed under network
+  denial. Bounded PRODUCT launch smoke passed with clean owned-process teardown.
+- Fresh startup/memory baseline passed every threshold with zero failures,
+  censored samples, or missing samples.
+- Independent strict review accepted the implementation with no blocking
+  findings.
+
+Detailed inventory, final architecture, and verification matrix:
+[`stage7-final-architecture.md`](stage7-final-architecture.md).
+
+Remote acceptance still required: after commit/push, require `quality.yml` and
+all six PRODUCT release matrix legs to pass. Run the opt-in proof-acceptance job
+before publishing a release.
+
 ### Orchestration record
 
 Each completed stage used:
@@ -245,53 +296,14 @@ The user-level worker/reviewer definitions are expected to select
 - Protocol validation, CSP, sandboxing, IPC denial, and lifecycle cleanup must
   not be weakened.
 
-## Next task: Stage 7
+## Next task: commit and remote acceptance
 
-Complete final architecture enforcement, responsibility-based source cleanup,
-and release acceptance.
-
-Requirements:
-
-- Enforce in CI that PRODUCT frontend, staged compiler/preview assets, native
-  binary, ACL manifests, and packages contain no proof modules, markers,
-  commands, issue-numbered implementation identifiers, or proof-only assets.
-- Ensure production source paths contain no issue-numbered implementation
-  files. Keep only clearly documented proof/test compatibility files where the
-  explicit proof harness still requires them, or rename/remove them.
-- Split oversized Rust, TypeScript, C#, and runtime JavaScript files by domain
-  responsibility where necessary for maintainability; do not weaken the build
-  or security boundaries established in Stages 1–6.
-- Remove stale compatibility façades, comments, identifiers, scripts, and
-  documentation that no longer have consumers. Preserve historical issue
-  records and superseded ADRs as history.
-- Run final PRODUCT smoke, security, offline, package-size, startup, memory,
-  protocol, formatting, lint, and clean-clone/build gates across supported
-  platforms where available.
-- Confirm normal npm/Tauri/release builds remain PRODUCT by default; PROOF must
-  remain explicit via `proof-harness` and retain all eight scenarios.
-- Update architecture, build, security, content, performance, and contributor
-  documentation to describe the final product/proof architecture rather than
-  transitional stages.
-- Preserve ADR 0003's embedded preview, compile-failure behavior, fresh runtime
-  per Run, content-before-start, protocol/CSP/opaque-origin sandbox/IPC denial,
-  binary integrity, and lifecycle cleanup.
-
-Before implementation, inventory every remaining issue-numbered source file,
-compatibility façade, oversized module, transitional comment/doc, and final CI
-acceptance gap. Define the exact final architecture and verification matrix
-before deleting or splitting code.
-
-## Resume procedure
-
-1. Run `git status --short --branch`. If the tree is not clean, stop and classify
-   the changes before delegating.
-2. Confirm commits `6675761`, `f2f4013`, `0a45457`, `ad8b0a8`, `681be79`,
-   and `19ecadb` are reachable.
-3. Invoke a fresh `worker` agent with the Stage-7 scope above and instruct it not
-   to commit.
-4. Invoke a separate `reviewer` agent after implementation.
-5. Resolve every critical finding and rerun review if necessary.
-6. Perform independent source, module-graph, test, and package checks.
-7. Update both this handoff and `production-proof-cleanup-plan.md` with the
-   accepted stage commit/evidence.
-8. Commit only the accepted Stage-7 scope, then leave a clean tree.
+1. Review `git diff --check`, confirm `external/MonoGame` is clean, and commit the
+   accepted Stage 7 scope without unrelated issue 057 changes.
+2. Push and require the new `quality.yml` workflow and all six PRODUCT legs of
+   `release.yml` to pass from a clean clone.
+3. Run `workflow_dispatch` with `run_proof_acceptance=true` before publishing a
+   release; require all eight packaged scenarios and the proof binary inventory
+   to pass remotely.
+4. Record the Stage 7 commit and CI run URLs in this handoff and the cleanup plan,
+   then mark the cleanup plan complete.

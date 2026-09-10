@@ -70,11 +70,11 @@ test -f "$STAGED/compiler-build.json"
 
 # Required proof-only runtime surface must be present in the PROOF staging.
 test -f "$STAGED/compiler-proof-extension.js"
-test -f "$STAGED/Issue21EndpointsProof.js"
+test -f "$STAGED/ProtocolEndpointsProof.js"
 grep -q "initializeCompilerProofMode" "$STAGED/compiler-proof-extension.js"
 grep -q "compilerIssue21Proof" "$STAGED/compiler-proof-extension.js"
 grep -q "runRetentionBehaviorProof" "$STAGED/compiler-proof-extension.js"
-grep -q "createProofExpectationRegistry" "$STAGED/Issue21EndpointsProof.js"
+grep -q "createProofExpectationRegistry" "$STAGED/ProtocolEndpointsProof.js"
 # The proof index must load the extension before the harness and render proof state.
 grep -q "compiler-proof-extension.js" "$STAGED/index.html"
 grep -q "proof-state" "$STAGED/index.html"

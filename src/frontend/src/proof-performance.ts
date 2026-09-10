@@ -36,8 +36,8 @@ import {
   preparePackagedProofRuntime,
   waitForShellSteadyStateForBenchmark,
   type Issue23RunningPreview,
-} from "./issue21";
-import { createIssue024RunStopController } from "./issue24-controller";
+} from "./scenario-toolkit";
+import { createRunStopController } from "./lifecycle-controller";
 import { runScenario, type SubProof } from "./scenario-runner";
 
 // Single durable-scenario entrypoint. Performance & memory (former issue041).
@@ -302,7 +302,7 @@ const FRAME_RATE_PROBE_MS = 250;
 async function runPreviewCycle(cycle: number, kind: "cold" | "warm"): Promise<PreviewCycleSample> {
   const marks: Record<string, number> = {};
   let bootstrapDetail: Record<string, unknown> | null = null;
-  const controller = createIssue024RunStopController<Issue23RunningPreview>({
+  const controller = createRunStopController<Issue23RunningPreview>({
     start: () => compileLoadStartIssue23({
       assemblyName: `${ASSEMBLY_NAME}Preview`,
       sourcePath: PRIMARY_SOURCE_PATH,

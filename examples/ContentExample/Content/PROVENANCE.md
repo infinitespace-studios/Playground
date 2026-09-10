@@ -97,13 +97,13 @@ Programmatic binary construction matching the pinned MonoGame
 `SoundEffectWriter`/`SoundEffectReader` contract at `external/MonoGame`, for the
 same reason as `textures/player.xnb`: `external/MonoGame` is a read-only
 submodule (per its `AGENTS.md`), so MGCB was not executed. The generator is
-committed at `scripts/build-issue040-sound-fixture.mjs`, which shares its
+committed at `scripts/build-audio-content-fixture.mjs`, which shares its
 assembler with the packaged proof
-(`src/frontend/src/issue040-fixture.ts`):
+(`src/frontend/src/audio-content-fixture.ts`):
 
 ```
-node scripts/build-issue040-sound-fixture.mjs          # rewrite the fixture
-node scripts/build-issue040-sound-fixture.mjs --check  # verify the committed bytes
+node scripts/build-audio-content-fixture.mjs          # rewrite the fixture
+node scripts/build-audio-content-fixture.mjs --check  # verify the committed bytes
 ```
 
 The sample data is produced from a 50-entry integer sine table with an
@@ -170,11 +170,11 @@ transcodes `tone.wav` (raw PCM) into an XNB SoundEffect at mount time
 ### Build method
 
 Generated deterministically (no `Math.*` in the sample path) by
-`scripts/build-issue052-content-fixtures.mjs`:
+`scripts/build-content-fixtures.mjs`:
 
 ```
-node scripts/build-issue052-content-fixtures.mjs          # rewrite both
-node scripts/build-issue052-content-fixtures.mjs --check   # verify committed bytes
+node scripts/build-content-fixtures.mjs          # rewrite both
+node scripts/build-content-fixtures.mjs --check   # verify committed bytes
 ```
 
 Both were verified to pass the real preview validators on the host:

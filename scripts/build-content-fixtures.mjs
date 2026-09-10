@@ -14,7 +14,7 @@
  * WAV reuses the issue 040 integer sine-table PCM), so Node and any rebuild emit
  * byte-identical output.
  *
- * Usage: node scripts/build-issue052-content-fixtures.mjs [--check]
+ * Usage: node scripts/build-content-fixtures.mjs [--check]
  */
 
 import { createHash } from "node:crypto";
@@ -28,7 +28,7 @@ import {
   ISSUE040_FIXTURE_SAMPLE_RATE,
   ISSUE040_FIXTURE_CHANNELS,
   ISSUE040_FIXTURE_BITS_PER_SAMPLE,
-} from "../src/frontend/src/issue040-fixture.ts";
+} from "../src/frontend/src/audio-content-fixture.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 

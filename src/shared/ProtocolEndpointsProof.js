@@ -1,13 +1,13 @@
 // PROOF-only shared protocol instrumentation.
 //
 // This module holds the proof-scenario expectation registry and the compiler
-// proof-mode handshake that used to live in the shared `Issue21Endpoints.js`.
+// proof-mode handshake that used to live in the shared `ProtocolEndpoints.js`.
 // It is staged ONLY into the PROOF profile (see Playground.Compiler.csproj /
 // Playground.Preview.csproj proof conditions and the proof staging scripts), so
 // the product-staged shared JS carries only the protocol endpoint plumbing and
 // the binary-integrity envelope, never a proof marker/registry/handshake.
 //
-// `Issue21Endpoints.js` (product) still owns `createEndpoint` and the compiler/
+// `ProtocolEndpoints.js` (product) still owns `createEndpoint` and the compiler/
 // preview endpoint factories; those accept an optional `expectations` registry
 // (produced here) as a plain parameter, so the split is a clean lift with no
 // product coupling. `ProtocolRuntime.js::validateBinaryProof` remains PRODUCT.

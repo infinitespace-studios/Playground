@@ -24,7 +24,7 @@ const PROOF_PREVIEW_DOM = PREVIEW_PROOF_PROFILE
     `\n<pre id="proof-state" aria-label="Preview proof state"></pre>`
   : "";
 const PROOF_PREVIEW_SCRIPTS = PREVIEW_PROOF_PROFILE
-  ? `\n<script src="playground-preview://localhost/issue033-negative-observer.js"></script>` +
+  ? `\n<script src="playground-preview://localhost/preview-no-wasm-eval-observer.js"></script>` +
     `\n<script type="module" src="playground-preview://localhost/preview-proof-extension.js"></script>`
   : "";
 
@@ -47,7 +47,7 @@ export const PREVIEW_DOCUMENT = previewDocument(PREVIEW_CSP);
 // Responsibility-neutral name (Stage 6 remediation): the preview document with
 // the `wasm-unsafe-eval` source stripped from its CSP, used to prove the
 // runtime refuses to boot without WASM compilation. Historical issue-numbered
-// callers live only in the proof module (issue21.ts).
+// callers live only in the proof module (scenario-toolkit.ts).
 export const PREVIEW_DOCUMENT_WITHOUT_WASM_EVAL =
   PREVIEW_DOCUMENT.replace(" 'wasm-unsafe-eval'", "");
 

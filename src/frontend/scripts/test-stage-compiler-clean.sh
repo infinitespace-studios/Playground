@@ -69,7 +69,7 @@ test -f "$STAGED/compiler-harness.js"
 test -f "$STAGED/compiler-build.json"
 
 # Proof-only runtime surface must be ABSENT from the product staging.
-for asset in compiler-proof-extension.js Issue21EndpointsProof.js; do
+for asset in compiler-proof-extension.js ProtocolEndpointsProof.js; do
   if [[ -e "$STAGED/$asset" ]]; then
     echo "Proof-only asset \"$asset\" leaked into product compiler staging" >&2
     exit 1

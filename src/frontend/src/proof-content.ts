@@ -18,7 +18,7 @@ import {
   createEmbeddedProofPreview,
   preparePackagedProofRuntime,
   type EmbeddedProofPreviewContext,
-} from "./issue21";
+} from "./scenario-toolkit";
 import {
   validatePreviewLoadResponse,
   validatePreviewStartResponse,
@@ -34,11 +34,11 @@ import {
   ISSUE040_FIXTURE_DURATION_MS,
   ISSUE040_FIXTURE_SHA256,
   buildIssue040SoundFixture,
-} from "./issue040-fixture";
+} from "./audio-content-fixture";
 import {
   ISSUE040_EXPECTED_VALIDATOR_CASES,
   ISSUE040_GAME_SOURCE,
-} from "./issue040-contract";
+} from "./audio-content-contract";
 import type { UuidV4 } from "../../shared/MessageContracts";
 import { runScenario, type SubProof } from "./scenario-runner";
 

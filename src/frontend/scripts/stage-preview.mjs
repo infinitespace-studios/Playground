@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertNoIssueNumberedStagedAssets } from "./staged-asset-guard.mjs";
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(frontendRoot, "../..");
@@ -83,11 +84,11 @@ await cp(
   path.join(repositoryRoot, "src/shared/ProtocolRuntime.js"),
   path.join(publishRoot, "ProtocolRuntime.js"),
 );
-await cp(path.join(repositoryRoot, "src/shared/Issue21Endpoints.js"), path.join(publishRoot, "Issue21Endpoints.js"));
+await cp(path.join(repositoryRoot, "src/shared/ProtocolEndpoints.js"), path.join(publishRoot, "ProtocolEndpoints.js"));
 if (isProof) {
   await cp(
-    path.join(repositoryRoot, "src/shared/Issue21EndpointsProof.js"),
-    path.join(publishRoot, "Issue21EndpointsProof.js"),
+    path.join(repositoryRoot, "src/shared/ProtocolEndpointsProof.js"),
+    path.join(publishRoot, "ProtocolEndpointsProof.js"),
   );
 }
 await cp(
@@ -118,7 +119,7 @@ const requiredFiles = [
   "index.html",
   "preview.js",
   "ProtocolRuntime.js",
-  "Issue21Endpoints.js",
+  "ProtocolEndpoints.js",
   "PreviewStartRuntime.js",
   "PreviewStopRuntime.js",
   "NativeOutputRuntime.js",
@@ -137,8 +138,12 @@ for (const relativePath of requiredFiles) {
 // build must publish the extension and its required proof symbols.
 const PROOF_ONLY_ASSETS = [
   "preview-proof-extension.js",
-  "issue033-negative-observer.js",
-  "Issue21EndpointsProof.js",
+  "preview-proof-state.js",
+  "preview-proof-audio.js",
+  "preview-proof-bridge.js",
+  "preview-proof-lifecycle.js",
+  "preview-no-wasm-eval-observer.js",
+  "ProtocolEndpointsProof.js",
 ];
 const FORBIDDEN_PRODUCT_PREVIEW_SYMBOLS = [
   "previewIssue",
@@ -173,10 +178,22 @@ if (isProof) {
   for (const asset of PROOF_ONLY_ASSETS) {
     await readFile(path.join(publishRoot, asset));
   }
-  const extensionJs = await readFile(path.join(publishRoot, "preview-proof-extension.js"), "utf8");
-  for (const symbol of ["installIssue040AudioProbe", "previewIssue040Proof", "createProofExpectationRegistry"]) {
-    if (!extensionJs.includes(symbol)) {
-      throw new Error(`Staged proof extension is missing required proof symbol "${symbol}".`);
+  // Non-vacuous per-module proof-surface floor: the Stage 7 domain split moved
+  // each proof responsibility into its own proof-only module, so every module
+  // must both be staged (above) AND carry its required proof symbol here.
+  const proofModuleSymbols = {
+    "preview-proof-state.js": ["createProofExpectationRegistry", "previewIssue040Proof"],
+    "preview-proof-audio.js": ["installIssue040AudioProbe"],
+    "preview-proof-bridge.js": ["Issue034FileSystemProbe", "ANIMATION_FRAME_TIMEOUT"],
+    "preview-proof-lifecycle.js": ["QueryStoppedGameProof", "onStopObservation"],
+    "preview-proof-extension.js": ["__playgroundPreviewExtension"],
+  };
+  for (const [asset, symbols] of Object.entries(proofModuleSymbols)) {
+    const moduleText = await readFile(path.join(publishRoot, asset), "utf8");
+    for (const symbol of symbols) {
+      if (!moduleText.includes(symbol)) {
+        throw new Error(`Staged proof module ${asset} is missing required proof symbol "${symbol}".`);
+      }
     }
   }
 } else {
@@ -237,4 +254,7 @@ await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 await cp(publishRoot, outputRoot, { recursive: true });
 await writeFile(path.join(outputRoot, "preview-build.json"), `${JSON.stringify(buildMetadata, null, 2)}\n`);
+// Generic fail-closed guard: no issue-numbered implementation filename may
+// re-enter the staged preview asset tree (product OR proof).
+assertNoIssueNumberedStagedAssets(outputRoot, `${profile} preview staging`);
 console.log(`Staged verified Release preview (${profile} profile) with ${monoGameAssets[0]}.`);

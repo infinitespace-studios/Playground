@@ -101,11 +101,40 @@ The workflow (`.github/workflows/release.yml`) runs on:
 - **Push to `main`** — builds all six bundles and uploads them as workflow
   artifacts (no GitHub Release is created).
 - **Push of a `v*` tag** (e.g. `v0.1.0`) — builds all six bundles, uploads them
-  as artifacts, and attaches them to a **draft** GitHub Release named for the
-  tag.
+  as workflow artifacts after their gates pass, and attaches them to a **draft**
+  GitHub Release during the build step. The draft must not be published unless
+  every matrix leg finishes green.
 
 Each platform/arch bundle is uploaded as a separate artifact named
 `monogame-playground-<platform>-<arch>` (e.g. `monogame-playground-linux-arm64`).
+
+### Per-artifact release gates
+
+Each package leg runs, after staging `dist/` and before upload:
+
+- **Rust gates** — `cargo clippy --all-targets` (PRODUCT) on every leg and
+  `cargo test` on the host-native legs (the cross-compiled macOS x64 leg builds
+  its tests but does not run them).
+- **Binary command-inventory** — the freshly built product executable/bundle
+  carries exactly the eight product commands and zero proof surface.
+- **Package-size gate** (`scripts/measure-release-size.mjs`) — resolves this
+  platform's package format (`.dmg`/`.msi`/`.exe`/`.deb`/`.AppImage`), verifies
+  the staged dist is the PRODUCT profile and the content fixtures are present,
+  and fails closed above the 100 MiB target.
+- **Bounded product smoke** (`scripts/smoke-product.mjs`) — refuses any proof
+  env/profile, verifies product identity, and runs a launch/no-immediate-crash
+  check. Because robust GUI readiness needs a real display/window server, the
+  full launch runs on the host-native macOS arm64 leg (WKWebView + window
+  server). The cross-compiled macOS x64, Windows, and Linux legs run
+  identity/profile checks only because native GUI execution is not guaranteed
+  there, which is documented honestly rather than faking Run/Stop automation.
+
+A `workflow_dispatch` input `run_proof_acceptance` enables an opt-in
+`proof-acceptance` job (macOS): it stages the PROOF frontend, runs the PROOF
+`cargo clippy`/`cargo test`, builds the `--features proof-harness` package, drives
+the eight packaged scenarios via `scripts/prove-scenarios-macos.sh`, and runs the
+PROOF binary inventory. It is off by default so normal pushes/tags do not pay for
+the long packaged scenarios.
 
 ## Not yet covered (later issues)
 

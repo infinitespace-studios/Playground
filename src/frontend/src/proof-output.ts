@@ -10,9 +10,9 @@
 import {
   compileLoadStartIssue23,
   preparePackagedProofRuntime,
-} from "./issue21";
+} from "./scenario-toolkit";
 import type { PreviewOutput } from "../../shared/MessageContracts";
-import { getIssue049OutputPanel, formatOutputLine } from "./issue049";
+import { getOutputPanel, formatOutputLine } from "./output-panel";
 import { runScenario, type SubProof } from "./scenario-runner";
 
 // Shared across both output sub-proofs (deduplicated from the former per-issue
@@ -108,7 +108,7 @@ function assertPrefix(events: readonly PreviewOutput[]) {
 }
 
 async function runManagedOutputCycle(index: number) {
-  const panel = getIssue049OutputPanel();
+  const panel = getOutputPanel();
   panel.clear();
   const displayed: string[] = [];
   const preview = await compileLoadStartIssue23({
@@ -249,7 +249,7 @@ function count(events: readonly PreviewOutput[], source: string, stream: string,
 }
 
 async function runNativeOutputCycle(index: number) {
-  const panel = getIssue049OutputPanel();
+  const panel = getOutputPanel();
   panel.clear();
   const displayed: string[] = [];
   const preview = await compileLoadStartIssue23({

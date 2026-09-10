@@ -1,6 +1,6 @@
 import { dotnet } from "./_framework/dotnet.js";
 import { installPrivatePortBootstrap, sha256 } from "./ProtocolRuntime.js";
-import { createCompilerEndpoint } from "./Issue21Endpoints.js";
+import { createCompilerEndpoint } from "./ProtocolEndpoints.js";
 
 // PRODUCT compiler runtime boot.
 //

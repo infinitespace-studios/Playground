@@ -1,4 +1,4 @@
-import { initializeCompilerProofMode } from "./Issue21EndpointsProof.js";
+import { initializeCompilerProofMode } from "./ProtocolEndpointsProof.js";
 
 // PROOF-only compiler runtime extension.
 //

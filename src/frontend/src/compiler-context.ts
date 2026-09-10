@@ -2,14 +2,14 @@
 //
 // This module owns the SINGLE, process-wide compiler + preview iframe context
 // that both the shipping product live-preview flow (`live-preview.ts`, wired by
-// `run-stop.ts` → `app.ts`) and the historical per-issue proofs (`issue21.ts`
+// `run-stop.ts` → `app.ts`) and the historical per-issue proofs (`scenario-toolkit.ts`
 // and the `issueXX` proof modules) drive. It was extracted out of the former
-// mixed `issue21.ts` so the product graph can reach the real compiler context
+// mixed `scenario-toolkit.ts` so the product graph can reach the real compiler context
 // WITHOUT importing any issue-numbered/auto-proof module.
 //
 // It is production-neutral: it defines no proof markers and no auto-proof entry
 // functions. Proof-only behaviour (the post-mutation taint prover and the
-// preview probe-expectation registrar) is injected by `issue21.ts` at module
+// preview probe-expectation registrar) is injected by `scenario-toolkit.ts` at module
 // load through `registerContextSetup(...)`, so the product build never links
 // that code.
 //
@@ -129,7 +129,7 @@ let nextWindowIdentity = 1;
 export const allocFrameDomIdentity = () => nextFrameIdentity++;
 export const allocContentWindowIdentity = () => nextWindowIdentity++;
 
-// Proof-only context extensions injected by issue21.ts. Each registered setup
+// Proof-only context extensions injected by scenario-toolkit.ts. Each registered setup
 // runs at the top of every `ensureContexts()` call, exactly where the original
 // module assigned its proof closures. Product registers nothing.
 const contextSetups: Array<() => void> = [];
@@ -208,12 +208,10 @@ previewFrame.addEventListener("load", () => {
 });
 
 export async function waitForTopRuntime() {
-  // Issue 052 task-A: "shell ready" no longer means the top-level MonoGame demo
-  // rendered a frame — the workbench (issue 45) removed that demo's `#canvas`,
-  // so the demo is obsolete and gated off (see entry.proof.ts). Readiness is
-  // now: the document is visible and the page has painted at least one animation
-  // frame. The compiler/preview iframes (which the proofs actually use) load the
-  // WASM runtime directly and gate themselves via their own bridges.
+  // Shell readiness means that the Workbench document is visible and has
+  // painted at least one animation frame. The compiler and preview iframes load
+  // their WASM runtimes independently and report readiness through their own
+  // authenticated bridges.
   const deadline = performance.now() + 120_000;
   const paintedFrame = () => new Promise<boolean>(resolve => {
     const timer = window.setTimeout(() => resolve(false), 500);

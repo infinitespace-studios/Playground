@@ -4,7 +4,7 @@ import {
   isUuidV4,
   sha256 as sha256Buffer,
 } from "./ProtocolRuntime.js";
-import { createPreviewEndpoint } from "./Issue21Endpoints.js";
+import { createPreviewEndpoint } from "./ProtocolEndpoints.js";
 import { createPreviewStartExecutor } from "./PreviewStartRuntime.js";
 import { createPreviewStopExecutor } from "./PreviewStopRuntime.js";
 import { createAssetMountExecutor } from "./AssetMountRuntime.js";

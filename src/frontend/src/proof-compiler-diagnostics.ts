@@ -15,7 +15,7 @@ import {
   compileLoadConstructIssue22Case,
   compileSourcesThroughPersistentCompiler,
   preparePackagedProofRuntime,
-} from "./issue21";
+} from "./scenario-toolkit";
 import { runScenario, type SubProof } from "./scenario-runner";
 
 // Shared across the policy sub-proofs (deduplicated from the former issue31 and

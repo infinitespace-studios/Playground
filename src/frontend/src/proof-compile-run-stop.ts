@@ -18,9 +18,8 @@ import {
   preparePackagedProofRuntime,
   runIssue021AutoProof,
   type Issue23RunningPreview,
-} from "./issue21";
+} from "./scenario-toolkit";
 import { createRunStopController } from "./lifecycle-controller";
-import { createIssue024RunStopController } from "./issue24-controller";
 import { runScenario, type SubProof } from "./scenario-runner";
 
 // Deduplicated shared delay helper (was redeclared inside every namespace).
@@ -868,7 +867,7 @@ export async function runIssue025AutoProof(): Promise<void> {
   const invoke = window.__TAURI_INTERNALS__?.invoke;
   if (!invoke || !(await invoke<boolean>("issue025_is_proof_enabled"))) return;
   const proofRuntimeReadiness = await preparePackagedProofRuntime();
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start,
     stop: (preview, reason) => preview.stop(reason),
     setRunDisabled() {},
@@ -1060,7 +1059,7 @@ export async function runIssue030AutoProof(): Promise<void> {
   const status = document.querySelector<HTMLElement>("#run-clear-color-status");
   if (!runButton || !stopButton || !status)
     throw new Error("Production Run/Stop controls are unavailable.");
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start: () => compileLoadStartIssue23({
       assemblyName,
       sourcePath: gamePath,

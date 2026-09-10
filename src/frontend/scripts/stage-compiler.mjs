@@ -3,6 +3,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { assertNoIssueNumberedStagedAssets } from "./staged-asset-guard.mjs";
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(frontendRoot, "../..");
@@ -52,11 +53,11 @@ await cp(
   path.join(repositoryRoot, "src/shared/ProtocolRuntime.js"),
   path.join(publishRoot, "ProtocolRuntime.js"),
 );
-await cp(path.join(repositoryRoot, "src/shared/Issue21Endpoints.js"), path.join(publishRoot, "Issue21Endpoints.js"));
+await cp(path.join(repositoryRoot, "src/shared/ProtocolEndpoints.js"), path.join(publishRoot, "ProtocolEndpoints.js"));
 if (isProof) {
   await cp(
-    path.join(repositoryRoot, "src/shared/Issue21EndpointsProof.js"),
-    path.join(publishRoot, "Issue21EndpointsProof.js"),
+    path.join(repositoryRoot, "src/shared/ProtocolEndpointsProof.js"),
+    path.join(publishRoot, "ProtocolEndpointsProof.js"),
   );
   // The proof publish emits index.proof.html (the product index.html is removed
   // from the proof Content set). Rename it to the canonical index.html the
@@ -75,7 +76,7 @@ const requiredFiles = [
   "index.html",
   "compiler-harness.js",
   "ProtocolRuntime.js",
-  "Issue21Endpoints.js",
+  "ProtocolEndpoints.js",
   "_framework/dotnet.js",
   "_framework/blazor.boot.json",
 ];
@@ -89,7 +90,7 @@ for (const relativePath of requiredFiles) {
 // symbols; the proof build must publish the extension and its required proof
 // symbols. `initializeCompilerProofMode`/`AuthorizeRetentionProof` etc. are the
 // proof handshake; the product harness drives only the retained binary transfer.
-const PROOF_ONLY_ASSETS = ["compiler-proof-extension.js", "Issue21EndpointsProof.js"];
+const PROOF_ONLY_ASSETS = ["compiler-proof-extension.js", "ProtocolEndpointsProof.js"];
 const FORBIDDEN_PRODUCT_COMPILER_SYMBOLS = [
   "compilerProof",
   "compilerIssue21Proof",
@@ -170,4 +171,7 @@ await writeFile(path.join(outputRoot, "compiler-build.json"), `${JSON.stringify(
   compilerAsset: `./${compilerAsset}`,
   compilerAssetSha256: digest(compilerBytes),
 }, null, 2)}\n`);
+// Generic fail-closed guard: no issue-numbered implementation filename may
+// re-enter the staged compiler asset tree (product OR proof).
+assertNoIssueNumberedStagedAssets(outputRoot, `${profile} compiler staging`);
 console.log(`Staged verified Release compiler (${profile} profile) with ${compilerAssemblies[0]}.`);

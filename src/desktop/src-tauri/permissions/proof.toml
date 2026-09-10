@@ -2,17 +2,6 @@
 identifier = "proof-commands"
 description = "Allows the trusted main webview to invoke the packaged proof-harness commands."
 commands.allow = [
-  "issue009_is_proof_enabled",
-  "issue009_emit_report",
-  "issue011_is_proof_enabled",
-  "issue011_set_outer_size",
-  "issue011_outer_bounds",
-  "issue011_emit_report",
-  "issue010_is_proof_enabled",
-  "issue010_emit_report",
-  "issue020_is_proof_enabled",
-  "issue020_emit_checkpoint",
-  "issue020_emit_report",
   "issue021_is_proof_enabled",
   "issue021_is_locked_session_proof",
   "issue021_emit_report",

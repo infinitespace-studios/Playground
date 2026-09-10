@@ -83,7 +83,7 @@ echo "PASS staging ordering (proof stage<proof build<restage<final product build
 grep -q "assert_staged_runtime" "$VERIFY" || fail "missing assert_staged_runtime helper"
 grep -q "compiler-proof-extension.js" "$VERIFY" \
   || fail "staged-runtime check does not reference the compiler proof extension"
-grep -q "issue033-negative-observer.js" "$VERIFY" \
+grep -q "preview-no-wasm-eval-observer.js" "$VERIFY" \
   || fail "staged-runtime check does not reference the preview negative observer"
 grep -q "createCompilerEndpoint" "$VERIFY" \
   || fail "staged-runtime check has no non-vacuous product floor (createCompilerEndpoint)"

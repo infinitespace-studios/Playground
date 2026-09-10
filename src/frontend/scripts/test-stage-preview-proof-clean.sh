@@ -68,11 +68,20 @@ test -f "$STAGED/preview.js"
 test -f "$STAGED/preview-build.json"
 
 # Required proof-only runtime surface must be present in the PROOF staging.
+# Stage 7 split the proof extension by domain into four proof-only sibling
+# modules the entry imports; assert each is staged and carries its symbol.
 test -f "$STAGED/preview-proof-extension.js"
-test -f "$STAGED/issue033-negative-observer.js"
-grep -q "installIssue040AudioProbe" "$STAGED/preview-proof-extension.js"
-grep -q "previewIssue040Proof" "$STAGED/preview-proof-extension.js"
-grep -q "createProofExpectationRegistry" "$STAGED/preview-proof-extension.js"
+test -f "$STAGED/preview-proof-state.js"
+test -f "$STAGED/preview-proof-audio.js"
+test -f "$STAGED/preview-proof-bridge.js"
+test -f "$STAGED/preview-proof-lifecycle.js"
+test -f "$STAGED/preview-no-wasm-eval-observer.js"
+grep -q "__playgroundPreviewExtension" "$STAGED/preview-proof-extension.js"
+grep -q "installIssue040AudioProbe" "$STAGED/preview-proof-audio.js"
+grep -q "previewIssue040Proof" "$STAGED/preview-proof-state.js"
+grep -q "createProofExpectationRegistry" "$STAGED/preview-proof-state.js"
+grep -q "Issue034FileSystemProbe" "$STAGED/preview-proof-bridge.js"
+grep -q "QueryStoppedGameProof" "$STAGED/preview-proof-lifecycle.js"
 
 # The shipping preview.js must remain proof-clean even in the proof staging.
 for symbol in previewIssue installIssue040AudioProbe createProofExpectationRegistry \

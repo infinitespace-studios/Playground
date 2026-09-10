@@ -6,7 +6,7 @@
 // auto-proof and re-exports the production gate so historical callers
 // (entry.proof.ts, app.ts via the security module) resolve unchanged.
 
-import { preparePackagedProofRuntime, compileLoadStartIssue23 } from "./issue21";
+import { preparePackagedProofRuntime, compileLoadStartIssue23 } from "./scenario-toolkit";
 import {
   SCRATCH_PROJECT_IDENTITY,
   gateFirstRun,

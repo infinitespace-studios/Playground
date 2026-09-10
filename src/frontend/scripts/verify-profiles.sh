@@ -82,10 +82,14 @@ assert_staged_runtime() {
   # Proof-only staged surface: files + the compiler proof DOM reference.
   local proof_assets=(
     "$compiler/compiler-proof-extension.js"
-    "$compiler/Issue21EndpointsProof.js"
+    "$compiler/ProtocolEndpointsProof.js"
     "$preview/preview-proof-extension.js"
-    "$preview/issue033-negative-observer.js"
-    "$preview/Issue21EndpointsProof.js"
+    "$preview/preview-proof-state.js"
+    "$preview/preview-proof-audio.js"
+    "$preview/preview-proof-bridge.js"
+    "$preview/preview-proof-lifecycle.js"
+    "$preview/preview-no-wasm-eval-observer.js"
+    "$preview/ProtocolEndpointsProof.js"
   )
 
   if [ "$expected" = "proof" ]; then

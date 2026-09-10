@@ -105,34 +105,36 @@ trusted code uses Tauri's injected, non-global `__TAURI_INTERNALS__.invoke`
 transport directly.
 
 Custom application commands are opted into Tauri's runtime authority through
-`AppManifest::commands`. **Stage 6 split the command surface by build profile.**
+`AppManifest::commands`. The command surface is split by build profile.
 The product (default) build registers **only the eight responsibility-named
 product commands** through the sole local capability `capabilities/main.json`
 (identifier `main`, `local: true`, window `main`, permission `main-commands`); it
 has no remote URL grant. The explicit `--features proof-harness` proof build
-additionally compiles the seventy proof commands and adds the `proof` capability
+additionally compiles the fifty-nine proof commands and adds the `proof` capability
 (`capabilities/proof.json` → `proof-commands`). The canonical inventories are
-maintained once in `build.rs` (`PRODUCT_COMMANDS` 8, `PROOF_COMMANDS` 70,
-`HANDLER_ORDER` 78) and cross-checked against `permissions/main.toml` (product 8),
-`permissions/proof.toml` (proof 70), `generate_handler!` (per-line
+maintained once in `build.rs` (`PRODUCT_COMMANDS` 8, `PROOF_COMMANDS` 59,
+`HANDLER_ORDER` 67) and cross-checked against `permissions/main.toml` (product 8),
+`permissions/proof.toml` (proof 59), `generate_handler!` (per-line
 `#[cfg(feature = "proof-harness")]` gates), and the packaged proof inventory.
-The seventy proof commands are the issue 009–037 proof enable/checkpoint/report
+The fifty-nine proof commands are the issue 021–037 proof enable/checkpoint/report
 commands, `prepare_packaged_proof_window`, the issue-034 marker commands, and the
 issue 039–041 content/audio/benchmark commands. **Stage 5 removed the fifteen
-issue-038 isolated-window commands** (ADR 0003 makes the embedded opaque-origin
-iframe the product preview). The effective ACL is therefore **10 entries in the
-product build** (one capability, one composite `main-commands` permission, eight
-generated per-command permissions) and **82 in the proof build** (two capabilities,
-two composite permissions, seventy-eight generated per-command permissions). No
-filesystem, shell, process, opener, dialog, clipboard, arbitrary read, or
-arbitrary command-forwarding command is registered.
+issue-038 isolated-window commands** and **Stage 7 removed the eleven obsolete
+top-level-canvas issue-009/010/011/020 commands** (ADR 0003 makes the embedded
+opaque-origin iframe the product preview; the top-level `#canvas` demo those
+proofs targeted no longer exists). The effective ACL is therefore **10 entries in
+the product build** (one capability, one composite `main-commands` permission,
+eight generated per-command permissions) and **71 in the proof build** (two
+capabilities, two composite permissions, sixty-seven generated per-command
+permissions). No filesystem, shell, process, opener, dialog, clipboard, arbitrary
+read, or arbitrary command-forwarding command is registered.
 
 **Compiled-artifact enforcement (Stage 6 slice 6).**
 `scripts/check-binary-command-inventory.mjs` scans the packaged executable and
 staged frontend after a build to prove the profile boundary holds in the shipped
 artifact: the product bundle exposes exactly the eight product commands and
 **zero** proof commands, proof env/report markers, proof Rust relay strings,
-proof C# export references, or proof JS globals; the proof bundle retains all 78
+proof C# export references, or proof JS globals; the proof bundle retains all 67
 commands, the proof symbols, and exactly eight scenarios. It derives its
 inventories from `build.rs` (no duplicate list), verifies bundle identity by
 `CFBundleIdentifier` so a stale/wrong-profile artifact is refused, and ships with
@@ -155,7 +157,7 @@ feature drift. Protocol tests cover second/remote/wildcard capabilities,
 generated files. The effective per-command ACL scope is one capability, one
 composite `main-commands` permission, and eight Tauri-generated per-command
 allow/deny permission files in the product build (and, in the proof build, the
-added `proof` capability, `proof-commands` composite, and seventy more generated
+added `proof` capability, `proof-commands` composite, and fifty-nine more generated
 files). The generated directory is intentionally ignored
 by Git: `tauri_build` reproducibly creates it from the profile-effective
 command inventory (`build.rs::effective_commands()` — `PRODUCT_COMMANDS` by

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Stage 1 production/proof artifact separation check (hardened).
+// Product/proof frontend artifact separation check.
 //
 // This checker proves the compile-time frontend split holds in the *built*
 // output using the machine-readable build manifest that each Vite build stamps
@@ -16,9 +16,9 @@
 //     * manifest present, schema known, profile === "product",
 //       entrySource === src/entry.product.ts, non-empty module/chunk inventory.
 //     * src/entry.product.ts present in the emitted module graph.
-//     * src/entry.proof.ts and every proof-only module (issue21 shared
-//       toolkit and the eight proof-* scenario suites) ABSENT from the module
-//       graph. Any issue-numbered source module in the product graph is a HARD
+//     * src/entry.proof.ts and every proof-only module (the `scenario-toolkit`
+//       shared toolkit and the eight proof-* scenario suites) ABSENT from the
+//       module graph. Any issue-numbered source module in the product graph is a HARD
 //       FAILURE via ISSUE_NUMBERED_MODULE_REGEX; the scenario proof-* modules
 //       are enumerated in PROOF_ONLY_MODULES so they are also a HARD FAILURE if
 //       they leak into PRODUCT.
@@ -64,8 +64,8 @@ const MARKER_REGEX = /MONOGAME_ISSUE[0-9]+[A-Z_]*_PROOF[A-Z0-9_]*/g;
 
 // Minimum inventory sizes. If a regex/glob edit shrinks these below the floor,
 // the check FAILS instead of silently passing on an empty inventory.
-const MIN_SOURCE_MARKERS = 15;
-const MIN_EXPECTED_PROOF_MARKERS = 15;
+const MIN_SOURCE_MARKERS = 12;
+const MIN_EXPECTED_PROOF_MARKERS = 12;
 const MIN_MODULES = 10;
 
 // Markers that legitimately live ONLY in `//` comments in the frontend source
@@ -77,8 +77,8 @@ const MIN_MODULES = 10;
 const COMMENT_ONLY_MARKERS = new Set([
   // proof-project-lifecycle.ts (former issue37.ts) references
   // `MONOGAME_ISSUE037_PROOF_PHASE=1/2` only in comments; the phase env var is
-  // read by scripts/prove-issue037-macos.sh in Rust/shell, not emitted as a
-  // frontend string literal.
+  // read by the canonical packaged scenario runner in Rust/shell, not emitted
+  // as a frontend string literal.
   "MONOGAME_ISSUE037_PROOF_PHASE",
 ]);
 
@@ -92,10 +92,9 @@ const COMMENT_ONLY_MARKERS = new Set([
 // old issue-numbered drivers (issue22/23/24/25/27/28/29/30/31/32/33/34/35/36/
 // 37/039/040/041) were folded into these eight `proof-*` scenario modules,
 // preserving every packaged proof marker and Tauri report command verbatim. The
-// shared proof runtime toolkit (issue21) and the shared scenario driver
-// (scenario-runner.ts) remain proof-only. issue21 is still issue-numbered, so
-// ISSUE_NUMBERED_MODULE_REGEX also forbids it in PRODUCT; it is additionally
-// enumerated here. Any src/proof-*.ts module is structurally forbidden in
+// shared proof runtime toolkit (`scenario-toolkit.ts`) and the shared scenario
+// driver (`scenario-runner.ts`) remain proof-only; both are enumerated in
+// PROOF_ONLY_MODULES below. Any src/proof-*.ts module is structurally forbidden in
 // PRODUCT by PROOF_MODULE_PREFIX_REGEX below, independently of this list.
 //
 // Stage 5 retired the isolated-window force-stop harness (former issue38.ts and
@@ -117,10 +116,32 @@ const SCENARIO_MODULES = [
 ];
 const EXPECTED_SCENARIO_COUNT = 8;
 
+// Stage 7 split the oversized shared proof toolkit (`scenario-toolkit.ts`) into
+// coherent responsibility support modules. These are NOT `proof-*` scenario
+// suites (they carry no scenario entrypoint and must not match the proof-*
+// prefix) — they are the shared proof SUPPORT surface the toolkit re-exports:
+//   * packaged-proof-readiness.ts    — packaged (Tauri) proof runtime readiness
+//                                      / native window activation gate.
+//   * persistent-compile-support.ts  — persistent Roslyn compiler + compile-
+//                                      buffer support and benchmark preconditions.
+//   * embedded-preview-support.ts     — embedded (in-page) opaque-origin preview
+//                                      lifecycle (rich runner, no-wasm-eval probe,
+//                                      embedded proof-preview context).
+// They are proof-only: PROOF must contain all of them, PRODUCT must contain
+// none. Enumerating them here makes the split non-vacuously enforced (a leak
+// into PRODUCT or a drop from PROOF is a HARD FAILURE) without matching the
+// structural proof-* scenario prefix guard.
+const PROOF_SUPPORT_MODULES = [
+  "src/packaged-proof-readiness.ts",
+  "src/persistent-compile-support.ts",
+  "src/embedded-preview-support.ts",
+];
+
 const PROOF_ONLY_MODULES = [
   "src/entry.proof.ts",
-  "src/issue21.ts",
+  "src/scenario-toolkit.ts",
   "src/scenario-runner.ts",
+  ...PROOF_SUPPORT_MODULES,
   ...SCENARIO_MODULES,
 ];
 
@@ -434,11 +455,22 @@ function checkProof() {
     );
   }
 
-  // Explicit retained-harness assertion (Stage 4 keeps the issue21 shared
+  // Explicit retained-harness assertion (Stage 4 keeps the shared scenario
   // toolkit in PROOF). Stage 5 retired the issue38 isolated-window force-stop
   // harness, so it is no longer asserted present.
-  if (!modules.has("src/issue21.ts")) {
-    fail("PROOF module graph is missing the shared proof toolkit src/issue21.ts.");
+  if (!modules.has("src/scenario-toolkit.ts")) {
+    fail("PROOF module graph is missing the shared proof toolkit src/scenario-toolkit.ts.");
+  }
+
+  // Stage 7 explicit assertion: the shared proof SUPPORT modules the toolkit was
+  // split into must ALL be present in PROOF (proves the split is real — the
+  // toolkit re-exports live code from each, not dead facades).
+  const missingSupportModules = PROOF_SUPPORT_MODULES.filter((m) => !modules.has(m));
+  if (missingSupportModules.length > 0) {
+    fail(
+      `PROOF module graph is missing required proof support modules: ` +
+        `${missingSupportModules.join(", ")}`,
+    );
   }
 
   const emitted = markersEmittedIn(distDir);
@@ -463,8 +495,8 @@ if (mode === "product" || mode === "both") checkProduct();
 if (mode === "proof" || mode === "both") checkProof();
 
 if (errors.length > 0) {
-  console.error("\nStage 1 artifact separation check FAILED:");
+  console.error("\nProduct/proof artifact separation check FAILED:");
   for (const e of errors) console.error(`  - ${e}`);
   process.exit(1);
 }
-console.log("\nStage 1 artifact separation check passed.");
+console.log("\nProduct/proof artifact separation check passed.");

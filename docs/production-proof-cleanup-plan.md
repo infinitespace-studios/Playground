@@ -1,6 +1,6 @@
 # Production/proof architecture cleanup plan
 
-**Status:** In progress
+**Status:** Stage 7 implementation locally accepted; clean-clone CI pending
 **Started:** 2026-09-08
 **Decision basis:** ADR 0003 (embedded production preview)
 **Session handoff:** [`session-handoff-production-proof-cleanup.md`](session-handoff-production-proof-cleanup.md)
@@ -266,7 +266,108 @@ Accepted evidence:
 Detailed design and evidence:
 [`stage6-proof-binary-separation.md`](stage6-proof-binary-separation.md).
 
-### Stage 7 — Final architecture enforcement and cleanup — PENDING
+### Stage 7 — Final architecture enforcement and cleanup — LOCAL ACCEPTANCE COMPLETE; CI PENDING
+
+**Status:** implementation complete and independently reviewed with no blocking
+findings. Local native acceptance passed; commit/push and clean-clone quality plus
+six-platform release CI remain. Detailed inventory, final architecture, and
+verification matrix: [`stage7-final-architecture.md`](stage7-final-architecture.md).
+
+Delivered in this working tree:
+
+- Created `docs/stage7-final-architecture.md` (mandatory inventory/design).
+- Removed the four obsolete top-level-canvas inline proofs (009/010/011/020)
+  from `entry.proof.ts`, their eleven Rust commands/helpers from `lib.rs`, the
+  `build.rs` `PROOF_COMMANDS`/`HANDLER_ORDER` entries, `permissions/proof.toml`,
+  and the frontend `ISSUE034_APPROVED_COMMANDS` inventory. Proof commands
+  70→59; handler surface 78→67; effective proof ACL 82→71. Updated every
+  hard-coded count in `build.rs`, `lib.rs` tests, `protocol.test.ts`, the binary
+  checker, and the marker floors.
+- Frontend issue-numbered filenames removed: deleted unused `issue051.ts`;
+  bypassed and removed `issue049.ts` and `issue24-controller.ts` (consumers now
+  import the responsibility modules directly); renamed `issue21.ts` →
+  `scenario-toolkit.ts`, `issue21-controller.ts` → `scenario-load-controller.ts`,
+  `issue23-controller.ts` → `scenario-run-controller.ts`, the issue039/040 tests
+  → `content-validation.test.ts` / `audio-content.test.ts`, and the audio
+  contract/fixture → `audio-content-contract.ts` / `audio-content-fixture.ts`.
+  Fixture-builder and static-test scripts renamed by responsibility.
+- Shared/preview responsibility renames completed and fully re-pointed:
+  `src/shared/Issue21Endpoints.js` → `ProtocolEndpoints.js`,
+  `src/shared/Issue21EndpointsProof.js` → `ProtocolEndpointsProof.js`, and
+  `src/preview/wwwroot/issue033-negative-observer.js` →
+  `preview-no-wasm-eval-observer.js`, with every consumer updated (both csproj
+  deploy/remove entries, `stage-compiler.mjs`/`stage-preview.mjs`, `preview.js`,
+  `compiler-harness.js`, the proof extensions, `preview-frame.ts`, `build.rs`,
+  `protocol.test.ts`, `verify-profiles.sh`, the static/clean staging tests, and
+  the binary checker asset list).
+- Added a generic fail-closed staged-asset guard
+  (`src/frontend/scripts/staged-asset-guard.mjs`, `--self-test`) wired into both
+  `stage-compiler.mjs` and `stage-preview.mjs`: any issue-numbered implementation
+  *filename* re-entering the staged compiler/preview asset tree (product OR
+  proof) is a hard failure.
+- Rebuilt `scripts/measure-release-size.mjs` into a cross-platform,
+  PRODUCT-profile, fail-closed package-size gate: accepts explicit
+  `--binary/--package/--package-dir/--dist/--target`; resolves any of the six
+  release package formats; verifies required artifacts and the <=100 MiB target;
+  validates the staged-dist profile (and `.app` identity) without expecting proof
+  commands; recognises the implemented content fixtures; writes a report only
+  with `--report`; deterministic self-test 28/28 (also run against the real DMG).
+- Added a bounded PRODUCT smoke gate (`scripts/smoke-product.mjs`,
+  `--self-test`): refuses proof env/profile, verifies product identity, launches
+  the product, requires survival past a bounded readiness/no-immediate-crash
+  window, terminates only the owned PID/process tree, captures logs, and fails on
+  crash/proof markers or orphans. Honest release matrix (full launch on
+  host-native macOS arm64; identity-only for cross-compiled macOS x64 and where
+  no reliable display exists); 25/25 self-test incl. real process-tree reap.
+- Added `.github/workflows/quality.yml` (pull_request + push): clean-clone-only
+  fast gate (npm ci/typecheck/focused+perf tests/four tool self-tests, shell
+  `bash -n` + static runner tests, `cargo fmt --check`). It intentionally does
+  NOT check out the MonoGame submodule, stage assets, or build the Tauri crate,
+  so it cannot fail merely because ignored artifacts are absent.
+- Extended `.github/workflows/release.yml`: post-staging `cargo clippy` (all
+  legs) + `cargo test` (host-native legs); post-package binary-inventory,
+  package-size, and bounded-smoke gates per freshly built artifact (full launch
+  on host-native macOS arm64, identity-only elsewhere); six-platform packaging
+  + x64 fix preserved. Workflow-artifact upload follows the gates; tag builds
+  attach to a draft Release during the build step, and that draft must not be
+  published unless every leg is green. An opt-in `run_proof_acceptance` dispatch
+  job runs PROOF clippy/test + packaged scenarios + PROOF binary inventory.
+- Documentation: rewrote/updated `README.md`, `CONTRIBUTING.md`, `docs/build.md`
+  (CI gates section), `docs/security-model.md`, `docs/content-workflow.md`,
+  `docs/release-support-matrix.md`, `docs/stage7-final-architecture.md`, and this
+  plan/handoff to describe the final architecture and exact implemented/deferred
+  gates. Removed the superseded
+  `docs/issue052-task3-proof-repointing-plan.md`.
+
+Completed responsibility splits include `PreviewExports.cs` partial-class
+mount/lifecycle/runtime files, the proof preview runtime's entry/state/audio/
+bridge/lifecycle modules, `scenario-toolkit.ts` support modules, and the
+feature-gated Rust `proof_harness.rs`. Superseded issue-numbered packaged wrappers
+were removed in favor of the canonical scenario runner.
+
+Accepted local evidence:
+
+- TypeScript plus 155 focused frontend tests and 32 performance-tool tests
+  passed; PRODUCT remained 21 modules with zero proof markers, while PROOF had
+  45 modules, exactly eight scenarios, three required support modules, and all
+  13 current proof markers.
+- Rust format/Clippy and 23 PRODUCT plus 37 PROOF tests passed. Inventories are
+  exactly 8 PRODUCT commands, 59 feature-gated proof commands, 67 total, with
+  effective ACL counts of 10 and 71.
+- Native macOS arm64 PRODUCT and PROOF packages and macOS x64 PRODUCT package
+  built successfully. PRODUCT/PROOF binary checks passed, PRODUCT was built
+  last, and arm64/x64 DMGs passed at 93.36 MiB and 92.57 MiB.
+- All eight packaged scenarios and every mapped sub-proof passed with zero
+  orphans and a clean invoke-key scan. The process-sandboxed offline content/
+  audio proof passed under network denial.
+- Bounded PRODUCT launch smoke passed with clean owned-process teardown. A fresh
+  startup/memory baseline passed every threshold with zero failed, censored, or
+  missing samples.
+- Independent strict review found no blocking issues. Remaining gate: commit and
+  push, then require `quality.yml` and all six PRODUCT release matrix legs to
+  pass; run opt-in remote proof acceptance before publishing a release.
+
+### Stage 7 — original scope (reference)
 
 - CI fails if product JS imports proof or issue modules, emits proof markers, or
   if the production binary exposes proof commands.

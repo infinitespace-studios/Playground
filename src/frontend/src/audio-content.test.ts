@@ -15,8 +15,8 @@ import {
   buildIssue040FixturePcm,
   buildIssue040SoundFixture,
   buildSoundEffectXnb,
-} from "./issue040-fixture.ts";
-import { ISSUE040_EXPECTED_VALIDATOR_CASES, ISSUE040_GAME_SOURCE } from "./issue040-contract.ts";
+} from "./audio-content-fixture.ts";
+import { ISSUE040_EXPECTED_VALIDATOR_CASES, ISSUE040_GAME_SOURCE } from "./audio-content-contract.ts";
 
 const repositoryFile = async relativePath =>
   readFile(new URL(`../../../${relativePath}`, import.meta.url));
@@ -224,6 +224,8 @@ test("issue040 proof commands are gated and registered in every ACL inventory", 
   const permission = (await repositoryFile("src/desktop/src-tauri/permissions/proof.toml")).toString("utf8");
   const mainPermission = (await repositoryFile("src/desktop/src-tauri/permissions/main.toml")).toString("utf8");
   const lib = (await repositoryFile("src/desktop/src-tauri/src/lib.rs")).toString("utf8");
+  const proofHarness =
+    (await repositoryFile("src/desktop/src-tauri/src/proof_harness.rs")).toString("utf8");
   const issue34 = (await repositoryFile("src/frontend/src/proof-preview-security.ts")).toString("utf8");
   const approvedCommands = issue34.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[0] ?? "";
   for (const command of commands) {
@@ -232,29 +234,37 @@ test("issue040 proof commands are gated and registered in every ACL inventory", 
     // ACL overlay (proof.toml), never the product permission (main.toml).
     assert.ok(permission.includes(`"${command}"`), `${command} missing from proof.toml`);
     assert.ok(!mainPermission.includes(`"${command}"`), `${command} leaked into main.toml`);
-    assert.ok(lib.includes(command), `${command} missing from lib.rs`);
+    assert.ok(proofHarness.includes(command), `${command} missing from proof_harness.rs`);
+    assert.ok(!lib.includes(`fn ${command}`), `${command} implementation leaked into lib.rs`);
     assert.ok(
       approvedCommands.includes(`"${command}"`),
       `${command} missing from the issue 034 ACL rejection inventory`,
     );
   }
   assert.ok(
-    lib.includes('std::env::var_os("MONOGAME_ISSUE040_PROOF")'),
+    proofHarness.includes('std::env::var_os("MONOGAME_ISSUE040_PROOF")'),
     "issue 040 proof commands must be environment gated",
   );
 });
 
 test("issue040 preview instrumentation stays gated behind the proof flag", async () => {
   // The proof audio instrumentation moved out of the shipping preview runtime
-  // into the PROOF-only extension (Stage 6 slice 4). Assert the gating lives in
-  // the extension and that the product preview.js carries none of it.
+  // into the PROOF-only extension (Stage 6 slice 4). Stage 7 split that extension
+  // by proof domain: the bridge actions/snapshots live in the proof bridge
+  // module, the audio probe in the proof audio module, and the gated install in
+  // the proof state module's bootstrap. Assert the gating lives in the proof
+  // modules and that the product preview.js carries none of it.
   const preview = (await repositoryFile("src/preview/wwwroot/preview.js")).toString("utf8");
-  const extension =
-    (await repositoryFile("src/preview/wwwroot/preview-proof-extension.js")).toString("utf8");
+  const bridge =
+    (await repositoryFile("src/preview/wwwroot/preview-proof-bridge.js")).toString("utf8");
+  const audio =
+    (await repositoryFile("src/preview/wwwroot/preview-proof-audio.js")).toString("utf8");
+  const state =
+    (await repositoryFile("src/preview/wwwroot/preview-proof-state.js")).toString("utf8");
   for (const action of ["issue040-audio-arm", "issue040-audio-sample"]) {
-    const index = extension.indexOf(`action === "${action}"`);
+    const index = bridge.indexOf(`action === "${action}"`);
     assert.ok(index > 0, `${action} bridge action missing`);
-    const guard = extension.slice(index, index + 220);
+    const guard = bridge.slice(index, index + 220);
     assert.ok(
       guard.includes("previewIssue040Proof.enabled"),
       `${action} must be gated on the issue 040 proof flag`,
@@ -265,17 +275,21 @@ test("issue040 preview instrumentation stays gated behind the proof flag", async
     );
   }
   for (const snapshot of ["issue040-audio", "issue040-managed-audio"]) {
-    const index = extension.indexOf(`name === "${snapshot}"`);
+    const index = bridge.indexOf(`name === "${snapshot}"`);
     assert.ok(index > 0, `${snapshot} snapshot missing`);
-    const guard = extension.slice(index, index + 220);
+    const guard = bridge.slice(index, index + 220);
     assert.ok(
       guard.includes("previewIssue040Proof.enabled"),
       `${snapshot} must be gated on the issue 040 proof flag`,
     );
   }
   assert.ok(
-    extension.includes("if (globalThis.previewIssue040Proof.enabled) installIssue040AudioProbe();"),
+    state.includes("if (globalThis.previewIssue040Proof.enabled) installIssue040AudioProbe();"),
     "the audio probe must only be installed for the gated proof",
+  );
+  assert.ok(
+    audio.includes("function installIssue040AudioProbe"),
+    "the proof audio module must define the audio probe",
   );
   assert.ok(
     !preview.includes("installIssue040AudioProbe"),

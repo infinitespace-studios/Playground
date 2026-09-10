@@ -19,7 +19,8 @@ BUILD_APP=1
 # Hard bound so a missing/late report can never hang the runner indefinitely.
 # The embedded issue040 content/audio sub-proof drives two full preview
 # instances (mount → load → trusted Space activation → playback → Stop →
-# teardown → retirement) and then exits; 300s matches prove-issue040-macos.sh.
+# teardown → retirement) and then exits; the 300s cap matches the canonical
+# packaged scenario runner's bounded content-workflow execution.
 RUN_TIMEOUT="${MONOGAME_OFFLINE_TIMEOUT:-300}"
 
 # The durable EMBEDDED scenario exercised offline: issue040 content/audio.

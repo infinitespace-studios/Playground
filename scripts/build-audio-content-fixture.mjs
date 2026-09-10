@@ -1,11 +1,11 @@
 /**
  * Issue 040: regenerates the committed Web-profile SoundEffect fixture.
  *
- * Usage: node scripts/build-issue040-sound-fixture.mjs [--check]
+ * Usage: node scripts/build-audio-content-fixture.mjs [--check]
  *
  * The fixture is hand-assembled against the pinned MonoGame 3.8.5.1
  * SoundEffectWriter/SoundEffectReader binary contract (see
- * src/frontend/src/issue040-fixture.ts). `--check` verifies the committed file
+ * src/frontend/src/audio-content-fixture.ts). `--check` verifies the committed file
  * matches the generator instead of rewriting it.
  */
 
@@ -17,7 +17,7 @@ import { fileURLToPath } from "node:url";
 import {
   ISSUE040_FIXTURE_SHA256,
   buildIssue040SoundFixture,
-} from "../src/frontend/src/issue040-fixture.ts";
+} from "../src/frontend/src/audio-content-fixture.ts";
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const fixturePath = path.join(

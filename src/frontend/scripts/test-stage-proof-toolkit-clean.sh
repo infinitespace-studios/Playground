@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 FRONTEND_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 REPOSITORY_ROOT="$(cd "$FRONTEND_ROOT/../.." && pwd)"
-BACKUP_ROOT="$REPOSITORY_ROOT/.issue021-clean-state-backup.$$"
+BACKUP_ROOT="$REPOSITORY_ROOT/.proof-toolkit-clean-state-backup.$$"
 PATHS=(
   "$REPOSITORY_ROOT/src/compiler/bin"
   "$REPOSITORY_ROOT/src/compiler/obj"

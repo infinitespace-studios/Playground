@@ -1,16 +1,10 @@
-// Neutral, production run/stop lifecycle state machine (Stage-2 extraction of
-// the former issue24-controller.ts). Owns the run/stop/restart transitions,
-// start-throw recovery, stop coalescing, restart queueing, failure observation,
-// and the optional preview-panel lifecycle indicator. It is production-neutral:
-// no proof markers, no issue-numbered behaviour. Both the product run/stop
-// control (run-stop.ts) and the historical proof control
-// (`proof-compile-run-stop.ts`, via the issue24-controller.ts façade) drive it.
-//
-// `issue24-controller.ts` re-exports these symbols under their historical names
-// as a compatibility façade for proof callers and the protocol test. The
-// deprecated issue-numbered lifecycle alias lives ONLY in that issue-numbered
-// façade, so this product domain module carries no issue-numbered identifier
-// (Stage 6 remediation).
+// Neutral, production run/stop lifecycle state machine. Owns the run/stop/restart
+// transitions, start-throw recovery, stop coalescing, restart queueing, failure
+// observation, and the optional preview-panel lifecycle indicator. It is
+// production-neutral: no proof markers, no issue-numbered behaviour. Both the
+// product run/stop control (`run-stop.ts`) and the proof scenarios
+// (`proof-compile-run-stop.ts`, `proof-runtime-exception.ts`,
+// `proof-performance.ts`) import `createRunStopController` from here directly.
 export type PreviewLifecycleState = "loading" | "running" | "stopped" | "error";
 
 export function createRunStopController<T>({

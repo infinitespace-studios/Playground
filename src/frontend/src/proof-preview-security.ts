@@ -17,7 +17,7 @@ import {
   runInPagePreviewForProof,
   probeInPageNoWasmEvalBoot,
   preparePackagedProofRuntime,
-} from "./issue21";
+} from "./scenario-toolkit";
 import { PREVIEW_CSP } from "./preview-frame";
 import {
   LIMITS,
@@ -35,20 +35,9 @@ const wait = (ms: number) => new Promise(resolve => globalThis.setTimeout(resolv
 const ISSUE034_CANARY_SHA256 =
   "ef5368ada37a4cddc5bda46069fd7b3ad51b30b5dab1697a58ae9816154f2372";
 
-// ACL supply-chain inventory (asserted by protocol.test.ts / issue040.test.ts
+// ACL supply-chain inventory (asserted by protocol.test.ts / audio-content.test.ts
 // and slice-scanned by the Rust build). Kept at module scope, verbatim.
 export const ISSUE034_APPROVED_COMMANDS = [
-  "issue009_is_proof_enabled",
-  "issue009_emit_report",
-  "issue011_is_proof_enabled",
-  "issue011_set_outer_size",
-  "issue011_outer_bounds",
-  "issue011_emit_report",
-  "issue010_is_proof_enabled",
-  "issue010_emit_report",
-  "issue020_is_proof_enabled",
-  "issue020_emit_checkpoint",
-  "issue020_emit_report",
   "issue021_is_proof_enabled",
   "issue021_is_locked_session_proof",
   "issue021_emit_report",
@@ -201,7 +190,7 @@ export async function runIssue034AutoProof(): Promise<void> {
   // guarantee than "present but rejects". The issue034-security probe already
   // captures this: directInvoke "unreachable", globals.internals / globals.invoke
   // both "undefined". (ISSUE034_APPROVED_COMMANDS is retained as the ACL
-  // supply-chain inventory guard asserted by protocol.test.ts / issue040.test.ts.)
+  // supply-chain inventory guard asserted by protocol.test.ts / audio-content.test.ts.)
   const running = await first.query();
   const callsAfterFirst = await invoke<number>("issue034_trusted_marker_calls");
   const firstStop = await first.stop("user");

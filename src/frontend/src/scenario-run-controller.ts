@@ -1,4 +1,4 @@
-export function createIssue023RunController({
+export function createProofRunController({
   start,
   setDisabled,
   setStatus,

@@ -1,0 +1,135 @@
+# Fast quality gate — runs on every PR and push.
+#
+# SCOPE (deliberate): only checks that are feasible from a CLEAN CLONE without
+# untracked build artifacts. This workflow does NOT check out the MonoGame
+# submodule, does NOT build the .NET compiler/preview, does NOT stage frontend
+# assets, and does NOT compile the Tauri shell — because those require the
+# MonoGame WASM runtime (built once in release.yml), the Emscripten SDK, and the
+# staged `dist/` that `src/desktop/src-tauri/build.rs` embeds. Putting any of
+# those here would make the workflow fail purely because ignored/untracked
+# artifacts are absent.
+#
+# Asset-dependent gates (cargo check/clippy/test for both profiles, profile
+# separation checks, packaged scenario/offline proofs, package-size and product
+# smoke against real bundles) run in `release.yml` AFTER the MonoGame artifact
+# download + asset staging.
+#
+# What runs here:
+#   - Frontend: npm ci, TypeScript typecheck, focused unit/protocol/content/
+#     lifecycle tests, performance-tooling unit tests.
+#   - Fail-closed tool self-tests: staged-asset guard, binary command-inventory
+#     checker, release package-size gate, and the bounded product smoke gate.
+#   - Shell: `bash -n` syntax over every script + the static (no-binary) tests
+#     for the packaged scenario/offline runners.
+#   - Rust: `cargo fmt --check` only (formatting does not invoke build.rs and
+#     therefore needs no staged assets).
+
+name: quality
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "26"
+  RUST_TOOLCHAIN: "1.98.0"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # Frontend typecheck + focused tests + fail-closed tool self-tests.
+  # No submodule checkout, no asset staging: everything here is source-only.
+  # ---------------------------------------------------------------------------
+  frontend:
+    name: frontend (typecheck, tests, tool self-tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (no submodules — source-only gate)
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: src/frontend/package-lock.json
+
+      - name: Install frontend dependencies (npm ci)
+        run: npm --prefix src/frontend ci
+
+      - name: TypeScript typecheck
+        run: npm --prefix src/frontend run typecheck
+
+      - name: Focused unit / protocol / content / lifecycle tests
+        run: |
+          node --experimental-strip-types --test \
+            src/frontend/src/protocol.test.ts \
+            src/frontend/src/content-validation.test.ts \
+            src/frontend/src/audio-content.test.ts \
+            src/frontend/src/project-lifecycle.test.ts
+
+      - name: Performance-tooling unit tests
+        run: |
+          node --test scripts/performance-report.test.mjs
+          node --test scripts/measure-performance.test.mjs
+
+      - name: Staged-asset guard self-test
+        run: node src/frontend/scripts/staged-asset-guard.mjs --self-test
+
+      - name: Binary command-inventory checker self-test
+        run: node scripts/check-binary-command-inventory.mjs --self-test
+
+      - name: Release package-size gate self-test
+        run: node scripts/measure-release-size.mjs --self-test
+
+      - name: Bounded product smoke gate self-test
+        run: node scripts/smoke-product.mjs --self-test
+
+  # ---------------------------------------------------------------------------
+  # Shell script syntax + static (no-binary) runner tests.
+  # ---------------------------------------------------------------------------
+  shell:
+    name: shell (syntax + static runner tests)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (no submodules)
+        uses: actions/checkout@v5
+
+      - name: bash -n over every script
+        run: |
+          rc=0
+          for s in scripts/*.sh src/frontend/scripts/*.sh; do
+            bash -n "$s" || { echo "SYNTAX FAIL: $s"; rc=1; }
+          done
+          exit $rc
+
+      - name: Static packaged-runner tests (no binary, no build)
+        run: |
+          bash scripts/test-prove-scenarios-static.sh
+          bash scripts/test-prove-packaged-offline-static.sh
+
+  # ---------------------------------------------------------------------------
+  # Rust formatting only. `cargo fmt --check` does not run build.rs, so it needs
+  # no staged assets. clippy/check/test are asset-dependent and live in
+  # release.yml after the MonoGame artifact + staging steps.
+  # ---------------------------------------------------------------------------
+  rust-fmt:
+    name: rust (fmt --check)
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout (no submodules)
+        uses: actions/checkout@v5
+
+      - name: Setup Rust (${{ env.RUST_TOOLCHAIN }} + rustfmt)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          components: rustfmt
+
+      - name: cargo fmt --check
+        working-directory: src/desktop/src-tauri
+        run: cargo fmt --check

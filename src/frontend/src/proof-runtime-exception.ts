@@ -1,8 +1,8 @@
 import {
   compileLoadStartIssue23,
   preparePackagedProofRuntime,
-} from "./issue21";
-import { createIssue024RunStopController } from "./issue24-controller";
+} from "./scenario-toolkit";
+import { createRunStopController } from "./lifecycle-controller";
 import { runScenario, type SubProof } from "./scenario-runner";
 
 export const issue029PartialEvidence: Record<string, unknown> = {};
@@ -311,7 +311,7 @@ async function runDrawFailureThroughController() {
     throw new Error("Production Run/Stop controls are unavailable.");
   let starts = 0;
   let explicitStops = 0;
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start: () => {
       starts++;
       return compileLoadStartIssue23(starts === 1

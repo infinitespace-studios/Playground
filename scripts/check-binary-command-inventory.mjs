@@ -22,7 +22,7 @@
 //                  * known product runtime exports/assets present (floor)
 //                  * source capability/permission grants exactly the 8 product commands
 //                  * ZERO of the 8 old issue-numbered product command names
-//                  * ZERO of the 70 proof command strings; ZERO issueNN command tokens
+//                  * ZERO of the 59 proof command strings; ZERO issueNN command tokens
 //                  * ZERO proof env/report markers (MONOGAME_ISSUE*_PROOF, PROOF relays,
 //                    ISSUE0xx_REPORT report keys)
 //                  * ZERO proof-only Rust relay/state markers
@@ -31,7 +31,7 @@
 //                    installIssue040AudioProbe, compilerProof, initializeCompilerProofMode, …)
 //     proof    — the explicit `--features proof-harness` build. Proves the harness
 //                is actually compiled in:
-//                  * all 78 commands present (8 product + 70 proof)
+//                  * all 67 commands present (8 product + 59 proof)
 //                  * representative + full proof symbols/env markers/JS globals present
 //                  * proof extension assets staged
 //                  * EXACTLY eight scenario suites retained (dist-proof manifest)
@@ -117,9 +117,9 @@ function deriveInventories() {
   // Canonical counts (anti-vacuity floors + exact drift anchors).
   if (product.length !== 8)
     errs.push(`PRODUCT_COMMANDS count ${product.length} != 8`);
-  if (proof.length !== 70) errs.push(`PROOF_COMMANDS count ${proof.length} != 70`);
-  if (handler.length !== 78)
-    errs.push(`HANDLER_ORDER count ${handler.length} != 78`);
+  if (proof.length !== 59) errs.push(`PROOF_COMMANDS count ${proof.length} != 59`);
+  if (handler.length !== 67)
+    errs.push(`HANDLER_ORDER count ${handler.length} != 67`);
 
   const productSet = new Set(product);
   const proofSet = new Set(proof);
@@ -205,9 +205,13 @@ const PROOF_JS_GLOBAL_REGEX = /previewIssue[0-9A-Za-z]*Proof/;
 // Proof-only staged asset filenames (present ONLY in dist-proof).
 const PROOF_ASSET_FILES = [
   "preview-proof-extension.js",
+  "preview-proof-state.js",
+  "preview-proof-audio.js",
+  "preview-proof-bridge.js",
+  "preview-proof-lifecycle.js",
   "compiler-proof-extension.js",
-  "issue033-negative-observer.js",
-  "Issue21EndpointsProof.js",
+  "preview-no-wasm-eval-observer.js",
+  "ProtocolEndpointsProof.js",
 ];
 
 // Proof env/report marker regexes (must be absent from the product binary).
@@ -607,11 +611,11 @@ function checkProof(inv, opts, fail, note) {
   note(`  identity: ${res.identity} (${res.expectedId})`);
   const bin = scanArtifact(res.binaryPath);
 
-  // Positive: all 78 commands present (proves the feature compiled the harness in).
+  // Positive: all 67 commands present (proves the feature compiled the harness in).
   const missingAll = inv.handler.filter((c) => !bin.has(c));
   if (missingAll.length)
     fail(
-      `PROOF binary missing ${missingAll.length}/78 commands (harness not compiled?): ` +
+      `PROOF binary missing ${missingAll.length}/67 commands (harness not compiled?): ` +
         missingAll.slice(0, 10).join(", ") +
         (missingAll.length > 10 ? ", …" : ""),
     );

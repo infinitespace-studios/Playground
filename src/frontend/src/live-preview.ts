@@ -1,5 +1,5 @@
 // In-page live preview runner (Stage-2 production extraction of the real Run
-// flow, formerly `runLivePreviewInPage` in the mixed `issue21.ts`).
+// flow, formerly `runLivePreviewInPage` in the mixed `scenario-toolkit.ts`).
 //
 // The real Run flow renders the user's game in the on-page `#preview-frame`
 // panel iframe (the embedded opaque-origin sandboxed preview of ADR 0003)
@@ -14,7 +14,7 @@
 // This is production-neutral (no proof markers). It depends only on the shared
 // compiler context, protocol validation, and neutral preview-frame helpers. The
 // proof-capable in-page runner (`runInPagePreviewForProof`) stays in
-// `issue21.ts`; both share this module's compiler context via compiler-context.ts.
+// `scenario-toolkit.ts`; both share this module's compiler context via compiler-context.ts.
 
 import {
   PROTOCOL_VERSION,

@@ -1,486 +1,571 @@
 #!/usr/bin/env node
 /**
- * Issue 043: Measure Release package size and API survival.
+ * Release package-size gate (PRODUCT-profile, cross-platform, fail-closed).
  *
- * Measures the compressed package size of the Release-optimized application,
- * produces a category breakdown, verifies debug symbols are stripped, and
- * re-runs key fixtures against the Release build.
+ * This is a *gate*: it verifies the freshly built release artifacts of the
+ * selected profile exist, that the packaged installer/bundle is within the
+ * size target, that the staged frontend is the correct profile, and that the
+ * currently-implemented content fixtures are present. Any failed REQUIRED check
+ * exits non-zero. It never mutates docs and only writes a JSON report when
+ * `--report <path>` is given.
  *
- * Usage: node scripts/measure-release-size.mjs
+ * Design (repairs over the historical issue-043 script):
+ *   - PRODUCT profile is the default and the shipping target. PROOF may be
+ *     measured explicitly but is never the release gate.
+ *   - CROSS-PLATFORM: accepts explicit --binary / --package / --dist inputs and
+ *     resolves any of the six release package formats (.dmg/.app, .msi/.exe,
+ *     .deb/.AppImage) under a --package-dir. Nothing is hardcoded to macOS or a
+ *     single arch.
+ *   - NO PROOF EXPECTATION IN PRODUCT: the product artifact legitimately carries
+ *     no proof commands; profile integrity is proven from the staged
+ *     profile-manifest.json (and, when a macOS .app is supplied, its
+ *     CFBundleIdentifier), not by scanning for proof symbols.
+ *   - CONTENT FIXTURES: the issue 039/040 content pipeline is IMPLEMENTED; the
+ *     durable proof is the committed frontend fixtures/tests. Their presence is
+ *     a REQUIRED check, never a false "not yet implemented".
+ *   - FAIL-CLOSED: a missing required binary/package, a wrong-profile staged
+ *     dist, a missing content fixture, an over-target package, or (where it can
+ *     be positively determined) an unstripped Release binary exit non-zero.
+ *   - DETERMINISTIC SELF-TESTS: `--self-test` proves the size verdict, profile
+ *     integrity, package resolution/measurement, and the aggregate fail-closed
+ *     evaluation without requiring a built artifact.
+ *
+ * Usage:
+ *   node scripts/measure-release-size.mjs [--profile product|proof]
+ *       [--binary <path>] [--package <path>] [--package-dir <dir>]
+ *       [--dist <dir>] [--target <triple>] [--report <path>]
+ *   node scripts/measure-release-size.mjs --self-test
+ *
+ * Back-compat: --dmg <path> is accepted as an alias for --package <path>.
  */
 
 import { execFileSync } from "node:child_process";
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readdirSync,
   readFileSync,
+  rmSync,
   statSync,
   writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { tmpdir } from "node:os";
+import { basename, dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const BINARY = join(
-  REPO,
-  "src/desktop/src-tauri/target/release/monogame-playground",
-);
-const DIST = join(REPO, "src/frontend/dist");
-const DMG_PATH = join(
-  REPO,
-  "src/desktop/src-tauri/target/release/bundle/dmg/MonoGame Playground_0.1.0_aarch64.dmg",
-);
-const ARTIFACTS = join(REPO, "artifacts/issue043");
 
-// --- Helpers ---
+// --- Size policy (binary MiB) --------------------------------------------
 
-function nowMs() {
-  return Number(process.hrtime.bigint()) / 1e6;
+const MIB = 1024 * 1024;
+const TARGET_MIB = 100; // hard gate
+const STRETCH_MIB = 50; // informational stretch goal
+
+// Recognised release package artifact extensions across the six-platform matrix.
+// `.app` is a macOS bundle *directory*; the rest are files.
+const PACKAGE_EXTENSIONS = [".dmg", ".app", ".msi", ".exe", ".deb", ".AppImage"];
+
+const PRODUCT_IDENTIFIER = "com.monogame.playground";
+const PROOF_IDENTIFIER = "com.monogame.playground.proof";
+
+// --- Argument parsing ----------------------------------------------------
+
+function parseArgs(argv) {
+  const args = {
+    profile: "product",
+    binary: null,
+    package: null,
+    packageDir: null,
+    dist: null,
+    target: null,
+    report: null,
+    selfTest: false,
+  };
+  for (let i = 0; i < argv.length; i += 1) {
+    const a = argv[i];
+    if (a === "--self-test") args.selfTest = true;
+    else if (a === "--profile") args.profile = argv[++i];
+    else if (a === "--binary") args.binary = argv[++i];
+    else if (a === "--package") args.package = argv[++i];
+    else if (a === "--dmg") args.package = argv[++i]; // back-compat alias
+    else if (a === "--package-dir") args.packageDir = argv[++i];
+    else if (a === "--dist") args.dist = argv[++i];
+    else if (a === "--target") args.target = argv[++i];
+    else if (a === "--report") args.report = argv[++i];
+    else throw new Error(`Unknown argument: ${a}`);
+  }
+  if (args.profile !== "product" && args.profile !== "proof") {
+    throw new Error(`--profile must be "product" or "proof" (got "${args.profile}")`);
+  }
+  return args;
 }
 
-function sleep(ms) {
-  return new Promise((r) => setTimeout(r, ms));
+// --- Profile-derived default paths ---------------------------------------
+
+function profileDefaults(profile, target) {
+  const tauriTarget = join(REPO, "src/desktop/src-tauri/target");
+  const releaseRoot = target
+    ? join(tauriTarget, target, "release")
+    : join(tauriTarget, "release");
+  const exeName =
+    process.platform === "win32" ? "monogame-playground.exe" : "monogame-playground";
+  const binary = join(releaseRoot, exeName);
+  const dist = join(REPO, profile === "proof" ? "src/frontend/dist-proof" : "src/frontend/dist");
+  const bundleDir = join(releaseRoot, "bundle");
+  const expectedId = profile === "proof" ? PROOF_IDENTIFIER : PRODUCT_IDENTIFIER;
+  return { releaseRoot, binary, dist, bundleDir, expectedId };
 }
 
-function run(cmd, args = [], opts = {}) {
-  const start = nowMs();
-  try {
-    const out = execFileSync(cmd, args, {
-      cwd: REPO,
-      encoding: "utf8",
-      timeout: opts.timeout || 120_000,
-      stdio: ["inherit", "pipe", "pipe"],
-      ...opts,
-    });
-    return { ok: true, output: out.trim(), elapsed: nowMs() - start };
-  } catch (err) {
-    const msg = err.stdout || err.stderr || err.message;
-    return { ok: false, error: msg, elapsed: nowMs() - start };
+// --- Size measurement (pure; self-testable) ------------------------------
+
+// Measures a file OR a bundle directory (e.g. macOS .app). Returns bytes, or
+// null when the path is absent (fail-closed: the caller treats null as missing).
+function measurePathSize(path) {
+  if (!existsSync(path)) return null;
+  const st = statSync(path);
+  if (st.isFile()) return st.size;
+  if (st.isDirectory()) {
+    let total = 0;
+    const visit = (dir) => {
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, entry.name);
+        if (entry.isDirectory()) visit(p);
+        else if (entry.isFile()) total += statSync(p).size;
+      }
+    };
+    visit(path);
+    return total;
   }
+  return null;
 }
 
-// --- Category breakdown ---
-
-function measureCategories() {
-  const categories = {};
-
-  // 1. Shell native binary
-  const binaryPath = BINARY;
-  if (existsSync(binaryPath)) {
-    categories["Shell native binary"] = statSync(binaryPath).size;
-  }
-
-  // 2. Frontend shell (main JS + HTML + CSS + favicon)
-  const shellFiles = ["index.html", "main.js", "favicon.ico", "favicon.png"];
-  let shellTotal = 0;
-  for (const f of shellFiles) {
-    const p = join(DIST, f);
-    if (existsSync(p)) shellTotal += statSync(p).size;
-  }
-  categories["Frontend shell (HTML/JS/CSS)"] = shellTotal;
-
-  // 3. Compiler runtime (Roslyn WASM + reference assemblies + MSBuild)
-  const compilerPath = join(DIST, "compiler");
-  if (existsSync(compilerPath)) {
-    categories["Compiler runtime (Roslyn WASM + refs)"] = dirSize(compilerPath);
-  }
-
-  // 4. Preview runtime (Blazor WASM + MonoGame)
-  const previewPath = join(DIST, "preview");
-  if (existsSync(previewPath)) {
-    categories["Preview runtime (Blazor WASM + MonoGame)"] = dirSize(previewPath);
-  }
-
-  // 5. MonoGame managed assemblies (shared _framework)
-  const mgAssemblies = dirSize(join(DIST, "_framework"), (name) =>
-    name.startsWith("MonoGame") ||
-    name.startsWith("Microsoft.Xna") ||
-    name.startsWith("WindowsBase"),
-  );
-  categories["MonoGame managed assemblies"] = mgAssemblies;
-
-  // 6. .NET runtime (shared _framework - everything else)
-  const dotnetRuntime = dirSize(join(DIST, "_framework"), (name) =>
-    !name.startsWith("MonoGame") &&
-    !name.startsWith("Microsoft.Xna") &&
-    !name.startsWith("WindowsBase") &&
-    !name.startsWith("Microsoft.CodeAnalysis") &&
-    !name.startsWith("System.Private.CoreLib") &&
-    !name.startsWith("dotnet.native") &&
-    !name.startsWith("icudt") &&
-    !name.startsWith("dotnet.js") &&
-    !name.startsWith("blazor.boot") &&
-    !name.startsWith("mscorlib"),
-  );
-  categories[".NET runtime (shared _framework)"] = dotnetRuntime;
-
-  // 7. Audio dependencies
-  const audioPath = join(DIST, "Content");
-  if (existsSync(audioPath)) {
-    categories["Audio dependencies"] = dirSize(audioPath);
-  }
-
-  // Total
-  let total = 0;
-  for (const name of Object.keys(categories)) {
-    total += categories[name];
-  }
-
-  return { categories, uncompressedBytes: total };
-}
-
-function dirSize(dirPath, filter) {
-  let total = 0;
-  function visit(dir) {
-    for (const entry of readdirSync(dir)) {
-      const path = join(dir, entry);
-      if (statSync(path).isDirectory()) {
-        visit(path);
-      } else {
-        if (!filter || filter(entry)) {
-          total += statSync(path).size;
-        }
+// Resolve the release package artifact. Preference order:
+//   1. explicit --package (must exist)
+//   2. any recognised package under --package-dir / the profile bundle dir,
+//      preferring an installer/compressed artifact, then the host arch token.
+function resolvePackage(explicit, searchDir) {
+  if (explicit) return existsSync(explicit) ? explicit : null;
+  if (!searchDir || !existsSync(searchDir)) return null;
+  const found = [];
+  const visit = (dir, depth) => {
+    if (depth > 4) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      const ext = PACKAGE_EXTENSIONS.find((e) => entry.name.endsWith(e));
+      if (ext === ".app" && entry.isDirectory()) {
+        found.push(p);
+      } else if (ext && ext !== ".app" && entry.isFile()) {
+        found.push(p);
+      } else if (entry.isDirectory()) {
+        visit(p, depth + 1);
       }
     }
-  }
-  visit(dirPath);
-  return total;
+  };
+  visit(searchDir, 0);
+  if (found.length === 0) return null;
+  // Prefer a compressed/installer artifact over a raw .app when both exist,
+  // then select the host architecture within that class when filenames expose
+  // an architecture token.
+  const candidates = found.filter((f) => !f.endsWith(".app"));
+  const preferredClass = candidates.length > 0 ? candidates : found;
+  const hostToken = process.arch === "arm64" ? "aarch64" : "x64";
+  const preferred = preferredClass.find((f) => basename(f).includes(hostToken));
+  return preferred ?? preferredClass[0];
 }
 
-// --- Debug symbols check ---
+// --- Profile integrity (pure; self-testable) -----------------------------
 
-function checkDebugSymbols(binaryPath) {
-  // Check for .dSYM bundle (Apple debug symbol package) — should NOT exist in Release
-  const dsymPath = binaryPath + ".dSYM";
-  const hasDSym = existsSync(dsymPath);
+function readManifestProfile(dist) {
+  const p = join(dist, "profile-manifest.json");
+  if (!existsSync(p)) return { ok: false, reason: "missing profile-manifest.json" };
+  let manifest;
+  try {
+    manifest = JSON.parse(readFileSync(p, "utf8"));
+  } catch (err) {
+    return { ok: false, reason: `malformed profile-manifest.json: ${err.message}` };
+  }
+  return { ok: true, profile: manifest.profile ?? null, manifest };
+}
 
-  // Check for DWARF debug sections via `file` command
-  const fileResult = run("file", [binaryPath]);
-  const hasDWARF = fileResult.ok && fileResult.output.includes("(with debug info)");
+// Validates that a staged dist is the requested profile. Fail-closed: an absent
+// or wrong-profile manifest fails.
+function validateDistProfile(dist, expectedProfile) {
+  const res = readManifestProfile(dist);
+  if (!res.ok) return { ok: false, reason: res.reason };
+  if (res.profile !== expectedProfile) {
+    return {
+      ok: false,
+      reason: `staged dist profile="${res.profile}" but expected "${expectedProfile}"`,
+    };
+  }
+  return { ok: true, profile: res.profile };
+}
 
-  // Use `nm -g` to check for debug-related global symbols
-  // In a stripped Release build, there should be no __debug_* or similar
-  const nmResult = run("nm", ["-g", binaryPath]);
-  const hasDebugSyms =
-    nmResult.ok &&
-    (nmResult.output.includes("__debug_") ||
-      nmResult.output.includes(".debug_") ||
-      nmResult.output.includes("_DWARF"));
+// Reads a macOS .app CFBundleIdentifier (null if not an .app / no plist).
+function readBundleIdentifier(pkgPath) {
+  if (!pkgPath || !pkgPath.endsWith(".app")) return null;
+  const plist = join(pkgPath, "Contents", "Info.plist");
+  if (!existsSync(plist)) return null;
+  const xml = readFileSync(plist, "utf8");
+  const m = xml.match(/<key>CFBundleIdentifier<\/key>\s*<string>([^<]+)<\/string>/);
+  return m ? m[1].trim() : null;
+}
 
-  const stripped = !hasDSym && !hasDWARF && !hasDebugSyms;
+// --- Size verdict (pure; self-testable) ----------------------------------
 
+function sizeVerdict(compressedMiB) {
+  const overTarget = compressedMiB > TARGET_MIB;
   return {
-    stripped,
-    hasDSym,
-    hasDWARF,
-    hasDebugSyms,
+    targetMiB: TARGET_MIB,
+    stretchGoalMiB: STRETCH_MIB,
+    measuredMiB: Number(compressedMiB.toFixed(2)),
+    meetsStretch: compressedMiB <= STRETCH_MIB,
+    verdict: overTarget ? "FAIL" : "PASS",
+    waiverNeeded: overTarget,
   };
 }
 
-// --- Main ---
+// --- Content fixtures (implemented; committed proof) ---------------------
 
-async function main() {
-  mkdirSync(ARTIFACTS, { recursive: true });
+const CONTENT_FIXTURES = [
+  {
+    name: "content-validation",
+    desc: "Texture2D/XNB content validation",
+    file: "src/frontend/src/content-validation.test.ts",
+  },
+  {
+    name: "audio-content",
+    desc: "SoundEffect PCM validation + playback contract",
+    file: "src/frontend/src/audio-content.test.ts",
+  },
+  {
+    name: "audio-content-fixture",
+    desc: "Committed WAV→XNB fixture builder",
+    file: "src/frontend/src/audio-content-fixture.ts",
+  },
+];
 
-  console.log("=== Issue 043: Release Package Size & API Survival ===\n");
+function contentFixtureStatus(repo = REPO) {
+  return CONTENT_FIXTURES.map((f) => {
+    const ok = existsSync(join(repo, f.file));
+    return { ...f, ok, note: ok ? "implemented (committed fixture/test present)" : "MISSING" };
+  });
+}
 
-  // 1. Verify binary exists
-  if (!existsSync(BINARY)) {
-    console.error(`Release binary not found: ${BINARY}`);
-    console.error("Run: npm --prefix src/desktop run tauri -- build");
-    process.exit(1);
+// --- Debug-symbol check (best-effort, cross-platform) --------------------
+
+// Returns { stripped: bool|null, detail }. `null` means "could not determine on
+// this platform"; only a POSITIVE determination that symbols are present fails
+// the gate (fail-closed but not falsely-failing on platforms we cannot inspect).
+function checkDebugSymbols(binary) {
+  if (!binary || !existsSync(binary)) return { stripped: null, detail: "binary absent" };
+  const dsym = binary + ".dSYM";
+  if (existsSync(dsym)) return { stripped: false, detail: `sidecar .dSYM present: ${dsym}` };
+  // `file` exists on macOS/Linux; absent/failing on Windows → indeterminate.
+  try {
+    const out = execFileSync("file", [binary], { encoding: "utf8", timeout: 30_000 });
+    if (/with debug_info|not stripped/.test(out)) {
+      return { stripped: false, detail: out.trim() };
+    }
+    if (/stripped/.test(out)) return { stripped: true, detail: out.trim() };
+    return { stripped: null, detail: `indeterminate: ${out.trim()}` };
+  } catch {
+    return { stripped: null, detail: "`file` unavailable on this platform" };
+  }
+}
+
+// --- Aggregate evaluation (pure; self-testable) --------------------------
+
+// Given already-measured inputs, produce the ordered failure list. This is the
+// single fail-closed decision point shared by main() and the self-test.
+function evaluateRelease(input) {
+  const failures = [];
+
+  if (!input.binaryExists) {
+    failures.push(`required release binary missing: ${input.binaryPath}`);
   }
 
-  const binarySize = statSync(BINARY).size;
-  const binarySizeMB = (binarySize / (1024 * 1024)).toFixed(2);
-  console.log(`[1] Release binary: ${binarySizeMB} MB (${binarySize} bytes)`);
-
-  // 2. DMG size
-  const dmgExists = existsSync(DMG_PATH);
-  if (!dmgExists) {
-    console.error("DMG not found. Build with: npm --prefix src/desktop run tauri -- build");
-    process.exit(1);
+  if (input.packageSizeBytes == null) {
+    failures.push(
+      `required release package missing (looked for ${PACKAGE_EXTENSIONS.join("/")}` +
+        `${input.packageHint ? ` under ${input.packageHint}` : ""})`,
+    );
+  } else {
+    const verdict = sizeVerdict(input.packageSizeBytes / MIB);
+    if (verdict.verdict === "FAIL") {
+      failures.push(`package ${verdict.measuredMiB} MiB exceeds ${TARGET_MIB} MiB target`);
+    }
   }
 
-  const dmgStat = statSync(DMG_PATH);
-  const dmgSizeMB = (dmgStat.size / (1024 * 1024)).toFixed(2);
-  console.log(`[2] DMG package: ${dmgSizeMB} MB`);
-
-  // 3. Measure category breakdown from dist and binary
-  const { categories, uncompressedBytes } = measureCategories();
-
-  console.log("\n[3] Category breakdown (uncompressed):");
-  const totalUncompressedMB = (uncompressedBytes / (1024 * 1024)).toFixed(2);
-  for (const [name, size] of Object.entries(categories)) {
-    const pct = ((size / uncompressedBytes) * 100).toFixed(1);
-    const sizeMB = (size / (1024 * 1024)).toFixed(2);
-    console.log(`    ${name}: ${sizeMB} MB (${pct}%)`);
+  if (!input.distProfile.ok) {
+    failures.push(`staged dist profile integrity failed: ${input.distProfile.reason}`);
   }
 
-  // 4. Debug symbols check
-  const debugCheck = checkDebugSymbols(BINARY);
-  console.log("\n[4] Debug symbols:");
-  console.log(`    Stripped for Release: ${debugCheck.stripped ? "YES" : "NO"}`);
-  console.log(`    DWARF debug info: ${debugCheck.hasDWARF ? "YES" : "no"}`);
-  console.log(`    .dSYM bundle: ${debugCheck.hasDSym ? "YES" : "no"}`);
-
-  // 5. Release config check
-  const compilerCsproj = join(REPO, "src/compiler/Playground.Compiler.csproj");
-  const previewCsproj = join(REPO, "src/preview/Playground.Preview.csproj");
-
-  function checkCsprojRelease(csprojPath) {
-    if (!existsSync(csprojPath)) return { exists: false };
-    const content = readFileSync(csprojPath, "utf8");
-    const hasReleaseConfig =
-      content.includes("<PropertyGroup Condition") &&
-      content.includes("Release");
-    const debugType = content.includes("DebugType")
-      ? content.match(/DebugType>([^<]+)/)?.[1]
-      : "not specified";
-    return { exists: true, hasReleaseConfig, debugType, content };
+  if (input.bundleIdentity && input.bundleIdentity.mismatch) {
+    failures.push(
+      `bundle identity mismatch: CFBundleIdentifier "${input.bundleIdentity.actual}" ` +
+        `!= expected "${input.bundleIdentity.expected}"`,
+    );
   }
 
-  const compilerConfig = checkCsprojRelease(compilerCsproj);
-  const previewConfig = checkCsprojRelease(previewCsproj);
-
-  console.log("\n[5] Release configuration:");
-  console.log(
-    `    Compiler csproj: ${compilerConfig.exists ? "exists" : "missing"}`,
-  );
-  console.log(
-    `    Preview csproj: ${previewConfig.exists ? "exists" : "missing"}`,
-  );
-
-  // 6. Verify proof endpoints compile in Release (compile-time gate)
-  // These proof functions are #[tauri::command]s that are stripped in Release
-  // if proof mode is disabled. The fact that the Release binary built
-  // successfully proves the command surface is intact.
-  console.log("\n[6] Fixture verification against Release build:");
-
-  // Check proof_enabled functions exist in binary
-  const symbolsResult = run("nm", ["-g", BINARY]);
-  const hasCommands = [
-    "issue030_is_proof_enabled",
-    "issue031_is_proof_enabled",
-    "issue032_is_proof_enabled",
-    "issue039_is_proof_enabled",
-    "issue040_is_proof_enabled",
-  ];
-
-  const allSymbols = symbolsResult.ok ? symbolsResult.output : "";
-  const commandResults = [];
-  for (const sym of hasCommands) {
-    // The proof_enabled functions are small and may be inlined, but their
-    // presence in the symbol table or the successful binary build confirms
-    // they compiled correctly.
-    const found = allSymbols.includes(sym.replace(/_/g, "_"));
-    commandResults.push({
-      name: sym,
-      found,
-    });
+  for (const f of input.fixtures) {
+    if (!f.ok) failures.push(`content fixture missing: ${f.file}`);
   }
 
-  // Run Rust unit tests in Release mode — these validate the entire
-  // policy surface (issues 31-38) via build.rs compile-time checks
-  // and runtime assertions in lib.rs tests.
-  console.log("\n    Running Rust unit tests (Release)...");
-  const testResult = run(
-    "cargo",
-    ["test", "--lib", "--release"],
-    { cwd: join(REPO, "src/desktop/src-tauri"), timeout: 300_000 },
-  );
+  // Only a POSITIVE "not stripped" determination fails the gate.
+  if (input.debug && input.debug.stripped === false) {
+    failures.push(`Release binary is not stripped: ${input.debug.detail}`);
+  }
 
-  const rustTestsOk = testResult.ok;
-  const testMatch = testResult.output?.match(/(\d+) passed/);
-  const testCount = testMatch ? testMatch[1] : "?";
-  console.log(
-    `    Rust unit tests (Release): ${rustTestsOk ? "PASS" : "FAIL"} (${testCount} tests)`,
-  );
+  return failures;
+}
 
-  // Compile-time fixture verification
-  // Issues 039 and 040 are not yet implemented (untracked issue files)
-  // so we note their status rather than running them.
-  const fixtures = [
-    {
-      name: "issue030",
-      desc: "Two-file cross-call compile/run",
-      ok: true,
-      note: "compiled in Release (proof endpoint present)",
-    },
-    {
-      name: "issue031",
-      desc: "Policy rejection (supported API)",
-      ok: rustTestsOk,
-      note: "build.rs validation + Rust tests passed",
-    },
-    {
-      name: "issue032",
-      desc: "Policy rejection (native JS interop)",
-      ok: rustTestsOk,
-      note: "build.rs validation + Rust tests passed",
-    },
-    {
-      name: "issue039",
-      desc: "Texture2D content validation",
-      ok: false,
-      note: "not yet implemented (untracked issue)",
-    },
-    {
-      name: "issue040",
-      desc: "SoundEffect playback",
-      ok: false,
-      note: "not yet implemented (untracked issue)",
-    },
-  ];
+// --- Self-test -----------------------------------------------------------
 
-  const results = fixtures.map((f) => ({
-    ...f,
-    elapsedMs: 0,
-    stderr: "",
-  }));
-
-  // 7. Calculate total compressed size and verdict
-  const totalCompressedMB = dmgStat.size / (1024 * 1024);
-  const target100MB = 100;
-  const stretchGoal50MB = 50;
-  const verdict =
-    totalCompressedMB <= stretchGoal50MB
-      ? "PASS"
-      : totalCompressedMB <= target100MB
-        ? "PASS"
-        : "FAIL";
-  const waiverNeeded = totalCompressedMB > target100MB;
-
-  // 8. Compile report
-  const report = {
-    schemaVersion: 1,
-    generatedAt: new Date().toISOString(),
-    issue: "043-measure-release-package-size-api-survival",
-    prdReferences: ["17", "9.6", "20.2"],
-    binary: {
-      path: BINARY,
-      sizeBytes: binarySize,
-      sizeMB: parseFloat(binarySizeMB),
-    },
-    package: {
-      type: "dmg",
-      path: DMG_PATH,
-      compressedSizeBytes: dmgStat.size,
-      compressedSizeMB: parseFloat(dmgSizeMB),
-    },
-    categories,
-    uncompressedSizeMB: parseFloat(totalUncompressedMB),
-    compressedSizeMB: parseFloat(totalCompressedMB),
-    debugSymbols: debugCheck,
-    releaseConfiguration: {
-      compiler: compilerConfig,
-      preview: previewConfig,
-    },
-    fixtures: results,
-    sizeVerdict: {
-      targetMB: target100MB,
-      stretchGoalMB: stretchGoal50MB,
-      measuredMB: parseFloat(totalCompressedMB.toFixed(2)),
-      verdict,
-      waiverNeeded,
-    },
+function selfTest() {
+  console.log("Self-test: proving the size gate, profile integrity, and package logic are real.\n");
+  let pass = 0;
+  let fail = 0;
+  const assert = (cond, label) => {
+    if (cond) {
+      pass += 1;
+      console.log(`  [PASS] ${label}`);
+    } else {
+      fail += 1;
+      console.log(`  [FAIL] ${label}`);
+    }
   };
 
-  // 9. Write report
-  const reportPath = join(ARTIFACTS, "issue043-report.json");
-  writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
-  console.log(`\n[7] Report: ${reportPath}`);
+  // (1) Size verdict boundaries.
+  assert(sizeVerdict(40).verdict === "PASS" && sizeVerdict(40).meetsStretch, "40 MiB passes and meets stretch");
+  assert(sizeVerdict(80).verdict === "PASS" && !sizeVerdict(80).meetsStretch, "80 MiB passes target, not stretch");
+  assert(sizeVerdict(100).verdict === "PASS", "exactly 100 MiB passes (boundary)");
+  assert(sizeVerdict(100.01).verdict === "FAIL" && sizeVerdict(100.01).waiverNeeded, "over 100 MiB fails closed");
 
-  // 10. Print summary
-  console.log("\n=== SUMMARY ===");
+  // (2) Content fixtures are implemented (present), never falsely unimplemented.
+  const fixtures = contentFixtureStatus();
+  assert(fixtures.length === 3, "three content fixtures are tracked");
+  assert(fixtures.every((f) => f.ok), "all content fixtures present (implemented, not 'not yet implemented')");
+  assert(fixtures.every((f) => f.note !== "not yet implemented"), "no fixture falsely marked unimplemented");
+
+  const tmp = mkdtempSync(join(tmpdir(), "relsize-"));
+  try {
+    // (3) Package resolution + size measurement (file + directory bundle).
+    assert(resolvePackage(null, join(tmp, "nope")) === null, "absent package dir → null (no throw)");
+    assert(resolvePackage("/no/such/file.dmg", null) === null, "explicit missing package → null");
+
+    const bundleDir = join(tmp, "bundle", "dmg");
+    mkdirSync(bundleDir, { recursive: true });
+    const dmg = join(bundleDir, "MonoGame Playground_0.1.0_aarch64.dmg");
+    writeFileSync(dmg, Buffer.alloc(1234));
+    assert(resolvePackage(null, join(tmp, "bundle")) === dmg, "resolves a .dmg under the search dir");
+    assert(measurePathSize(dmg) === 1234, "file size measured exactly");
+
+    const app = join(tmp, "bundle", "macos", "MonoGame Playground.app");
+    mkdirSync(join(app, "Contents", "MacOS"), { recursive: true });
+    writeFileSync(join(app, "Contents", "MacOS", "monogame-playground"), Buffer.alloc(2000));
+    writeFileSync(join(app, "Contents", "Info.plist"), Buffer.alloc(48));
+    assert(measurePathSize(app) === 2048, "directory bundle size summed recursively");
+    assert(measurePathSize(join(tmp, "gone")) === null, "absent path → null size");
+
+    // (4) Profile-manifest integrity (match / mismatch / missing / malformed).
+    const productDist = join(tmp, "dist");
+    mkdirSync(productDist, { recursive: true });
+    writeFileSync(join(productDist, "profile-manifest.json"), JSON.stringify({ profile: "product", modules: [] }));
+    assert(validateDistProfile(productDist, "product").ok, "product manifest accepted for product");
+    assert(!validateDistProfile(productDist, "proof").ok, "product manifest rejected for proof (wrong profile)");
+    assert(!validateDistProfile(join(tmp, "missing-dist"), "product").ok, "missing manifest rejected");
+    const badDist = join(tmp, "bad-dist");
+    mkdirSync(badDist, { recursive: true });
+    writeFileSync(join(badDist, "profile-manifest.json"), "{ not json");
+    assert(!validateDistProfile(badDist, "product").ok, "malformed manifest rejected");
+
+    // (5) Bundle identity from a .app plist.
+    const proofApp = join(tmp, "Proof.app");
+    mkdirSync(join(proofApp, "Contents"), { recursive: true });
+    writeFileSync(
+      join(proofApp, "Contents", "Info.plist"),
+      `<key>CFBundleIdentifier</key>\n<string>${PROOF_IDENTIFIER}</string>`,
+    );
+    assert(readBundleIdentifier(proofApp) === PROOF_IDENTIFIER, "reads CFBundleIdentifier from .app plist");
+    assert(readBundleIdentifier(dmg) === null, "non-.app package → null identifier");
+
+    // (6) Aggregate fail-closed evaluation.
+    const okInput = {
+      binaryExists: true,
+      binaryPath: "/x/bin",
+      packageSizeBytes: 40 * MIB,
+      packageHint: null,
+      distProfile: { ok: true, profile: "product" },
+      bundleIdentity: null,
+      fixtures: contentFixtureStatus(),
+      debug: { stripped: true, detail: "stripped" },
+    };
+    assert(evaluateRelease(okInput).length === 0, "clean inputs → zero failures (PASS)");
+    assert(
+      evaluateRelease({ ...okInput, binaryExists: false }).some((f) => f.includes("binary missing")),
+      "missing binary fails closed",
+    );
+    assert(
+      evaluateRelease({ ...okInput, packageSizeBytes: null }).some((f) => f.includes("package missing")),
+      "missing package fails closed",
+    );
+    assert(
+      evaluateRelease({ ...okInput, packageSizeBytes: 101 * MIB }).some((f) => f.includes("exceeds")),
+      "over-target package fails closed",
+    );
+    assert(
+      evaluateRelease({ ...okInput, distProfile: { ok: false, reason: "wrong" } }).some((f) =>
+        f.includes("profile integrity"),
+      ),
+      "wrong-profile dist fails closed",
+    );
+    assert(
+      evaluateRelease({
+        ...okInput,
+        bundleIdentity: { mismatch: true, actual: PROOF_IDENTIFIER, expected: PRODUCT_IDENTIFIER },
+      }).some((f) => f.includes("identity mismatch")),
+      "wrong bundle identity fails closed",
+    );
+    assert(
+      evaluateRelease({
+        ...okInput,
+        fixtures: [{ ok: false, file: "src/frontend/src/audio-content-fixture.ts" }],
+      }).some((f) => f.includes("content fixture missing")),
+      "missing content fixture fails closed",
+    );
+    assert(
+      evaluateRelease({ ...okInput, debug: { stripped: false, detail: "with debug_info" } }).some((f) =>
+        f.includes("not stripped"),
+      ),
+      "unstripped binary fails closed",
+    );
+    assert(
+      evaluateRelease({ ...okInput, debug: { stripped: null, detail: "indeterminate" } }).length === 0,
+      "indeterminate strip state does NOT fail (no false failure)",
+    );
+  } finally {
+    rmSync(tmp, { recursive: true, force: true });
+  }
+
+  console.log(`\nSelf-test: ${pass}/${pass + fail} assertions passed.`);
+  if (fail > 0) {
+    console.error("Self-test FAILED.");
+    process.exit(1);
+  }
+  console.log("Self-test passed: size gate + profile integrity + package logic are real and fail-closed.");
+}
+
+// --- Main ----------------------------------------------------------------
+
+function main() {
+  const args = parseArgs(process.argv.slice(2));
+  if (args.selfTest) {
+    selfTest();
+    return;
+  }
+
+  const defaults = profileDefaults(args.profile, args.target);
+  const binaryPath = args.binary || defaults.binary;
+  const dist = args.dist || defaults.dist;
+  const packageHint = args.package || args.packageDir || defaults.bundleDir;
+
+  console.log(`=== Release package-size gate (profile: ${args.profile}) ===\n`);
+
+  const binaryExists = existsSync(binaryPath);
+  const binarySizeBytes = binaryExists ? statSync(binaryPath).size : null;
   console.log(
-    `Total compressed: ${parseFloat(totalCompressedMB.toFixed(2))} MB / 100 MB target → ${verdict}${
-      waiverNeeded ? " (WAIVER NEEDED)" : ""
+    `[1] Release binary: ${binaryExists ? (binarySizeBytes / MIB).toFixed(2) + " MiB" : "MISSING"}` +
+      `\n    ${binaryPath.replace(REPO + "/", "")}`,
+  );
+
+  const pkgPath = resolvePackage(args.package, args.packageDir || defaults.bundleDir);
+  const packageSizeBytes = pkgPath ? measurePathSize(pkgPath) : null;
+  if (pkgPath && packageSizeBytes != null) {
+    console.log(
+      `[2] Release package: ${(packageSizeBytes / MIB).toFixed(2)} MiB` +
+        `\n    ${pkgPath.replace(REPO + "/", "")}`,
+    );
+  } else {
+    console.log(`[2] Release package: MISSING (searched ${packageHint.replace(REPO + "/", "")})`);
+  }
+
+  const distProfile = validateDistProfile(dist, args.profile);
+  console.log(
+    `[3] Staged dist profile: ${distProfile.ok ? distProfile.profile : "INVALID — " + distProfile.reason}` +
+      `\n    ${dist.replace(REPO + "/", "")}`,
+  );
+
+  const actualId = readBundleIdentifier(pkgPath);
+  const bundleIdentity =
+    actualId != null
+      ? { mismatch: actualId !== defaults.expectedId, actual: actualId, expected: defaults.expectedId }
+      : null;
+  console.log(
+    `[4] Bundle identity: ${
+      actualId == null ? "n/a (no .app plist)" : actualId + (bundleIdentity.mismatch ? " (MISMATCH)" : " (ok)")
     }`,
   );
 
-  const fixturePass = results.filter((r) => r.ok).length;
-  const fixtureTotal = results.length;
+  const fixtures = contentFixtureStatus();
+  console.log("[5] Content validation fixtures (issues 039/040 — implemented):");
+  for (const f of fixtures) console.log(`    ${f.name}: ${f.ok ? "present" : "MISSING"} — ${f.desc}`);
+
+  const debug = checkDebugSymbols(binaryPath);
   console.log(
-    `Fixtures: ${fixturePass}/${fixtureTotal} passed`,
+    `[6] Debug symbols: ${
+      debug.stripped === true ? "stripped" : debug.stripped === false ? "NOT stripped" : "indeterminate"
+    } (${debug.detail})`,
   );
 
-  if (fixturePass < fixtureTotal) {
-    console.log("\nFailed fixtures:");
-    for (const r of results) {
-      if (!r.ok) {
-        console.log(`  ${r.name}: ${r.stderr.slice(0, 200)}`);
-      }
-    }
+  const verdict = packageSizeBytes != null ? sizeVerdict(packageSizeBytes / MIB) : null;
+  if (verdict) {
+    console.log(
+      `[7] Size verdict: ${verdict.measuredMiB} MiB / ${TARGET_MIB} MiB target → ${verdict.verdict}` +
+        (verdict.waiverNeeded ? " (WAIVER NEEDED)" : "") +
+        (verdict.meetsStretch ? ` (meets ${STRETCH_MIB} MiB stretch goal)` : ""),
+    );
   }
 
-  // 11. Append to performance-baseline.md (only if section not present)
-  const baselineMd = join(REPO, "docs/performance-baseline.md");
-  if (existsSync(baselineMd)) {
-    const existingMd = readFileSync(baselineMd, "utf8");
-    if (!existingMd.includes("## Release Package Size (Issue 043)")) {
-      const md = appendMarkdown(report);
-      writeFileSync(baselineMd, md);
-      console.log(`\nAppended to ${baselineMd}`);
-    } else {
-      console.log("\nRelease Package Size section already present in performance-baseline.md");
-    }
+  const failures = evaluateRelease({
+    binaryExists,
+    binaryPath,
+    packageSizeBytes,
+    packageHint: packageHint.replace(REPO + "/", ""),
+    distProfile,
+    bundleIdentity,
+    fixtures,
+    debug,
+  });
+
+  if (args.report) {
+    const report = {
+      schemaVersion: 3,
+      generatedAt: new Date().toISOString(),
+      profile: args.profile,
+      binary: { path: binaryPath, exists: binaryExists, sizeBytes: binarySizeBytes },
+      package: pkgPath ? { path: pkgPath, sizeBytes: packageSizeBytes } : null,
+      dist: { path: dist, profile: distProfile },
+      bundleIdentity,
+      contentFixtures: fixtures,
+      debugSymbols: debug,
+      sizeVerdict: verdict,
+      passed: failures.length === 0,
+      failures,
+    };
+    const reportPath = resolve(args.report);
+    mkdirSync(dirname(reportPath), { recursive: true });
+    writeFileSync(reportPath, JSON.stringify(report, null, 2) + "\n");
+    console.log(`\n[8] Report written: ${reportPath.replace(REPO + "/", "")}`);
   }
 
-  console.log("\nDone.");
+  if (failures.length > 0) {
+    console.error("\nRelease size gate FAILED:");
+    for (const f of failures) console.error(`  - ${f}`);
+    process.exit(1);
+  }
+  console.log("\nRelease size gate passed.");
 }
 
-function appendMarkdown(report) {
-  let md;
-  try {
-    md = readFileSync(join(REPO, "docs/performance-baseline.md"), "utf8");
-  } catch {
-    md = "# Performance Baseline\n\n";
-  }
-
-  const section = `
-## Release Package Size (Issue 043)
-
-- **Total compressed size:** ${report.package.compressedSizeMB} MB
-- **100 MB target:** ${report.sizeVerdict.verdict}${
-    report.sizeVerdict.waiverNeeded ? " — **WAIVER NEEDED**" : ""
-  }
-- **Debug symbols:** ${report.debugSymbols.hasDWARF || report.debugSymbols.hasDWARF2 ? "present" : "stripped"}
-
-### Category breakdown (uncompressed)
-
-| Category | Size |
-| --- | --- |
-${Object.entries(report.categories)
-  .map(
-    ([name, size]) =>
-      `| ${name} | ${(size / (1024 * 1024)).toFixed(2)} MB |`,
-  )
-  .join("\n")}
-
-### Fixture verification (Release build)
-
-| Fixture | Description | Result |
-| --- | --- | --- |
-${report.fixtures
-  .map(
-    (f) =>
-      `| ${f.name} | ${f.desc || f.description || ""} | ${f.ok ? "PASS" : "FAIL"} |`,
-  )
-  .join("\n")}
-`;
-
-  // Insert before ## Caveats
-  const caveatsIdx = md.lastIndexOf("## Caveats");
-  if (caveatsIdx > 0) {
-    return md.slice(0, caveatsIdx) + section + "\n" + md.slice(caveatsIdx);
-  }
-
-  return md + section;
-}
-
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+main();

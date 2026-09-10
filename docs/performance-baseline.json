@@ -1,6 +1,6 @@
 {
   "schemaVersion": 2,
-  "generatedAt": "2026-09-09T19:02:37.578Z",
+  "generatedAt": "2026-09-10T11:31:31.151Z",
   "issue": "041-measure-startup-compile-preview-stop-timings",
   "prdReferences": [
     "17",
@@ -82,25 +82,25 @@
     ]
   },
   "provenance": {
-    "repositoryCommit": "5eb3a9bfce60e6c33e6946ae9be1a6800797f11a",
-    "repositoryDirtyFileCount": 65,
+    "repositoryCommit": "274bff92a357f68ccd9198e3c01e1819bc25cb99",
+    "repositoryDirtyFileCount": 80,
     "nodeVersion": "v26.3.0",
     "binaryPath": "src/desktop/src-tauri/target/release/monogame-playground",
-    "binarySha256": "13a6a0f50cab10a12d903f56d7963465458eb98848fbc0eaad476477144988d0",
-    "binaryByteLength": 124122512,
-    "binaryModifiedAt": "2026-09-09T18:58:44.052Z",
+    "binarySha256": "9044af551694aeb498bbd99eca63965f4ee49a9372bd3a998223ffa04aa4f2d4",
+    "binaryByteLength": 124096064,
+    "binaryModifiedAt": "2026-09-10T11:30:32.092Z",
     "consoleSessionAtStart": {
       "determined": true,
       "screenLocked": false,
       "onConsole": true,
-      "checkedAt": "2026-09-09T19:01:54.906Z",
+      "checkedAt": "2026-09-10T11:30:47.452Z",
       "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
     },
     "consoleSessionAtEnd": {
       "determined": true,
       "screenLocked": false,
       "onConsole": true,
-      "checkedAt": "2026-09-09T19:02:37.578Z",
+      "checkedAt": "2026-09-10T11:31:31.150Z",
       "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
     },
     "sleepAssertionsAtStart": {
@@ -191,32 +191,32 @@
     "attempts": [
       {
         "attempt": 1,
-        "startedAt": "2026-09-09T19:01:54.920Z",
+        "startedAt": "2026-09-10T11:30:47.466Z",
         "retryReason": null,
         "consoleSessionBefore": {
           "determined": true,
           "screenLocked": false,
           "onConsole": true,
-          "checkedAt": "2026-09-09T19:01:54.933Z",
+          "checkedAt": "2026-09-10T11:30:47.478Z",
           "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
         },
         "consoleSessionAfter": {
           "determined": true,
           "screenLocked": false,
           "onConsole": true,
-          "checkedAt": "2026-09-09T19:02:36.992Z",
+          "checkedAt": "2026-09-10T11:31:30.541Z",
           "source": "ioreg -n Root -d1 -a (CGSSessionScreenIsLocked / kCGSSessionOnConsoleKey)"
         },
         "launches": [
           {
             "mode": "full",
             "shellLaunchKind": "cold",
-            "pid": 17803,
+            "pid": 61230,
             "outcome": "ok",
             "exitCode": 0,
             "signal": null,
             "timedOut": false,
-            "wallClockMs": 5153.400416135788,
+            "wallClockMs": 6163.659374952316,
             "failure": null,
             "phaseFailures": [],
             "phaseReached": "complete",
@@ -225,12 +225,12 @@
           {
             "mode": "shell-only",
             "shellLaunchKind": "warm",
-            "pid": 17808,
+            "pid": 61235,
             "outcome": "ok",
             "exitCode": 0,
             "signal": null,
             "timedOut": false,
-            "wallClockMs": 463.2982499599457,
+            "wallClockMs": 456.252375125885,
             "failure": null,
             "phaseFailures": [],
             "phaseReached": "shell-only",
@@ -239,12 +239,12 @@
           {
             "mode": "memory-baseline",
             "shellLaunchKind": "baseline",
-            "pid": 17813,
+            "pid": 61240,
             "outcome": "ok",
             "exitCode": 0,
             "signal": null,
             "timedOut": false,
-            "wallClockMs": 31416.13858294487,
+            "wallClockMs": 31408.310417175293,
             "failure": null,
             "phaseFailures": [],
             "phaseReached": null,
@@ -301,11 +301,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 476.7407910823822,
-          "maxMs": 476.7407910823822,
-          "meanMs": 476.7407910823822,
-          "p50Ms": 476.7407910823822,
-          "p95Ms": 476.7407910823822,
+          "minMs": 1507.3402910232544,
+          "maxMs": 1507.3402910232544,
+          "meanMs": 1507.3402910232544,
+          "p50Ms": 1507.3402910232544,
+          "p95Ms": 1507.3402910232544,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -318,13 +318,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 476.7407910823822,
+              "valueMs": 1507.3402910232544,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "driver wall clock: spawn() → ISSUE041_SHELL_READY",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -332,17 +332,17 @@
             }
           ],
           "samplesMs": [
-            476.7407910823822
+            1507.3402910232544
           ],
           "sortedSamplesMs": [
-            476.7407910823822
+            1507.3402910232544
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 2523.259208917618,
+            "marginMs": 1492.6597089767456,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -352,11 +352,11 @@
         "warm": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 440.41704201698303,
-          "maxMs": 440.41704201698303,
-          "meanMs": 440.41704201698303,
-          "p50Ms": 440.41704201698303,
-          "p95Ms": 440.41704201698303,
+          "minMs": 438.88441705703735,
+          "maxMs": 438.88441705703735,
+          "meanMs": 438.88441705703735,
+          "p50Ms": 438.88441705703735,
+          "p95Ms": 438.88441705703735,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -369,13 +369,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 440.41704201698303,
+              "valueMs": 438.88441705703735,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "shell-only/warm",
-                "pid": 17808,
+                "pid": 61235,
                 "source": "driver wall clock: spawn() → ISSUE041_SHELL_READY",
                 "log": "artifacts/issue041/attempt-01-shell-only-warm.log"
               },
@@ -383,17 +383,17 @@
             }
           ],
           "samplesMs": [
-            440.41704201698303
+            438.88441705703735
           ],
           "sortedSamplesMs": [
-            440.41704201698303
+            438.88441705703735
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 2559.582957983017,
+            "marginMs": 2561.1155829429626,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -410,11 +410,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 1034.0000000000002,
-          "maxMs": 1034.0000000000002,
-          "meanMs": 1034.0000000000002,
-          "p50Ms": 1034.0000000000002,
-          "p95Ms": 1034.0000000000002,
+          "minMs": 1025.0000000000002,
+          "maxMs": 1025.0000000000002,
+          "meanMs": 1025.0000000000002,
+          "p50Ms": 1025.0000000000002,
+          "p95Ms": 1025.0000000000002,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -427,13 +427,13 @@
           "comparison": "lt",
           "samples": [
             {
-              "valueMs": 1034.0000000000002,
+              "valueMs": 1025.0000000000002,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "compiler-context boot + first compilation in that context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -441,17 +441,17 @@
             }
           ],
           "samplesMs": [
-            1034.0000000000002
+            1025.0000000000002
           ],
           "sortedSamplesMs": [
-            1034.0000000000002
+            1025.0000000000002
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 5000,
             "comparison": "lt",
             "comparisonSymbol": "<",
-            "marginMs": 3966,
+            "marginMs": 3975,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -461,11 +461,11 @@
         "warm": {
           "sampleCount": 10,
           "count": 10,
-          "minMs": 163.99999999999955,
-          "maxMs": 240.99999999999977,
-          "meanMs": 186.40000000000003,
-          "p50Ms": 178.99999999999955,
-          "p95Ms": 240.99999999999977,
+          "minMs": 161,
+          "maxMs": 236,
+          "meanMs": 183.39999999999998,
+          "p50Ms": 174,
+          "p95Ms": 236,
           "censoredCount": 0,
           "observedCount": 10,
           "p50Censored": false,
@@ -478,118 +478,92 @@
           "comparison": "lt",
           "samples": [
             {
-              "valueMs": 240.99999999999977,
+              "valueMs": 236,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #1 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 210,
+              "valueMs": 205.99999999999977,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #2 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 192,
+              "valueMs": 190.00000000000045,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #3 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 190,
+              "valueMs": 185.99999999999955,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #4 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 184.00000000000045,
+              "valueMs": 182,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #5 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 178.99999999999955,
+              "valueMs": 174,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #6 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
             },
             {
-              "valueMs": 169,
+              "valueMs": 166,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "warm compilation #7 in the retained context",
-                "log": "artifacts/issue041/attempt-01-full-cold.log"
-              },
-              "note": null
-            },
-            {
-              "valueMs": 168.00000000000045,
-              "censored": false,
-              "censorReason": null,
-              "provenance": {
-                "attempt": 1,
-                "launch": "full/cold",
-                "pid": 17803,
-                "source": "warm compilation #8 in the retained context",
-                "log": "artifacts/issue041/attempt-01-full-cold.log"
-              },
-              "note": null
-            },
-            {
-              "valueMs": 163.99999999999955,
-              "censored": false,
-              "censorReason": null,
-              "provenance": {
-                "attempt": 1,
-                "launch": "full/cold",
-                "pid": 17803,
-                "source": "warm compilation #9 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
@@ -601,7 +575,33 @@
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
+                "source": "warm compilation #8 in the retained context",
+                "log": "artifacts/issue041/attempt-01-full-cold.log"
+              },
+              "note": null
+            },
+            {
+              "valueMs": 161,
+              "censored": false,
+              "censorReason": null,
+              "provenance": {
+                "attempt": 1,
+                "launch": "full/cold",
+                "pid": 61230,
+                "source": "warm compilation #9 in the retained context",
+                "log": "artifacts/issue041/attempt-01-full-cold.log"
+              },
+              "note": null
+            },
+            {
+              "valueMs": 165.99999999999955,
+              "censored": false,
+              "censorReason": null,
+              "provenance": {
+                "attempt": 1,
+                "launch": "full/cold",
+                "pid": 61230,
                 "source": "warm compilation #10 in the retained context",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -609,35 +609,35 @@
             }
           ],
           "samplesMs": [
-            240.99999999999977,
-            210,
-            192,
-            190,
-            184.00000000000045,
-            178.99999999999955,
-            169,
-            168.00000000000045,
-            163.99999999999955,
-            167.00000000000045
+            236,
+            205.99999999999977,
+            190.00000000000045,
+            185.99999999999955,
+            182,
+            174,
+            166,
+            167.00000000000045,
+            161,
+            165.99999999999955
           ],
           "sortedSamplesMs": [
-            163.99999999999955,
+            161,
+            165.99999999999955,
+            166,
             167.00000000000045,
-            168.00000000000045,
-            169,
-            178.99999999999955,
-            184.00000000000045,
-            190,
-            192,
-            210,
-            240.99999999999977
+            174,
+            182,
+            185.99999999999955,
+            190.00000000000045,
+            205.99999999999977,
+            236
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 2000,
             "comparison": "lt",
             "comparisonSymbol": "<",
-            "marginMs": 1759.0000000000002,
+            "marginMs": 1764,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -654,11 +654,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 240.00000000000045,
-          "maxMs": 240.00000000000045,
-          "meanMs": 240.00000000000045,
-          "p50Ms": 240.00000000000045,
-          "p95Ms": 240.00000000000045,
+          "minMs": 234.99999999999955,
+          "maxMs": 234.99999999999955,
+          "meanMs": 234.99999999999955,
+          "p50Ms": 234.99999999999955,
+          "p95Ms": 234.99999999999955,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -671,13 +671,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 240.00000000000045,
+              "valueMs": 234.99999999999955,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "preview cycle 0: compile response → first drawn frame",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -685,17 +685,17 @@
             }
           ],
           "samplesMs": [
-            240.00000000000045
+            234.99999999999955
           ],
           "sortedSamplesMs": [
-            240.00000000000045
+            234.99999999999955
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 2759.9999999999995,
+            "marginMs": 2765.0000000000005,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -705,11 +705,11 @@
         "warm": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 221,
-          "maxMs": 221,
-          "meanMs": 221,
-          "p50Ms": 221,
-          "p95Ms": 221,
+          "minMs": 221.0000000000009,
+          "maxMs": 221.0000000000009,
+          "meanMs": 221.0000000000009,
+          "p50Ms": 221.0000000000009,
+          "p95Ms": 221.0000000000009,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -722,13 +722,13 @@
           "comparison": "lte",
           "samples": [
             {
-              "valueMs": 221,
+              "valueMs": 221.0000000000009,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
+                "pid": 61230,
                 "source": "preview cycle 1: compile response → first drawn frame",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
@@ -736,17 +736,17 @@
             }
           ],
           "samplesMs": [
-            221
+            221.0000000000009
           ],
           "sortedSamplesMs": [
-            221
+            221.0000000000009
           ],
           "censoredSamples": [],
           "threshold": {
             "thresholdMs": 3000,
             "comparison": "lte",
             "comparisonSymbol": "<=",
-            "marginMs": 2779,
+            "marginMs": 2778.999999999999,
             "marginIsUpperBound": false,
             "p95IsLowerBound": false,
             "verdict": "PASS",
@@ -763,11 +763,11 @@
         "cold": {
           "sampleCount": 1,
           "count": 1,
-          "minMs": 115,
-          "maxMs": 115,
-          "meanMs": 115,
-          "p50Ms": 115,
-          "p95Ms": 115,
+          "minMs": 119.99999999999955,
+          "maxMs": 119.99999999999955,
+          "meanMs": 119.99999999999955,
+          "p50Ms": 119.99999999999955,
+          "p95Ms": 119.99999999999955,
           "censoredCount": 0,
           "observedCount": 1,
           "p50Censored": false,
@@ -780,14 +780,65 @@
           "comparison": "lte",
           "samples": [
             {
+              "valueMs": 119.99999999999955,
+              "censored": false,
+              "censorReason": null,
+              "provenance": {
+                "attempt": 1,
+                "launch": "full/cold",
+                "pid": 61230,
+                "source": "preview cycle 0: Stop → controller idle",
+                "log": "artifacts/issue041/attempt-01-full-cold.log"
+              },
+              "note": null
+            }
+          ],
+          "samplesMs": [
+            119.99999999999955
+          ],
+          "sortedSamplesMs": [
+            119.99999999999955
+          ],
+          "censoredSamples": [],
+          "threshold": {
+            "thresholdMs": 2000,
+            "comparison": "lte",
+            "comparisonSymbol": "<=",
+            "marginMs": 1880.0000000000005,
+            "marginIsUpperBound": false,
+            "p95IsLowerBound": false,
+            "verdict": "PASS",
+            "censoringNote": null
+          }
+        },
+        "warm": {
+          "sampleCount": 1,
+          "count": 1,
+          "minMs": 115,
+          "maxMs": 115,
+          "meanMs": 115,
+          "p50Ms": 115,
+          "p95Ms": 115,
+          "censoredCount": 0,
+          "observedCount": 1,
+          "p50Censored": false,
+          "p95Censored": false,
+          "maxCensored": false,
+          "meanIsLowerBound": false,
+          "prdText": "Stop returning control to the editor within 2 seconds",
+          "definition": "Stop of a later preview in the same process.",
+          "thresholdMs": 2000,
+          "comparison": "lte",
+          "samples": [
+            {
               "valueMs": 115,
               "censored": false,
               "censorReason": null,
               "provenance": {
                 "attempt": 1,
                 "launch": "full/cold",
-                "pid": 17803,
-                "source": "preview cycle 0: Stop → controller idle",
+                "pid": 61230,
+                "source": "preview cycle 1: Stop → controller idle",
                 "log": "artifacts/issue041/attempt-01-full-cold.log"
               },
               "note": null
@@ -810,57 +861,6 @@
             "verdict": "PASS",
             "censoringNote": null
           }
-        },
-        "warm": {
-          "sampleCount": 1,
-          "count": 1,
-          "minMs": 112,
-          "maxMs": 112,
-          "meanMs": 112,
-          "p50Ms": 112,
-          "p95Ms": 112,
-          "censoredCount": 0,
-          "observedCount": 1,
-          "p50Censored": false,
-          "p95Censored": false,
-          "maxCensored": false,
-          "meanIsLowerBound": false,
-          "prdText": "Stop returning control to the editor within 2 seconds",
-          "definition": "Stop of a later preview in the same process.",
-          "thresholdMs": 2000,
-          "comparison": "lte",
-          "samples": [
-            {
-              "valueMs": 112,
-              "censored": false,
-              "censorReason": null,
-              "provenance": {
-                "attempt": 1,
-                "launch": "full/cold",
-                "pid": 17803,
-                "source": "preview cycle 1: Stop → controller idle",
-                "log": "artifacts/issue041/attempt-01-full-cold.log"
-              },
-              "note": null
-            }
-          ],
-          "samplesMs": [
-            112
-          ],
-          "sortedSamplesMs": [
-            112
-          ],
-          "censoredSamples": [],
-          "threshold": {
-            "thresholdMs": 2000,
-            "comparison": "lte",
-            "comparisonSymbol": "<=",
-            "marginMs": 1888,
-            "marginIsUpperBound": false,
-            "p95IsLowerBound": false,
-            "verdict": "PASS",
-            "censoringNote": null
-          }
         }
       }
     }
@@ -869,8 +869,8 @@
     {
       "title": "Shell startup measured inside the process (Rust process-start instant → shell ready)",
       "count": 2,
-      "p50Ms": 434.443125,
-      "p95Ms": 469.322792,
+      "p50Ms": 429.459708,
+      "p95Ms": 483.752458,
       "note": "Excludes exec/dyld time before `main`; the PASS/FAIL phase above uses the driver's wall clock from `spawn()`, which is the strict superset."
     },
     {
@@ -883,92 +883,92 @@
     {
       "title": "Compile response → `preview.started` lifecycle event (cold)",
       "count": 1,
-      "p50Ms": 236.00000000000045,
-      "p95Ms": 236.00000000000045,
+      "p50Ms": 229.99999999999955,
+      "p95Ms": 229.99999999999955,
       "note": "Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing."
     },
     {
       "title": "Compile response → `preview.started` lifecycle event (warm)",
       "count": 1,
-      "p50Ms": 217,
-      "p95Ms": 217,
+      "p50Ms": 218,
+      "p95Ms": 218,
       "note": "Measured lower bound on preview startup: the Game cannot have drawn before it was started. The PASS/FAIL phase uses the first frame the Game reports drawing."
     },
     {
       "title": "Issue 024 in-protocol Stop latency (cold)",
       "count": 1,
-      "p50Ms": 113.99999999999955,
-      "p95Ms": 113.99999999999955,
+      "p50Ms": 119,
+      "p95Ms": 119,
       "note": "Stop request sent → `preview.stopped` observed and resources released, inside the shell."
     },
     {
       "title": "Issue 024 in-protocol Stop latency (warm)",
       "count": 1,
-      "p50Ms": 112,
-      "p95Ms": 112,
+      "p50Ms": 115,
+      "p95Ms": 115,
       "note": "Stop request sent → `preview.stopped` observed and resources released, inside the shell."
     },
     {
       "title": "Stop latency restricted to previews that had drawn frames",
       "count": 2,
-      "p50Ms": 112,
-      "p95Ms": 115,
+      "p50Ms": 115,
+      "p95Ms": 119.99999999999955,
       "note": "Same measurement as the Stop phase above, restricted to cycles whose preview was confirmed drawing. Published so the Stop distribution can be read with and without the non-rendering cycles; the PASS/FAIL phase above includes every Stop."
     },
     {
       "title": "Measured lower bound on the first-frame instant (compile response → `preview.start.request`)",
       "count": 2,
-      "p50Ms": 185,
-      "p95Ms": 201,
+      "p50Ms": 186,
+      "p95Ms": 194.99999999999955,
       "note": "The Game cannot draw before the start request leaves the shell, so the true first-frame time is bracketed between this row and the reported first-frame sample."
     },
     {
       "title": "Frame-rate corrected estimate of the first-frame instant",
       "count": 2,
-      "p50Ms": 221,
-      "p95Ms": 240.00000000000045,
+      "p50Ms": 221.0000000000009,
+      "p95Ms": 234.99999999999955,
       "note": "The reported sample minus (frames already drawn at the first observation - 1) divided by the frame rate measured immediately afterwards. An estimate only: no verdict uses it."
     },
     {
       "title": "Frame rate of the running preview (frames per second)",
       "count": 2,
-      "p50Ms": 19.9203187250996,
-      "p95Ms": 19.92031872509964,
+      "p50Ms": 19.841269841269806,
+      "p95Ms": 23.809523809523895,
       "note": "Measured after the first-frame sample was taken, over a 250 ms window, from the Game's own frame counter. Used only to quantify the first-frame overshoot."
     },
     {
       "title": "Bridge round trip of the observation that saw the first frame",
       "count": 2,
       "p50Ms": 3,
-      "p95Ms": 3.0000000000004547,
+      "p95Ms": 3.0000000000009095,
       "note": "The preview-bridge round trip that returned the observation, plus one 5 ms poll interval when polling was needed. This bounds only the latency of the final observation, not the whole overshoot: frames drawn before that observation are accounted for by the frame-rate corrected estimate above."
     },
     {
       "title": "Preview startup breakdown: embedded preview iframe created (compile response → iframe invoked)",
       "count": 2,
       "p50Ms": 0,
-      "p95Ms": 2.0000000000004547,
+      "p95Ms": 1.9999999999995453,
       "note": "Creating the embedded opaque-origin sandboxed preview iframe and setting its srcdoc in-page (ADR 0003). There is no isolated OS window and no Rust window-create command."
     },
     {
       "title": "Preview startup breakdown: sandboxed preview document load",
       "count": 2,
-      "p50Ms": 5.0000000000009095,
-      "p95Ms": 17.999999999999545,
+      "p50Ms": 6,
+      "p95Ms": 16,
       "note": "The embedded preview iframe document finishing loading. This is real in-page document load time; the retired isolated-window path instead slept a fixed 1500 ms here."
     },
     {
       "title": "Preview startup breakdown: real preview-runtime work (document load → `preview.bridge.ready`)",
       "count": 2,
-      "p50Ms": 154.9999999999991,
-      "p95Ms": 155,
+      "p50Ms": 151.00000000000045,
+      "p95Ms": 154.0000000000009,
       "note": "Measured on the in-page bridge-readiness promise itself, observed passively inside `createEmbeddedProofPreview`, so it is the instant the preview .NET/MonoGame WASM runtime actually reported readiness. No Rust bootstrap-loop deadline is involved on this path."
     },
     {
       "title": "Preview startup breakdown: assembly load + start → `preview.started`",
       "count": 2,
-      "p50Ms": 211.9999999999991,
-      "p95Ms": 216.00000000000045,
+      "p50Ms": 212,
+      "p95Ms": 212,
       "note": "Everything after the preview runtime is ready: DLL/PDB transfer inline over the in-page protocol port, `preview.load` and `preview.start`."
     }
   ],
@@ -987,13 +987,13 @@
     "callbacksIntoDisposedState": 0
   },
   "caveats": [
-    "Cold shell samples in this report span 477-477 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.",
+    "Cold shell samples in this report span 1507-1507 ms. The slowest cold launch is normally the first launch after the binary is rebuilt, when its pages are not yet in the operating system's file cache; later cold launches read a cached binary. A true first-ever launch on a given machine can therefore be slower than the median cold sample here.",
     "Cold/warm for the shell phase is defined by process and cache state that this driver controls: cold launches are preceded by an enforced idle gap with no application process running, warm launches start immediately after the previous process exited. The OS page cache cannot be purged without root, so \"cold\" here means cold application state, not a cold file cache.",
     "Preview startup is measured on the embedded opaque-origin sandboxed-iframe path that the product ships (ADR 0003): the preview is an in-page iframe created and driven inside the Workbench WebView, not a separate isolated OS window. The retired isolated-window harness performed a fixed 1500 ms settle sleep and could wait out a 10 000 ms Rust bootstrap-loop deadline after creating a second WebviewWindow; neither exists on this path, so neither is measured. Historical isolated-window measurements are recorded separately and are not presented as measurements of this embedded product path.",
-    "The embedded preview-start breakdown is entirely real in-page work: the sandboxed preview iframe document loads in 5 ms (p50) / 18 ms (p95), and the preview .NET/MonoGame WASM runtime then reports readiness 155 ms (p50) / 155 ms (p95) later, measured passively on the in-page bridge-readiness promise inside `createEmbeddedProofPreview`. There is no fixed settle sleep and no bootstrap-loop deadline race to subtract.",
+    "The embedded preview-start breakdown is entirely real in-page work: the sandboxed preview iframe document loads in 6 ms (p50) / 16 ms (p95), and the preview .NET/MonoGame WASM runtime then reports readiness 151 ms (p50) / 154 ms (p95) later, measured passively on the in-page bridge-readiness promise inside `createEmbeddedProofPreview`. There is no fixed settle sleep and no bootstrap-loop deadline race to subtract.",
     "The measured Run path enables the issue 021/023/024 preview proof instrumentation, because the frame counters that prove the preview is visibly active are exposed by that instrumentation. Each reported sample therefore contains that instrumentation's own cost, so as an estimate of the same phase in an uninstrumented build every observed sample is an upper bound. This is a separate statement from the observation bounds above: a censored sample is a lower bound on the instrumented run itself and implies nothing about an uninstrumented one.",
     "The benchmark harness and its Tauri commands are inert unless `MONOGAME_ISSUE041_BENCHMARK=1` is set in the process environment.",
-    "Uncensored preview-startup samples are upper bounds on the true first-frame instant: the observation is a poll through the preview bridge, and the Game had already drawn 1-1 frames when the observation landed. The overshoot is therefore larger than the bridge round trip alone. It is quantified in the supplementary table by the frame-rate corrected estimate (measured frame rate p50 19.9 fps), and the true first-frame instant is bracketed below by the measured compile-response to `preview.start.request` interval. Censored samples are the opposite case: they are lower bounds, and are marked as such wherever they appear.",
+    "Uncensored preview-startup samples are upper bounds on the true first-frame instant: the observation is a poll through the preview bridge, and the Game had already drawn 1-1 frames when the observation landed. The overshoot is therefore larger than the bridge round trip alone. It is quantified in the supplementary table by the frame-rate corrected estimate (measured frame rate p50 19.8 fps), and the true first-frame instant is bracketed below by the measured compile-response to `preview.start.request` interval. Censored samples are the opposite case: they are lower bounds, and are marked as such wherever they appear.",
     "Samples were collected on one machine in one session; they are a feasibility baseline, not a cross-machine guarantee."
   ],
   "reproduction": {
@@ -1015,12 +1015,12 @@
       "attempt": 1,
       "mode": "full",
       "shellLaunchKind": "cold",
-      "pid": 17803,
+      "pid": 61230,
       "exitCode": 0,
       "signal": null,
       "timedOut": false,
-      "wallClockMs": 5153.400416135788,
-      "shellReadyWallClockMs": 476.7407910823822,
+      "wallClockMs": 6163.659374952316,
+      "shellReadyWallClockMs": 1507.3402910232544,
       "shellReady": {
         "detail": {
           "devicePixelRatio": 2,
@@ -1032,24 +1032,24 @@
           "macrotaskLatencyMs": 1,
           "shellElementsExpected": 5,
           "shellElementsPresent": 4,
-          "timeOriginToShellReadyMs": 243,
+          "timeOriginToShellReadyMs": 239.00000000000003,
           "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
         },
-        "processStartToShellReadyMs": 469.322792,
+        "processStartToShellReadyMs": 483.752458,
         "windowFocused": true,
         "windowMinimized": false,
         "windowVisible": true
       },
       "outcome": "ok",
       "cleanup": {
-        "pid": 17803,
+        "pid": 61230,
         "terminated": true,
         "escalated": false
       },
       "checkpointCount": 9,
       "lastCheckpoint": {
         "name": "preview-cycle-end",
-        "atMs": 4913,
+        "atMs": 4887,
         "cycle": 1
       },
       "failure": null,
@@ -1060,12 +1060,12 @@
       "attempt": 1,
       "mode": "shell-only",
       "shellLaunchKind": "warm",
-      "pid": 17808,
+      "pid": 61235,
       "exitCode": 0,
       "signal": null,
       "timedOut": false,
-      "wallClockMs": 463.2982499599457,
-      "shellReadyWallClockMs": 440.41704201698303,
+      "wallClockMs": 456.252375125885,
+      "shellReadyWallClockMs": 438.88441705703735,
       "shellReady": {
         "detail": {
           "devicePixelRatio": 2,
@@ -1074,27 +1074,27 @@
           "firstPaintedFrames": 2,
           "innerHeight": 768,
           "innerWidth": 1280,
-          "macrotaskLatencyMs": 5.000000000000028,
+          "macrotaskLatencyMs": 1,
           "shellElementsExpected": 5,
           "shellElementsPresent": 4,
-          "timeOriginToShellReadyMs": 238.00000000000003,
+          "timeOriginToShellReadyMs": 231,
           "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
         },
-        "processStartToShellReadyMs": 434.443125,
+        "processStartToShellReadyMs": 429.459708,
         "windowFocused": true,
         "windowMinimized": false,
         "windowVisible": true
       },
       "outcome": "ok",
       "cleanup": {
-        "pid": 17808,
+        "pid": 61235,
         "terminated": true,
         "escalated": false
       },
       "checkpointCount": 1,
       "lastCheckpoint": {
         "name": "shell-ready",
-        "atMs": 238
+        "atMs": 237
       },
       "failure": null,
       "phaseFailures": [],
@@ -1104,12 +1104,12 @@
       "attempt": 1,
       "mode": "memory-baseline",
       "shellLaunchKind": "baseline",
-      "pid": 17813,
+      "pid": 61240,
       "exitCode": 0,
       "signal": null,
       "timedOut": false,
-      "wallClockMs": 31416.13858294487,
-      "shellReadyWallClockMs": 442.20108294487,
+      "wallClockMs": 31408.310417175293,
+      "shellReadyWallClockMs": 428.4956669807434,
       "shellReady": {
         "detail": {
           "devicePixelRatio": 2,
@@ -1118,27 +1118,27 @@
           "firstPaintedFrames": 2,
           "innerHeight": 768,
           "innerWidth": 1280,
-          "macrotaskLatencyMs": 2.9999999999999716,
+          "macrotaskLatencyMs": 2,
           "shellElementsExpected": 5,
           "shellElementsPresent": 4,
-          "timeOriginToShellReadyMs": 240,
+          "timeOriginToShellReadyMs": 231,
           "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko)"
         },
-        "processStartToShellReadyMs": 437.008375,
+        "processStartToShellReadyMs": 423.433334,
         "windowFocused": true,
         "windowMinimized": false,
         "windowVisible": true
       },
       "outcome": "ok",
       "cleanup": {
-        "pid": 17813,
+        "pid": 61240,
         "terminated": true,
         "escalated": false
       },
       "checkpointCount": 26,
       "lastCheckpoint": {
         "name": "memory-baseline-complete",
-        "atMs": 31208
+        "atMs": 31204
       },
       "failure": null,
       "phaseFailures": [],
@@ -1151,7 +1151,7 @@
       "mode": "full",
       "report": {
         "schemaVersion": 2,
-        "generatedAt": "2026-09-09T19:02:05.083Z",
+        "generatedAt": "2026-09-10T11:30:58.637Z",
         "benchmarkMode": "MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=full",
         "mode": "full",
         "environment": {
@@ -1178,8 +1178,8 @@
           }
         },
         "proofRuntimeReadiness": {
-          "requestedAt": 256,
-          "readyAt": 480,
+          "requestedAt": 252,
+          "readyAt": 477.00000000000006,
           "nativeActivation": {
             "platform": "appkit",
             "activationPolicyRegular": true,
@@ -1195,7 +1195,7 @@
           },
           "activationRounds": 1,
           "visibilityState": "visible",
-          "animationFrameProgressMilliseconds": 10,
+          "animationFrameProgressMilliseconds": 9,
           "renderedFramesObserved": 0,
           "frameIncrease": 0
         },
@@ -1212,7 +1212,7 @@
           "totalCharacters": 12155
         },
         "preconditions": {
-          "shellSteadyStateMs": 17
+          "shellSteadyStateMs": 15.999999999999943
         },
         "compilerInit": {
           "kind": "cold",
@@ -1223,7 +1223,7 @@
           {
             "index": 0,
             "kind": "cold",
-            "elapsedMs": 933.0000000000002,
+            "elapsedMs": 924.0000000000002,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1231,7 +1231,7 @@
           {
             "index": 1,
             "kind": "warm",
-            "elapsedMs": 240.99999999999977,
+            "elapsedMs": 236,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1239,7 +1239,7 @@
           {
             "index": 2,
             "kind": "warm",
-            "elapsedMs": 210,
+            "elapsedMs": 205.99999999999977,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1247,7 +1247,7 @@
           {
             "index": 3,
             "kind": "warm",
-            "elapsedMs": 192,
+            "elapsedMs": 190.00000000000045,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1255,7 +1255,7 @@
           {
             "index": 4,
             "kind": "warm",
-            "elapsedMs": 190,
+            "elapsedMs": 185.99999999999955,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1263,7 +1263,7 @@
           {
             "index": 5,
             "kind": "warm",
-            "elapsedMs": 184.00000000000045,
+            "elapsedMs": 182,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1271,7 +1271,7 @@
           {
             "index": 6,
             "kind": "warm",
-            "elapsedMs": 178.99999999999955,
+            "elapsedMs": 174,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1279,7 +1279,7 @@
           {
             "index": 7,
             "kind": "warm",
-            "elapsedMs": 169,
+            "elapsedMs": 166,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1287,7 +1287,7 @@
           {
             "index": 8,
             "kind": "warm",
-            "elapsedMs": 168.00000000000045,
+            "elapsedMs": 167.00000000000045,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1295,7 +1295,7 @@
           {
             "index": 9,
             "kind": "warm",
-            "elapsedMs": 163.99999999999955,
+            "elapsedMs": 161,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1303,7 +1303,7 @@
           {
             "index": 10,
             "kind": "warm",
-            "elapsedMs": 167.00000000000045,
+            "elapsedMs": 165.99999999999955,
             "diagnosticCount": 0,
             "assemblySha256": "cc999374ea4e17ce7b48f6de74280b00b047c9986a97a13f144cd211df78c129",
             "assemblyByteLength": 9728
@@ -1317,30 +1317,30 @@
           {
             "cycle": 0,
             "kind": "cold",
-            "compileWithinRunMs": 161,
-            "previewStartedMs": 236.00000000000045,
-            "previewFirstFrameMs": 240.00000000000045,
+            "compileWithinRunMs": 159.00000000000045,
+            "previewStartedMs": 229.99999999999955,
+            "previewFirstFrameMs": 234.99999999999955,
             "firstFrame": {
               "censored": false,
               "deadlineMs": 20000,
               "pollIntervalMs": 5,
-              "observationIntervalMs": 3.0000000000004547,
+              "observationIntervalMs": 3,
               "queryCount": 2,
               "queryFailureCount": 0,
               "lastQueryError": null,
-              "lowerBoundMs": 201,
-              "estimateMs": 240.00000000000045,
+              "lowerBoundMs": 194.99999999999955,
+              "estimateMs": 234.99999999999955,
               "censorReason": null,
               "evidence": null
             },
-            "firstFrameObservationIntervalMs": 3.0000000000004547,
+            "firstFrameObservationIntervalMs": 3,
             "frameRate": {
               "framesDrawn": 5,
-              "elapsedMs": 250.99999999999955,
-              "framesPerSecond": 19.92031872509964
+              "elapsedMs": 252.00000000000045,
+              "framesPerSecond": 19.841269841269806
             },
-            "stopControlReturnMs": 115,
-            "stopInstrumentedMs": 113.99999999999955,
+            "stopControlReturnMs": 119.99999999999955,
+            "stopInstrumentedMs": 119,
             "stopMeaningful": true,
             "previewRenderedBeforeStop": true,
             "frameCountAtFirstObservation": 1,
@@ -1354,66 +1354,66 @@
             "controllerIdleAfterStop": true,
             "previewWindowRemoved": true,
             "breakdown": {
-              "frameCreateInvokeMs": 2.0000000000004547,
-              "documentLoadMs": 17.999999999999545,
-              "previewRuntimeReadyMs": 155,
-              "loadAndStartMs": 216.00000000000045
+              "frameCreateInvokeMs": 1.9999999999995453,
+              "documentLoadMs": 16,
+              "previewRuntimeReadyMs": 151.00000000000045,
+              "loadAndStartMs": 212
             },
             "bootstrapDetail": {
               "transport": "embedded-in-page",
-              "generation": "0d46d08730a6445b9ed6472ace13e750",
-              "previewId": "fbc9dcec-ad32-42f4-8a9a-fd2f68257df9",
+              "generation": "18a76a15c83c42b49343bc3cd937edf1",
+              "previewId": "50b0494c-a9ab-459a-a96e-a23f9d68e827",
               "readyPromiseResolved": false,
               "readyPromiseResolvedAtMs": null
             },
             "marks": {
-              "request.begin": 3399,
-              "contexts.ready": 3562.0000000000005,
-              "compile.response": 3560,
-              "preview.window.invoked": 3562.0000000000005,
-              "preview.window.created": 3580,
-              "preview.window.settled": 3580,
-              "preview.runtime.bootstrapped": 3580,
-              "preview.bridge.ready.observed": 3735,
-              "preview.bridge.ready": 3735,
-              "preview.load.request": 3735,
-              "preview.load.response": 3761,
-              "preview.start.request": 3761,
-              "preview.started": 3796.0000000000005
+              "request.begin": 3355,
+              "contexts.ready": 3515,
+              "compile.response": 3514.0000000000005,
+              "preview.window.invoked": 3516,
+              "preview.window.created": 3532,
+              "preview.window.settled": 3532,
+              "preview.runtime.bootstrapped": 3532,
+              "preview.bridge.ready.observed": 3683.0000000000005,
+              "preview.bridge.ready": 3683.0000000000005,
+              "preview.load.request": 3683.0000000000005,
+              "preview.load.response": 3709,
+              "preview.start.request": 3709,
+              "preview.started": 3744
             }
           },
           {
             "cycle": 1,
             "kind": "warm",
-            "compileWithinRunMs": 162,
-            "previewStartedMs": 217,
-            "previewFirstFrameMs": 221,
+            "compileWithinRunMs": 176,
+            "previewStartedMs": 218,
+            "previewFirstFrameMs": 221.0000000000009,
             "firstFrame": {
               "censored": false,
               "deadlineMs": 20000,
               "pollIntervalMs": 5,
-              "observationIntervalMs": 3,
+              "observationIntervalMs": 3.0000000000009095,
               "queryCount": 2,
               "queryFailureCount": 0,
               "lastQueryError": null,
-              "lowerBoundMs": 185,
-              "estimateMs": 221,
+              "lowerBoundMs": 186,
+              "estimateMs": 221.0000000000009,
               "censorReason": null,
               "evidence": null
             },
-            "firstFrameObservationIntervalMs": 3,
+            "firstFrameObservationIntervalMs": 3.0000000000009095,
             "frameRate": {
-              "framesDrawn": 5,
-              "elapsedMs": 251,
-              "framesPerSecond": 19.9203187250996
+              "framesDrawn": 6,
+              "elapsedMs": 251.9999999999991,
+              "framesPerSecond": 23.809523809523895
             },
-            "stopControlReturnMs": 112,
-            "stopInstrumentedMs": 112,
+            "stopControlReturnMs": 115,
+            "stopInstrumentedMs": 115,
             "stopMeaningful": true,
             "previewRenderedBeforeStop": true,
             "frameCountAtFirstObservation": 1,
-            "frameCountBeforeStop": 6,
-            "frameCountAfterStop": 6,
+            "frameCountBeforeStop": 7,
+            "frameCountAfterStop": 7,
             "keptDrawing": true,
             "runCount": 1,
             "staticConstructorCount": 1,
@@ -1423,31 +1423,31 @@
             "previewWindowRemoved": true,
             "breakdown": {
               "frameCreateInvokeMs": 0,
-              "documentLoadMs": 5.0000000000009095,
-              "previewRuntimeReadyMs": 154.9999999999991,
-              "loadAndStartMs": 211.9999999999991
+              "documentLoadMs": 6,
+              "previewRuntimeReadyMs": 154.0000000000009,
+              "loadAndStartMs": 212
             },
             "bootstrapDetail": {
               "transport": "embedded-in-page",
-              "generation": "61bfed16fcb4445cb52b8c3bd945e88d",
-              "previewId": "034eba54-da7d-4260-8e14-26531fc208ec",
+              "generation": "f1ec471897f3496ba9099e245e637f62",
+              "previewId": "0d47f27a-8577-4778-82b7-390bd3842a23",
               "readyPromiseResolved": false,
               "readyPromiseResolvedAtMs": null
             },
             "marks": {
-              "request.begin": 4167,
-              "contexts.ready": 4329,
-              "compile.response": 4329,
-              "preview.window.invoked": 4329,
-              "preview.window.created": 4334.000000000001,
-              "preview.window.settled": 4334.000000000001,
-              "preview.runtime.bootstrapped": 4334.000000000001,
-              "preview.bridge.ready.observed": 4489,
-              "preview.bridge.ready": 4489,
-              "preview.load.request": 4489,
-              "preview.load.response": 4514,
-              "preview.start.request": 4514,
-              "preview.started": 4546
+              "request.begin": 4123,
+              "contexts.ready": 4299,
+              "compile.response": 4299,
+              "preview.window.invoked": 4299,
+              "preview.window.created": 4305,
+              "preview.window.settled": 4305,
+              "preview.runtime.bootstrapped": 4305,
+              "preview.bridge.ready.observed": 4459.000000000001,
+              "preview.bridge.ready": 4460,
+              "preview.load.request": 4460,
+              "preview.load.response": 4485,
+              "preview.start.request": 4485,
+              "preview.started": 4517
             }
           }
         ],
@@ -1461,7 +1461,7 @@
       "mode": "shell-only",
       "report": {
         "schemaVersion": 2,
-        "generatedAt": "2026-09-09T19:02:05.550Z",
+        "generatedAt": "2026-09-10T11:30:59.098Z",
         "benchmarkMode": "MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=shell-only",
         "mode": "shell-only",
         "environment": {
@@ -1501,191 +1501,191 @@
       "mode": "memory-baseline",
       "report": {
         "schemaVersion": 2,
-        "generatedAt": "2026-09-09T19:02:36.965Z",
+        "generatedAt": "2026-09-10T11:31:30.512Z",
         "benchmarkMode": "MONOGAME_ISSUE041_BENCHMARK=1 MONOGAME_ISSUE041_MODE=memory-baseline",
         "mode": "memory-baseline",
         "compilerRssSamples": [
           {
-            "label": "RSS=179216 KB",
-            "bytes": 183517184,
-            "kilobytes": 179216,
-            "megabytes": 175.015625
+            "label": "RSS=170624 KB",
+            "bytes": 174718976,
+            "kilobytes": 170624,
+            "megabytes": 166.625
           },
           {
-            "label": "RSS=179216 KB",
-            "bytes": 183517184,
-            "kilobytes": 179216,
-            "megabytes": 175.015625
+            "label": "RSS=170608 KB",
+            "bytes": 174702592,
+            "kilobytes": 170608,
+            "megabytes": 166.609375
           },
           {
-            "label": "RSS=179344 KB",
-            "bytes": 183648256,
-            "kilobytes": 179344,
-            "megabytes": 175.140625
+            "label": "RSS=170672 KB",
+            "bytes": 174768128,
+            "kilobytes": 170672,
+            "megabytes": 166.671875
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170400 KB",
+            "bytes": 174489600,
+            "kilobytes": 170400,
+            "megabytes": 166.40625
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170400 KB",
+            "bytes": 174489600,
+            "kilobytes": 170400,
+            "megabytes": 166.40625
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170400 KB",
+            "bytes": 174489600,
+            "kilobytes": 170400,
+            "megabytes": 166.40625
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170352 KB",
+            "bytes": 174440448,
+            "kilobytes": 170352,
+            "megabytes": 166.359375
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170352 KB",
+            "bytes": 174440448,
+            "kilobytes": 170352,
+            "megabytes": 166.359375
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170352 KB",
+            "bytes": 174440448,
+            "kilobytes": 170352,
+            "megabytes": 166.359375
           },
           {
-            "label": "RSS=179200 KB",
-            "bytes": 183500800,
-            "kilobytes": 179200,
-            "megabytes": 175
+            "label": "RSS=170352 KB",
+            "bytes": 174440448,
+            "kilobytes": 170352,
+            "megabytes": 166.359375
           }
         ],
         "previewRssSamples": [
           {
             "label": "after-cycle-1-stop",
-            "bytes": 186712064,
-            "kilobytes": 182336,
-            "megabytes": 178.0625
+            "bytes": 179224576,
+            "kilobytes": 175024,
+            "megabytes": 170.921875
           },
           {
             "label": "after-cycle-2-stop",
-            "bytes": 186728448,
-            "kilobytes": 182352,
-            "megabytes": 178.078125
+            "bytes": 179224576,
+            "kilobytes": 175024,
+            "megabytes": 170.921875
           },
           {
             "label": "after-cycle-3-stop",
-            "bytes": 186777600,
-            "kilobytes": 182400,
-            "megabytes": 178.125
+            "bytes": 179257344,
+            "kilobytes": 175056,
+            "megabytes": 170.953125
           },
           {
             "label": "after-cycle-4-stop",
-            "bytes": 186810368,
-            "kilobytes": 182432,
-            "megabytes": 178.15625
+            "bytes": 179339264,
+            "kilobytes": 175136,
+            "megabytes": 171.03125
           },
           {
             "label": "after-cycle-5-stop",
-            "bytes": 186826752,
-            "kilobytes": 182448,
-            "megabytes": 178.171875
+            "bytes": 179355648,
+            "kilobytes": 175152,
+            "megabytes": 171.046875
           },
           {
             "label": "after-cycle-6-stop",
-            "bytes": 186843136,
-            "kilobytes": 182464,
-            "megabytes": 178.1875
+            "bytes": 179437568,
+            "kilobytes": 175232,
+            "megabytes": 171.125
           },
           {
             "label": "after-cycle-7-stop",
-            "bytes": 186843136,
-            "kilobytes": 182464,
-            "megabytes": 178.1875
+            "bytes": 179453952,
+            "kilobytes": 175248,
+            "megabytes": 171.140625
           },
           {
             "label": "after-cycle-8-stop",
-            "bytes": 186859520,
-            "kilobytes": 182480,
-            "megabytes": 178.203125
-          },
-          {
-            "label": "after-cycle-9-stop",
-            "bytes": 186859520,
-            "kilobytes": 182480,
-            "megabytes": 178.203125
-          },
-          {
-            "label": "after-cycle-10-stop",
-            "bytes": 186859520,
-            "kilobytes": 182480,
-            "megabytes": 178.203125
-          },
-          {
-            "label": "after-cycle-11-stop",
-            "bytes": 186941440,
-            "kilobytes": 182560,
-            "megabytes": 178.28125
-          },
-          {
-            "label": "after-cycle-12-stop",
-            "bytes": 186941440,
-            "kilobytes": 182560,
-            "megabytes": 178.28125
-          },
-          {
-            "label": "after-cycle-13-stop",
-            "bytes": 186974208,
-            "kilobytes": 182592,
-            "megabytes": 178.3125
-          },
-          {
-            "label": "after-cycle-14-stop",
-            "bytes": 174735360,
-            "kilobytes": 170640,
-            "megabytes": 166.640625
-          },
-          {
-            "label": "after-cycle-15-stop",
-            "bytes": 179453952,
-            "kilobytes": 175248,
-            "megabytes": 171.140625
-          },
-          {
-            "label": "after-cycle-16-stop",
-            "bytes": 179453952,
-            "kilobytes": 175248,
-            "megabytes": 171.140625
-          },
-          {
-            "label": "after-cycle-17-stop",
-            "bytes": 179453952,
-            "kilobytes": 175248,
-            "megabytes": 171.140625
-          },
-          {
-            "label": "after-cycle-18-stop",
-            "bytes": 179470336,
-            "kilobytes": 175264,
-            "megabytes": 171.15625
-          },
-          {
-            "label": "after-cycle-19-stop",
-            "bytes": 179470336,
-            "kilobytes": 175264,
-            "megabytes": 171.15625
-          },
-          {
-            "label": "after-cycle-20-stop",
             "bytes": 179486720,
             "kilobytes": 175280,
             "megabytes": 171.171875
+          },
+          {
+            "label": "after-cycle-9-stop",
+            "bytes": 179503104,
+            "kilobytes": 175296,
+            "megabytes": 171.1875
+          },
+          {
+            "label": "after-cycle-10-stop",
+            "bytes": 179519488,
+            "kilobytes": 175312,
+            "megabytes": 171.203125
+          },
+          {
+            "label": "after-cycle-11-stop",
+            "bytes": 179519488,
+            "kilobytes": 175312,
+            "megabytes": 171.203125
+          },
+          {
+            "label": "after-cycle-12-stop",
+            "bytes": 179486720,
+            "kilobytes": 175280,
+            "megabytes": 171.171875
+          },
+          {
+            "label": "after-cycle-13-stop",
+            "bytes": 179486720,
+            "kilobytes": 175280,
+            "megabytes": 171.171875
+          },
+          {
+            "label": "after-cycle-14-stop",
+            "bytes": 170098688,
+            "kilobytes": 166112,
+            "megabytes": 162.21875
+          },
+          {
+            "label": "after-cycle-15-stop",
+            "bytes": 170098688,
+            "kilobytes": 166112,
+            "megabytes": 162.21875
+          },
+          {
+            "label": "after-cycle-16-stop",
+            "bytes": 170115072,
+            "kilobytes": 166128,
+            "megabytes": 162.234375
+          },
+          {
+            "label": "after-cycle-17-stop",
+            "bytes": 170115072,
+            "kilobytes": 166128,
+            "megabytes": 162.234375
+          },
+          {
+            "label": "after-cycle-18-stop",
+            "bytes": 170131456,
+            "kilobytes": 166144,
+            "megabytes": 162.25
+          },
+          {
+            "label": "after-cycle-19-stop",
+            "bytes": 170131456,
+            "kilobytes": 166144,
+            "megabytes": 162.25
+          },
+          {
+            "label": "after-cycle-20-stop",
+            "bytes": 170147840,
+            "kilobytes": 166160,
+            "megabytes": 162.265625
           }
         ],
         "cleanupVerification": {
@@ -1712,52 +1712,52 @@
     "failures": [],
     "compilerRssStability": {
       "sampleCount": 10,
-      "firstKilobytes": 179216,
-      "lastKilobytes": 179200,
-      "growthPercent": -0.008927774305865548,
+      "firstKilobytes": 170624,
+      "lastKilobytes": 170352,
+      "growthPercent": -0.15941485371342837,
       "thresholdPercent": 10,
       "verdict": "PASS",
       "samples": [
-        179216,
-        179216,
-        179344,
-        179200,
-        179200,
-        179200,
-        179200,
-        179200,
-        179200,
-        179200
+        170624,
+        170608,
+        170672,
+        170400,
+        170400,
+        170400,
+        170352,
+        170352,
+        170352,
+        170352
       ]
     },
     "previewRssStability": {
       "sampleCount": 20,
-      "firstKilobytes": 182336,
-      "lastKilobytes": 175280,
-      "growthPercent": -3.86977886977887,
+      "firstKilobytes": 175024,
+      "lastKilobytes": 166160,
+      "growthPercent": -5.064448304232562,
       "thresholdPercent": 20,
       "verdict": "PASS",
       "samples": [
-        182336,
-        182352,
-        182400,
-        182432,
-        182448,
-        182464,
-        182464,
-        182480,
-        182480,
-        182480,
-        182560,
-        182560,
-        182592,
-        170640,
+        175024,
+        175024,
+        175056,
+        175136,
+        175152,
+        175232,
         175248,
-        175248,
-        175248,
-        175264,
-        175264,
-        175280
+        175280,
+        175296,
+        175312,
+        175312,
+        175280,
+        175280,
+        166112,
+        166112,
+        166128,
+        166128,
+        166144,
+        166144,
+        166160
       ]
     },
     "cleanupVerification": {

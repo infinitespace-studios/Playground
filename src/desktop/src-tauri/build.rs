@@ -7,38 +7,27 @@ use std::{
 //
 // The shipping PRODUCT build compiles only the eight domain-named product
 // commands. The proof build (`--features proof-harness`) additionally compiles
-// the seventy packaged-proof commands. `build.rs` sees the full handler source
+// the fifty-nine packaged-proof commands. `build.rs` sees the full handler source
 // either way (it reads `lib.rs` as text), so the three inventories below are the
 // build-time source of truth:
 //
-//   * `HANDLER_ORDER`   — all 78 command identifiers, in `generate_handler!`
+//   * `HANDLER_ORDER`   — all 67 command identifiers, in `generate_handler!`
 //                         order. Every proof identifier is gated by a per-line
 //                         `#[cfg(feature = "proof-harness")]`; the eight product
 //                         identifiers are unconditional. `validate_runtime_rust`
 //                         enforces exactly that gating so neither list can drift
 //                         nor a proof command silently lose its gate.
 //   * `PRODUCT_COMMANDS` — the eight commands compiled into every build.
-//   * `PROOF_COMMANDS`   — the seventy commands compiled only under the feature.
+//   * `PROOF_COMMANDS`   — the fifty-nine commands compiled only under the feature.
 //
 // The *effective* command set handed to `tauri_build` (and therefore the
 // generated per-command permissions) is `PRODUCT_COMMANDS` by default and the
 // full `HANDLER_ORDER` under the feature. The committed ACL is split to match:
 // `permissions/main.toml` + `capabilities/main.json` grant the eight product
 // commands (selected by every build); `permissions/proof.toml` +
-// `capabilities/proof.json` grant the seventy proof commands (selected only by
+// `capabilities/proof.json` grant the fifty-nine proof commands (selected only by
 // `tauri.proof.conf.json`).
 const HANDLER_ORDER: &[&str] = &[
-    "issue009_is_proof_enabled",
-    "issue009_emit_report",
-    "issue011_is_proof_enabled",
-    "issue011_set_outer_size",
-    "issue011_outer_bounds",
-    "issue011_emit_report",
-    "issue010_is_proof_enabled",
-    "issue010_emit_report",
-    "issue020_is_proof_enabled",
-    "issue020_emit_checkpoint",
-    "issue020_emit_report",
     "issue021_is_proof_enabled",
     "issue021_is_locked_session_proof",
     "issue021_emit_report",
@@ -120,17 +109,6 @@ const PRODUCT_COMMANDS: &[&str] = &[
 ];
 
 const PROOF_COMMANDS: &[&str] = &[
-    "issue009_is_proof_enabled",
-    "issue009_emit_report",
-    "issue011_is_proof_enabled",
-    "issue011_set_outer_size",
-    "issue011_outer_bounds",
-    "issue011_emit_report",
-    "issue010_is_proof_enabled",
-    "issue010_emit_report",
-    "issue020_is_proof_enabled",
-    "issue020_emit_checkpoint",
-    "issue020_emit_report",
     "issue021_is_proof_enabled",
     "issue021_is_locked_session_proof",
     "issue021_emit_report",
@@ -200,7 +178,7 @@ fn proof_harness_enabled() -> bool {
 }
 
 /// The command set actually compiled into this build: the eight product
-/// commands by default, or all 78 under the proof-harness feature.
+/// commands by default, or all 67 under the proof-harness feature.
 fn effective_commands() -> &'static [&'static str] {
     if proof_harness_enabled() {
         HANDLER_ORDER
@@ -454,7 +432,7 @@ fn validate_frontend_command_inventory(source: &str) -> Result<(), String> {
         .nth(1)
         .and_then(|tail| tail.split("] as const").next())
         .ok_or("frontend command inventory is missing")?;
-    // The proof-only security scenario ships the full 78-command inventory in
+    // The proof-only security scenario ships the full 67-command inventory in
     // every profile's source (it is a proof module; the product graph never
     // imports it). Bind it to the complete handler order so it cannot drift.
     if quoted_values(block) != HANDLER_ORDER {
@@ -723,9 +701,9 @@ fn validate_generated_acl(root: &Path) {
         "generated permissions must contain files only"
     );
     // `tauri_build` regenerates this directory from the effective command set,
-    // so it is the profile-correct floor: 8 files by default, 78 under the
+    // so it is the profile-correct floor: 8 files by default, 67 under the
     // feature. This is the *effective grant* count (distinct from the committed
-    // permission definitions, which always describe all 78 across the two
+    // permission definitions, which always describe all 67 across the two
     // permission files).
     let effective = effective_commands();
     assert_eq!(
@@ -750,9 +728,9 @@ fn validate_generated_acl(root: &Path) {
     //   product: 1 capability (main) + 1 composite permission (main-commands)
     //            + 8 generated permissions            = 10
     //   proof:   2 capabilities (main + proof)
-    //            + 2 composite permissions            + 78 generated = 82
+    //            + 2 composite permissions            + 67 generated = 71
     let (capabilities, composites, expected_total) = if proof_harness_enabled() {
-        (2, 2, 82)
+        (2, 2, 71)
     } else {
         (1, 1, 10)
     };
@@ -806,11 +784,35 @@ fn main() {
         "RunAtomicMountSelfTest",
     ];
     let proof_extension = preview_root.join("preview-proof-extension.js");
+    // Stage 7: the proof extension was split by domain into four proof-only
+    // sibling modules the entry imports. All are proof-only staged assets.
+    let proof_modules = [
+        ("preview-proof-extension.js", "__playgroundPreviewExtension"),
+        ("preview-proof-state.js", "createProofExpectationRegistry"),
+        ("preview-proof-audio.js", "installIssue040AudioProbe"),
+        ("preview-proof-bridge.js", "Issue034FileSystemProbe"),
+        ("preview-proof-lifecycle.js", "QueryStoppedGameProof"),
+    ];
     if proof_harness_enabled() {
         assert!(
             proof_extension.exists(),
             "the PROOF build must embed the staged preview proof extension"
         );
+        // Non-vacuous: every split proof module must be embedded AND carry its
+        // required proof symbol (a failed/empty read cannot pass).
+        for (module, symbol) in proof_modules {
+            let path = preview_root.join(module);
+            assert!(
+                path.exists(),
+                "the PROOF build must embed the staged preview proof module {module:?}"
+            );
+            let text = fs::read_to_string(&path)
+                .unwrap_or_else(|_| panic!("staged proof module {module:?} must be readable"));
+            assert!(
+                text.contains(symbol),
+                "staged proof module {module:?} is missing required proof symbol {symbol:?}"
+            );
+        }
     } else {
         for symbol in forbidden_product_preview_symbols {
             assert!(
@@ -837,6 +839,13 @@ fn main() {
             !proof_extension.exists(),
             "the PRODUCT build embedded a proof-only preview extension asset"
         );
+        // Every split proof module must be absent from the PRODUCT-embedded tree.
+        for (module, _symbol) in proof_modules {
+            assert!(
+                !preview_root.join(module).exists(),
+                "the PRODUCT build embedded a proof-only preview module {module:?}"
+            );
+        }
     }
     let _ = profile_label;
     let sizes = files
@@ -899,7 +908,7 @@ fn main() {
         "proof-state",
     ];
     let compiler_proof_extension = compiler_root.join("compiler-proof-extension.js");
-    let compiler_proof_endpoints = compiler_root.join("Issue21EndpointsProof.js");
+    let compiler_proof_endpoints = compiler_root.join("ProtocolEndpointsProof.js");
     if proof_harness_enabled() {
         assert!(
             compiler_proof_extension.exists() && compiler_proof_endpoints.exists(),
@@ -955,7 +964,7 @@ fn main() {
     }
     // Profile-scope which committed ACL files `tauri_build` reads into the
     // embedded manifest. The product build reads ONLY main.toml / main.json, so
-    // the proof composite permission and the seventy proof command name strings
+    // the proof composite permission and the fifty-nine proof command name strings
     // never enter the product binary's ACL manifest (a raw `strings` scan of the
     // release binary confirms their absence). The proof build widens both globs
     // to include the proof overlay. The `default = []` feature keeps the product

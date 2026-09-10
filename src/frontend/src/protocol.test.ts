@@ -35,11 +35,11 @@ import { installPrivatePortBootstrap } from "../../shared/ProtocolRuntime.js";
 import {
   createCompilerEndpoint,
   createPreviewEndpoint,
-} from "../../shared/Issue21Endpoints.js";
+} from "../../shared/ProtocolEndpoints.js";
 import {
   createProofExpectationRegistry,
   initializeCompilerProofMode,
-} from "../../shared/Issue21EndpointsProof.js";
+} from "../../shared/ProtocolEndpointsProof.js";
 import {
   createPreviewStartExecutor,
   UnexpectedStartBoundaryError,
@@ -51,14 +51,14 @@ import {
   normalizeUnicodeScalars,
 } from "../../shared/NativeOutputRuntime.js";
 import {
-  createIssue21LoadController,
-  verifyIssue21ProofOutcomes,
-} from "./issue21-controller.ts";
+  createProofLoadController,
+  verifyProofLoadOutcomes,
+} from "./scenario-load-controller.ts";
 import {
-  createIssue023RunController,
+  createProofRunController,
   withForcedPreviewRetirement,
-} from "./issue23-controller.ts";
-import { createIssue024RunStopController } from "./issue24-controller.ts";
+} from "./scenario-run-controller.ts";
+import { createRunStopController } from "./lifecycle-controller.ts";
 
 const uuid = "00112233-4455-4677-8899-aabbccddeeff";
 const compileId = "12345678-1234-4abc-8def-123456789abc";
@@ -335,7 +335,7 @@ test("normal UI controller succeeds without proof expectation access and disable
   let disabled = false;
   const statuses: Array<[string, string]> = [];
   const errors: unknown[] = [];
-  const controller = createIssue21LoadController({
+  const controller = createProofLoadController({
     execute: async () => {
       executeCalls += 1;
       return {
@@ -347,7 +347,7 @@ test("normal UI controller succeeds without proof expectation access and disable
     setStatus: (state, text) => { statuses.push([state, text]); },
     reportError: error => { errors.push(error); },
   });
-  const proof = verifyIssue21ProofOutcomes(false, () => {
+  const proof = verifyProofLoadOutcomes(false, () => {
     expectationCalls += 1;
     throw new Error("normal mode must not inspect proof expectations");
   });
@@ -366,7 +366,7 @@ test("normal UI controller succeeds without proof expectation access and disable
 test("normal UI controller routes terminal failure to its error channel", async () => {
   const errors: unknown[] = [];
   const statuses: Array<[string, string]> = [];
-  const controller = createIssue21LoadController({
+  const controller = createProofLoadController({
     execute: async () => { throw new Error("PREVIEW_LOAD_FAILED: rejected"); },
     setDisabled() {},
     setStatus: (state, text) => { statuses.push([state, text]); },
@@ -384,7 +384,7 @@ test("normal issue023 controller reaches one production start and reports succes
   const disabled: boolean[] = [];
   const errors: unknown[] = [];
   let productionStarts = 0;
-  const success = createIssue023RunController({
+  const success = createProofRunController({
     start: async () => {
       productionStarts += 1;
       return { runAttempts: 1, proofMode: false };
@@ -402,7 +402,7 @@ test("normal issue023 controller reaches one production start and reports succes
   await assert.rejects(success.run(), /already active/);
   assert.equal(productionStarts, 1);
 
-  const failure = createIssue023RunController({
+  const failure = createProofRunController({
     start: async () => { throw new Error("PREVIEW_START_FAILED: rejected"); },
     setDisabled: value => { disabled.push(value); },
     setStatus: (state, text) => { statuses.push([state, text]); },
@@ -430,7 +430,7 @@ test("run/stop controller coalesces concurrent stops and recovers controls", asy
   let stopCalls = 0;
   let release!: () => void;
   const stopping = new Promise<void>(resolve => { release = resolve; });
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start: async () => ({ previewId: uuid }),
     stop: async () => { stopCalls++; await stopping; return { stopped: true }; },
     setRunDisabled: value => { runDisabled.push(value); },
@@ -457,7 +457,7 @@ test("restart waits for retirement and coalesces duplicate run requests", async 
   let starts = 0;
   let releaseStop!: () => void;
   const stopping = new Promise<void>(resolve => { releaseStop = resolve; });
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start: async () => {
       const preview = { id: ++starts };
       order.push(`start:${preview.id}`);
@@ -491,7 +491,7 @@ test("rapid run stop run serializes startup cleanup and fresh start", async () =
   const stopping = new Promise<void>(resolve => { releaseStop = resolve; });
   const order: string[] = [];
   let starts = 0;
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start: () => {
       starts += 1;
       order.push(`start:${starts}`);
@@ -531,7 +531,7 @@ test("synchronous start() throw resets to idle and re-enables Run (issue 052 con
   const stopDisabled: boolean[] = [];
   const statuses: Array<[string, string]> = [];
   const lifecycle: string[] = [];
-  const controller = createIssue024RunStopController<{ id: number }>({
+  const controller = createRunStopController<{ id: number }>({
     start: () => { throw new Error("PG0215_CONTENT_PROFILE_NOT_WEB: not Web"); },
     stop: async () => ({}),
     setRunDisabled: v => { runDisabled.push(v); },
@@ -559,7 +559,7 @@ test("proof outcome matching excludes the primary successful load", () => {
     { probePhase: "postMutationSecondLoad", expectedCode: "INVALID_STATE", observedCode: "INVALID_STATE" },
     { probePhase: "post-mutation-identity-mismatch", expectedCode: "PREVIEW_LOAD_FAILED", observedCode: "PREVIEW_LOAD_FAILED" },
   ];
-  const result = verifyIssue21ProofOutcomes(true, () => ({
+  const result = verifyProofLoadOutcomes(true, () => ({
     expectedProbeRejections: rejections,
     preMutationObservedCode: "PREVIEW_LOAD_FAILED",
     postMutationObservedCode: "INVALID_STATE",
@@ -1847,7 +1847,7 @@ test("run controller recovers after production failure observation without stopp
   let stops = 0;
   const controls: Array<[string, boolean]> = [];
   const failure = new Promise<void>(resolve => { resolveFailure = resolve; });
-  const controller = createIssue024RunStopController({
+  const controller = createRunStopController({
     start: async () => ({ id: ++starts, failure }),
     stop: async () => { stops++; },
     observeFailure: preview => preview.failure,
@@ -2168,8 +2168,30 @@ test("issue 033 sandbox and CSP remain restrictive", async () => {
     new URL("../../preview/wwwroot/preview.js", import.meta.url), "utf8");
   const previewProofExtension = await readFile(
     new URL("../../preview/wwwroot/preview-proof-extension.js", import.meta.url), "utf8");
-  const issue21Runtime = await readFile(
-    new URL("./issue21.ts", import.meta.url), "utf8");
+  // Stage 7: the ~1187-line proof extension was split by proof domain into four
+  // proof-only sibling modules the entry imports. Read each so the assertions
+  // below prove the responsibility moved to its own module (and did NOT stay
+  // in the entry).
+  const previewProofState = await readFile(
+    new URL("../../preview/wwwroot/preview-proof-state.js", import.meta.url), "utf8");
+  const previewProofAudio = await readFile(
+    new URL("../../preview/wwwroot/preview-proof-audio.js", import.meta.url), "utf8");
+  const previewProofBridge = await readFile(
+    new URL("../../preview/wwwroot/preview-proof-bridge.js", import.meta.url), "utf8");
+  const previewProofLifecycle = await readFile(
+    new URL("../../preview/wwwroot/preview-proof-lifecycle.js", import.meta.url), "utf8");
+  const scenarioToolkitRuntime = await readFile(
+    new URL("./scenario-toolkit.ts", import.meta.url), "utf8");
+  // Stage 7: the oversized shared proof toolkit was split by responsibility into
+  // three proof-only SUPPORT modules the toolkit re-exports. Read them so the
+  // read-source assertions below prove each responsibility moved to its own
+  // module (and did NOT stay duplicated in scenario-toolkit.ts).
+  const packagedProofReadiness = await readFile(
+    new URL("./packaged-proof-readiness.ts", import.meta.url), "utf8");
+  const persistentCompileSupport = await readFile(
+    new URL("./persistent-compile-support.ts", import.meta.url), "utf8");
+  const embeddedPreviewSupport = await readFile(
+    new URL("./embedded-preview-support.ts", import.meta.url), "utf8");
   assert.equal(PREVIEW_SANDBOX, "allow-scripts");
   assert.match(frontend, /sandbox="allow-scripts"/);
   assert.doesNotMatch(frontend, /allow-same-origin/);
@@ -2200,8 +2222,8 @@ test("issue 033 sandbox and CSP remain restrictive", async () => {
   assert.match(previewRuntime, /withResourceLoader/);
   assert.match(previewRuntime, /credentials:\s*"omit"/);
   // The animation-frame bridge action is proof-only and lives in the proof
-  // extension, not the shipping preview runtime.
-  assert.match(previewProofExtension, /ANIMATION_FRAME_TIMEOUT/);
+  // bridge module, not the shipping preview runtime.
+  assert.match(previewProofBridge, /ANIMATION_FRAME_TIMEOUT/);
   assert.doesNotMatch(previewRuntime, /ANIMATION_FRAME_TIMEOUT/);
   // The stopped-game quiescence proof observation was moved out of the shared
   // product stop runtime and behind the proof-only extension's neutral
@@ -2211,8 +2233,27 @@ test("issue 033 sandbox and CSP remain restrictive", async () => {
     new URL("../../shared/PreviewStopRuntime.js", import.meta.url), "utf8");
   assert.doesNotMatch(previewStopRuntime, /QueryStoppedGameProof/);
   assert.match(previewStopRuntime, /observeStopped/); // non-vacuous product floor
-  assert.match(previewProofExtension, /onStopObservation/);
-  assert.match(previewProofExtension, /QueryStoppedGameProof/);
+  // Stage 7: the neutral onStopObservation hook and the stopped-game proof
+  // JSExport reference live in the proof lifecycle module.
+  assert.match(previewProofLifecycle, /onStopObservation/);
+  assert.match(previewProofLifecycle, /QueryStoppedGameProof/);
+  // Stage 7 proof-domain split: each proof-only module owns exactly its
+  // responsibility surface, and the entry only wires them together (it must NOT
+  // re-declare the moved instrumentation).
+  assert.match(previewProofExtension, /__playgroundPreviewExtension/);
+  assert.match(previewProofExtension, /createPreviewProofState/);
+  assert.match(previewProofExtension, /createPreviewProofAudio/);
+  assert.match(previewProofExtension, /createPreviewProofBridge/);
+  assert.match(previewProofExtension, /createPreviewProofLifecycle/);
+  assert.match(previewProofState, /createProofExpectationRegistry/);
+  assert.match(previewProofState, /previewIssue040Proof/);
+  assert.doesNotMatch(previewProofExtension, /createProofExpectationRegistry/);
+  assert.match(previewProofAudio, /installIssue040AudioProbe/);
+  assert.doesNotMatch(previewProofExtension, /installIssue040AudioProbe/);
+  assert.match(previewProofBridge, /Issue034FileSystemProbe/);
+  assert.match(previewProofBridge, /issue040-audio-arm/);
+  assert.doesNotMatch(previewProofExtension, /Issue034FileSystemProbe/);
+  assert.match(previewProofLifecycle, /previewIssue028EmitNativePaths/);
   // Product preview runtime must carry no proof instrumentation surface.
   for (const forbidden of [
     /previewIssue/,
@@ -2227,8 +2268,40 @@ test("issue 033 sandbox and CSP remain restrictive", async () => {
   // Non-vacuous floor: it IS the product preview runtime.
   assert.match(previewRuntime, /createPreviewEndpoint/);
   assert.match(previewRuntime, /verifyRuntimeAsset/);
-  assert.match(issue21Runtime, /async function requireVisiblePreviewFrame\(/);
-  assert.match(issue21Runtime, /frame\.scrollIntoView/);
+  assert.match(scenarioToolkitRuntime, /async function requireVisiblePreviewFrame\(/);
+  assert.match(scenarioToolkitRuntime, /frame\.scrollIntoView/);
+  // Stage 7 responsibility split: each support module owns exactly its
+  // responsibility's proof entrypoint, and scenario-toolkit re-exports rather
+  // than re-declares them (no duplicated `export async function` definition).
+  assert.match(
+    packagedProofReadiness,
+    /export async function preparePackagedProofRuntime\(/);
+  assert.doesNotMatch(
+    scenarioToolkitRuntime,
+    /export async function preparePackagedProofRuntime\(/);
+  assert.match(
+    persistentCompileSupport,
+    /export async function compileSourcesThroughPersistentCompiler\(/);
+  assert.match(
+    persistentCompileSupport,
+    /export async function compileToBuffers\(/);
+  assert.doesNotMatch(
+    scenarioToolkitRuntime,
+    /export async function compileToBuffers\(/);
+  assert.match(
+    embeddedPreviewSupport,
+    /export async function createEmbeddedProofPreview\(/);
+  assert.match(
+    embeddedPreviewSupport,
+    /export async function probeInPageNoWasmEvalBoot\(/);
+  assert.doesNotMatch(
+    scenarioToolkitRuntime,
+    /export async function createEmbeddedProofPreview\(/);
+  // The toolkit still re-exports the split surfaces as a single stable import
+  // site for the eight proof scenarios (barrel), so its public API is preserved.
+  assert.match(scenarioToolkitRuntime, /export \{[^}]*preparePackagedProofRuntime[^}]*\} from "\.\/packaged-proof-readiness"/s);
+  assert.match(scenarioToolkitRuntime, /from "\.\/persistent-compile-support"/);
+  assert.match(scenarioToolkitRuntime, /from "\.\/embedded-preview-support"/);
 });
 
 test("product compiler harness and shared endpoints carry no proof surface", async () => {
@@ -2237,9 +2310,9 @@ test("product compiler harness and shared endpoints carry no proof surface", asy
   const compilerProofExtension = await readFile(
     new URL("../../compiler/wwwroot/compiler-proof-extension.js", import.meta.url), "utf8");
   const sharedEndpoints = await readFile(
-    new URL("../../shared/Issue21Endpoints.js", import.meta.url), "utf8");
+    new URL("../../shared/ProtocolEndpoints.js", import.meta.url), "utf8");
   const sharedProofEndpoints = await readFile(
-    new URL("../../shared/Issue21EndpointsProof.js", import.meta.url), "utf8");
+    new URL("../../shared/ProtocolEndpointsProof.js", import.meta.url), "utf8");
 
   // The product compiler harness must contain none of the proof globals, proof
   // DOM/state, retention-behavior proof, or proof-mode handshake.
@@ -2293,7 +2366,7 @@ test("product frontend source carries no proof-numbered/issue-numbered identifie
     read("./monaco-editor.ts"),
     read("./first-run-warning.ts"),
     read("./style.css"),
-    read("../../shared/Issue21Endpoints.js"),
+    read("../../shared/ProtocolEndpoints.js"),
     read("../../shared/PreviewStopRuntime.js"),
     read("./live-preview.ts"),
     read("./preview-frame.ts"),
@@ -2369,9 +2442,9 @@ test("product frontend source carries no proof-numbered/issue-numbered identifie
   assert.match(previewFrame, /export function loadPreviewIframeWithoutWasmEval/);
 
   // (9) The product lifecycle controller domain module carries no issue-numbered
-  // identifier. The deprecated `Issue052PreviewLifecycle` alias now lives ONLY
-  // in the issue-numbered compatibility façade (issue24-controller.ts). The
-  // responsibility-named `PreviewLifecycleState` is the non-vacuous floor.
+  // identifier. Proof scenarios import `createRunStopController` /
+  // `PreviewLifecycleState` from it directly; no issue-numbered façade remains.
+  // The responsibility-named `PreviewLifecycleState` is the non-vacuous floor.
   assert.doesNotMatch(lifecycleController, /Issue052PreviewLifecycle/);
   assert.doesNotMatch(lifecycleController, /ISSUE0\d\d_[A-Z]/);
   assert.doesNotMatch(lifecycleController, /Issue0\d\d[A-Za-z]/);
@@ -2403,7 +2476,7 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const capability = JSON.parse(capabilityText);
   const proofCapability = JSON.parse(proofCapabilityText);
   // Stage 6 binary separation: the product build selects only the `main`
-  // capability (8 commands); the proof build additionally selects `proof` (70
+  // capability (8 commands); the proof build additionally selects `proof` (59
   // commands). Validate the shape of both, and that the product config never
   // pulls in the proof capability.
   const validateCapability = (
@@ -2475,11 +2548,11 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofInventoryCommands = commandNames(proofInventoryBlock).sort();
-  // Product surface is exactly 8; proof surface exactly 70; union is the full 78
-  // handler order (and the frontend proof inventory, which ships all 78).
+  // Product surface is exactly 8; proof surface exactly 59; union is the full 67
+  // handler order (and the frontend proof inventory, which ships all 67).
   assert.equal(productCommands.length, 8);
-  assert.equal(proofBuildCommands.length, 70);
-  assert.equal(handlerOrderCommands.length, 78);
+  assert.equal(proofBuildCommands.length, 59);
+  assert.equal(handlerOrderCommands.length, 67);
   assert.deepEqual(mainPermissionCommands, productCommands);
   assert.deepEqual(proofPermissionCommands, proofBuildCommands);
   assert.deepEqual(handlerCommands, handlerOrderCommands);

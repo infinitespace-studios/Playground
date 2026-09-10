@@ -91,8 +91,8 @@ The two raw assets are generated deterministically (no `Math.*` in the sample
 path, so rebuilds are byte-identical):
 
 ```
-node scripts/build-issue052-content-fixtures.mjs          # rewrite sprite.png + tone.wav
-node scripts/build-issue052-content-fixtures.mjs --check   # verify committed bytes
+node scripts/build-content-fixtures.mjs          # rewrite sprite.png + tone.wav
+node scripts/build-content-fixtures.mjs --check   # verify committed bytes
 ```
 
 `tone.wav` reuses the issue 040 integer sine-table PCM, so transcoding it

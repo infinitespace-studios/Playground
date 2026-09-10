@@ -23,6 +23,14 @@ name: release
 
 on:
   workflow_dispatch:
+    inputs:
+      run_proof_acceptance:
+        description: >-
+          Also build the PROOF package (proof-harness) and run the packaged
+          scenario suite + proof binary inventory on macOS. Off by default so
+          normal runs do not pay for the long packaged proof scenarios.
+        type: boolean
+        default: false
   push:
     branches:
       - main
@@ -200,24 +208,44 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # `hostNative` marks legs whose build target matches the runner's own
+          # architecture, so `cargo test` can execute the compiled tests. The
+          # macos-x64 leg is cross-compiled on an arm64 host, so its tests are
+          # built but not run there (clippy still runs everywhere).
+          # `guiSmoke: launch` runs the bounded product launch/no-immediate-crash
+          # smoke; `identity` runs identity/profile checks where a reliable
+          # native execution environment is not guaranteed (headless Linux,
+          # CI Windows, and the cross-compiled macOS x64 artifact on an arm64 host).
           - label: macos-arm64
             runner: macos-latest
             target: aarch64-apple-darwin
+            hostNative: true
+            guiSmoke: launch
           - label: macos-x64
             runner: macos-latest
             target: x86_64-apple-darwin
+            hostNative: false
+            guiSmoke: identity
           - label: windows-x64
             runner: windows-latest
             target: x86_64-pc-windows-msvc
+            hostNative: true
+            guiSmoke: identity
           - label: windows-arm64
             runner: windows-11-arm
             target: aarch64-pc-windows-msvc
+            hostNative: true
+            guiSmoke: identity
           - label: linux-x64
             runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
+            hostNative: true
+            guiSmoke: identity
           - label: linux-arm64
             runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
+            hostNative: true
+            guiSmoke: identity
     steps:
       - name: Checkout (recursive submodules)
         uses: actions/checkout@v5
@@ -288,13 +316,34 @@ jobs:
       - name: Verify product frontend excludes proof graph
         run: npm --prefix src/frontend run check:profile-product
 
+      # Asset-dependent Rust gates. These MUST run after the frontend `dist/` is
+      # staged: `src/desktop/src-tauri/build.rs` canonicalises and embeds
+      # `dist/preview`, so clippy/check/test cannot compile without it. This is
+      # why these gates live here (post-staging) and not in quality.yml, which
+      # runs from a clean clone with no staged assets. PRODUCT profile only
+      # (default features); the PROOF Rust gates need proof-staged assets and run
+      # in the opt-in proof-acceptance job.
+      - name: Rust clippy (PRODUCT, ${{ matrix.target }})
+        working-directory: src/desktop/src-tauri
+        run: cargo clippy --all-targets --target ${{ matrix.target }}
+
+      - name: Rust tests (PRODUCT)
+        # Only on legs whose target matches the runner arch (cross-compiled
+        # binaries cannot be executed on the build host).
+        if: matrix.hostNative
+        working-directory: src/desktop/src-tauri
+        run: cargo test --target ${{ matrix.target }}
+
       - name: Build Tauri bundle (${{ matrix.target }})
         uses: tauri-apps/tauri-action@v0
         with:
           projectPath: src/desktop/src-tauri
           args: --target ${{ matrix.target }}
-          # On a `v*` tag push, tauri-action creates/updates a draft GitHub
-          # Release named for the tag and uploads this leg's bundle to it.
+          # On a `v*` tag push, tauri-action creates/updates a DRAFT GitHub
+          # Release and attaches this leg's bundle during the build step. The
+          # post-build integrity/size/smoke gates below still control the job's
+          # success and workflow-artifact upload. The draft must not be published
+          # unless every matrix leg is green.
           tagName: ${{ startsWith(github.ref, 'refs/tags/v') && github.ref_name || '' }}
           releaseName: ${{ startsWith(github.ref, 'refs/tags/v') && format('MonoGame Playground {0}', github.ref_name) || '' }}
           releaseDraft: true
@@ -336,6 +385,47 @@ jobs:
               --frontend-dist src/frontend/dist
           fi
 
+      # Package-size gate against THIS leg's freshly built product bundle. Passes
+      # explicit --binary/--package-dir/--dist so nothing is hardcoded to macOS
+      # or a single arch; the gate resolves this platform's package format
+      # (.dmg/.msi/.exe/.deb/.AppImage), verifies the staged dist is the PRODUCT
+      # profile, confirms the content fixtures, and fails closed over 100 MiB.
+      - name: Product package-size gate (${{ matrix.label }})
+        shell: bash
+        run: |
+          REL="src/desktop/src-tauri/target/${{ matrix.target }}/release"
+          BIN="$REL/monogame-playground"
+          if [ "${{ runner.os }}" = "Windows" ]; then BIN="$BIN.exe"; fi
+          node scripts/measure-release-size.mjs \
+            --profile product \
+            --binary "$BIN" \
+            --package-dir "$REL/bundle" \
+            --dist src/frontend/dist \
+            --report "artifacts/release-size/${{ matrix.label }}.json"
+
+      # Bounded PRODUCT smoke against the freshly built artifact. macOS runners
+      # provide WKWebView + a window server, so the full launch/no-immediate-
+      # crash phase is real there. Windows/Linux CI cannot guarantee an
+      # interactive WebView2/Xvfb+WebKitGTK session, so those legs run the honest
+      # identity/profile checks only (--identity-only) rather than faking GUI
+      # readiness. The smoke refuses any proof env/profile and terminates only
+      # the process tree it owns.
+      - name: Product smoke gate (${{ matrix.label }})
+        shell: bash
+        run: |
+          REL="src/desktop/src-tauri/target/${{ matrix.target }}/release"
+          if [ "${{ matrix.guiSmoke }}" = "launch" ]; then
+            APP="$REL/bundle/macos/MonoGame Playground.app"
+            node scripts/smoke-product.mjs \
+              --bundle "$APP" \
+              --ready-seconds 8 --timeout 40 \
+              --logs "artifacts/smoke/${{ matrix.label }}.log"
+          else
+            BIN="$REL/monogame-playground"
+            if [ "${{ runner.os }}" = "Windows" ]; then BIN="$BIN.exe"; fi
+            node scripts/smoke-product.mjs --binary "$BIN" --identity-only
+          fi
+
       - name: Upload bundle artifact (${{ matrix.label }})
         uses: actions/upload-artifact@v4
         with:
@@ -343,4 +433,109 @@ jobs:
           path: |
             src/desktop/src-tauri/target/${{ matrix.target }}/release/bundle/**
           if-no-files-found: error
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 3. OPT-IN proof acceptance (macOS): build the PROOF package (proof-harness)
+  #    and run the packaged scenario suite + proof binary/runtime inventory.
+  #
+  #    Gated on the `run_proof_acceptance` workflow_dispatch input so that normal
+  #    `main` pushes and tag builds do NOT pay for the long packaged proof
+  #    scenarios. This is the honest place for asset- AND proof-dependent gates:
+  #    it stages the PROOF frontend, builds `--features proof-harness`, and runs
+  #    the canonical macOS scenario runner (which drives all eight scenarios and
+  #    asserts the packaged proof binary carries the full harness).
+  # ---------------------------------------------------------------------------
+  proof-acceptance:
+    name: proof-acceptance (macos-arm64)
+    needs: build-monogame-wasm
+    if: github.event_name == 'workflow_dispatch' && inputs.run_proof_acceptance
+    runs-on: macos-latest
+    steps:
+      - name: Checkout (recursive submodules)
+        uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Download MonoGame artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: monogame-wasm
+          path: artifacts/monogame
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: ${{ env.DOTNET_VERSION }}
+
+      - name: Pin active .NET SDK
+        shell: bash
+        run: |
+          cat > global.json <<'JSON'
+          {
+            "sdk": {
+              "version": "${{ env.DOTNET_VERSION }}",
+              "rollForward": "disable"
+            }
+          }
+          JSON
+          dotnet --version
+
+      - name: Install wasm-tools workload
+        run: dotnet workload install wasm-tools
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Setup Rust (${{ env.RUST_TOOLCHAIN }}, aarch64-apple-darwin)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
+          targets: aarch64-apple-darwin
+
+      - name: Cache Cargo + Rust target
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src/desktop/src-tauri -> target
+          key: proof-aarch64-apple-darwin
+
+      - name: Install frontend dependencies (npm ci)
+        run: npm --prefix src/frontend ci
+
+      - name: Stage PROOF assets + build proof frontend
+        run: npm --prefix src/frontend run build:proof
+
+      # PROOF Rust gates need the proof-staged dist that build.rs embeds; run them
+      # here (not in quality.yml or the product package legs).
+      - name: Rust clippy (PROOF)
+        working-directory: src/desktop/src-tauri
+        run: cargo clippy --all-targets --features proof-harness
+
+      - name: Rust tests (PROOF)
+        working-directory: src/desktop/src-tauri
+        run: cargo test --features proof-harness
+
+      # The canonical packaged runner builds the PROOF package itself
+      # (tauri.proof.conf.json + --features proof-harness) and drives all eight
+      # scenarios, then asserts the packaged proof binary carries the full
+      # harness inventory. It is bounded and terminates only owned processes.
+      - name: Packaged proof scenario suite (all eight scenarios)
+        run: bash scripts/prove-scenarios-macos.sh
+
+      - name: Verify packaged PROOF binary command inventory
+        run: |
+          APP="src/desktop/src-tauri/target/release/bundle/macos/MonoGame Playground Proof.app"
+          node scripts/check-binary-command-inventory.mjs proof \
+            --bundle "$APP" \
+            --frontend-dist src/frontend/dist-proof
+
+      - name: Upload proof evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: proof-acceptance-evidence
+          path: artifacts/**
+          if-no-files-found: warn
           retention-days: 7
