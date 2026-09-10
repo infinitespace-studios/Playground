@@ -74,8 +74,9 @@ and Linux for both x64 (`x86_64`) and arm64 (`aarch64`):
   `libayatana-appindicator3-dev`), installed by the workflow on the Ubuntu legs.
 - The release binary embedded in both the `.deb` and the `.AppImage` is stripped
   (`[profile.release] strip = true`), and the packaged frontend excludes the
-  obsolete top-level browser demo payload and the precompressed `.gz`/`.br`
-  sidecars (see `docs/build.md` “Final payload policy”). Both formats are
+  obsolete top-level browser demo payload, precompressed `.gz`/`.br` sidecars,
+  and unused Roslyn localization satellites (see `docs/build.md` “Final payload
+  policy”). All emitted formats are
   measured against the 100 MiB target individually; CI evidence (not this local
   macOS run) is the source of truth for the Linux package sizes.
 

@@ -149,6 +149,13 @@ if (isProof) {
   }
 }
 const frameworkFiles = await readdir(path.join(publishRoot, "_framework"));
+const unexpectedSatelliteLocales = frameworkFiles.filter(name =>
+  /^[a-z]{2}(?:-[A-Z]{2})?$/.test(name) && !["en", "en-US"].includes(name));
+if (unexpectedSatelliteLocales.length > 0) {
+  throw new Error(
+    `Compiler publish contains unapproved localized satellite resources: ` +
+      unexpectedSatelliteLocales.join(", "));
+}
 const compilerAssemblies = frameworkFiles.filter(name => /^Playground\.Compiler\..*\.wasm$/.test(name));
 if (compilerAssemblies.length < 1) {
   throw new Error(`Expected at least one Playground.Compiler runtime asset; found ${compilerAssemblies.length}.`);

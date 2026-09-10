@@ -208,7 +208,14 @@ preview runtime. Two classes of build output are deliberately **not** shipped:
    (`staged-asset-guard.mjs` `removePrecompressedSidecars` /
    `assertNoPrecompressedSidecars`, with a self-test).
 
-Both policies are additionally enforced on the built dist by
+3. **Unused Roslyn localization satellites.** The Playground UI and diagnostic
+   contract are English-only. `Playground.Compiler.csproj` sets
+   `SatelliteResourceLanguages=en`, so localized Roslyn satellite assemblies for
+   German, French, Japanese, Russian, Chinese, and other unused locales are not
+   published. `stage-compiler.mjs` fails if a non-English locale directory
+   reappears.
+
+These policies are additionally enforced on the built dist by
 `check-profile-artifacts.mjs` (no top-level `_framework`/`main.js`/`Content`
 demo payload and no `.gz`/`.br` sidecars survive in `dist/` or `dist-proof/`),
 and the embedded preview inventory test in `lib.rs` asserts no sidecar enters

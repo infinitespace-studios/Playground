@@ -7,6 +7,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Roslyn ships many localized satellite assemblies. The Playground UI and
+         diagnostics contract are English-only, so retain neutral/English
+         resources and omit unused locale payload from every package. -->
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <!-- Compiler build profile. Defaults to PRODUCT; the PROOF staging path sets
          MONOGAME_FRONTEND_PROFILE=proof (honored below) so that, and only that,
          build compiles the proof-only CompilerExports unit and deploys the
