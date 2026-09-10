@@ -503,8 +503,10 @@ jobs:
           workspaces: src/desktop/src-tauri -> target
           key: proof-aarch64-apple-darwin
 
-      - name: Install frontend dependencies (npm ci)
-        run: npm --prefix src/frontend ci
+      - name: Install frontend + desktop CLI dependencies (npm ci)
+        run: |
+          npm --prefix src/frontend ci
+          npm --prefix src/desktop ci
 
       - name: Stage PROOF assets + build proof frontend
         run: npm --prefix src/frontend run build:proof
