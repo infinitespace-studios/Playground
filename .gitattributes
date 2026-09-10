@@ -1,0 +1,2 @@
+# Security fixtures with byte-pinned checksums must be identical on every host.
+tests/security/fixtures/issue034-canary.txt text eol=lf

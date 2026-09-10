@@ -589,7 +589,7 @@ mod tests {
         let capability = include_str!("../capabilities/main.json");
         let permission = include_str!("../permissions/main.toml");
         let manifest = include_str!("../Cargo.toml");
-        let lockfile = include_str!("../Cargo.lock");
+        let lockfile = include_str!("../Cargo.lock").replace("\r\n", "\n");
         let canary = include_bytes!("../../../../tests/security/fixtures/issue034-canary.txt");
         assert!(config.contains("\"withGlobalTauri\": false"));
         assert!(capability.contains("\"windows\": [\"main\"]"));
