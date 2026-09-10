@@ -730,18 +730,32 @@ mod tests {
             assert!(path.starts_with('/'));
             assert!(!path.contains(['%', '\\', '\0']));
             assert!(
-                [
-                    ".html", ".css", ".js", ".json", ".wasm", ".dat", ".br", ".gz",
-                ]
-                .iter()
-                .any(|extension| path.ends_with(extension)),
+                [".html", ".css", ".js", ".json", ".wasm", ".dat"]
+                    .iter()
+                    .any(|extension| path.ends_with(extension)),
                 "{path}"
+            );
+            // Stage 7 payload cleanup: the dead Brotli/gzip precompressed
+            // sidecars are stripped from the staged preview tree, so they must
+            // NOT enter the embedded inventory. The preview is served by an
+            // exact-path custom protocol that never negotiates content-encoding.
+            assert!(
+                !path.ends_with(".br") && !path.ends_with(".gz"),
+                "precompressed sidecar leaked into the embedded preview inventory: {path}"
             );
             total = total.checked_add(declared_size).expect("bounded inventory");
         }
         assert!(total <= MAX_PREVIEW_TOTAL_BYTES);
         assert_eq!(total, PREVIEW_ASSET_TOTAL_BYTES);
-        assert!(PREVIEW_ASSET_INVENTORY.len() >= 300);
+        // Non-vacuous floor: the raw browser-wasm preview runtime is ~180+ files
+        // (framework wasm/dat + boot manifest + shared runtime JS) even after the
+        // sidecars are removed. A count far below this means the staging or embed
+        // step is broken/empty.
+        assert!(
+            PREVIEW_ASSET_INVENTORY.len() >= 150,
+            "embedded preview inventory unexpectedly small: {}",
+            PREVIEW_ASSET_INVENTORY.len()
+        );
     }
 
     #[test]
@@ -753,8 +767,6 @@ mod tests {
             ("/preview-build.json", "application/json"),
             ("/_framework/runtime.wasm", "application/wasm"),
             ("/_framework/runtime.dat", "application/octet-stream"),
-            ("/_framework/runtime.br", "application/octet-stream"),
-            ("/_framework/runtime.gz", "application/gzip"),
             ("/future.dll", "application/octet-stream"),
             ("/future.pdb", "application/octet-stream"),
         ] {
@@ -1966,14 +1978,10 @@ fn preview_content_type(path: &str) -> &'static str {
         "application/json"
     } else if path.ends_with(".wasm") {
         "application/wasm"
-    } else if [".dll", ".pdb", ".dat", ".br"]
-        .iter()
-        .any(|extension| path.ends_with(extension))
-    {
-        "application/octet-stream"
-    } else if path.ends_with(".gz") {
-        "application/gzip"
     } else {
+        // Framework data, DLL/PDB payloads, and unknown future binary assets
+        // are served as opaque bytes. Precompressed sidecars never enter the
+        // inventory and therefore have no content-type branch.
         "application/octet-stream"
     }
 }

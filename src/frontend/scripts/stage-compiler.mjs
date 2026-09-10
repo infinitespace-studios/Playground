@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertNoIssueNumberedStagedAssets } from "./staged-asset-guard.mjs";
+import { assertNoIssueNumberedStagedAssets, removePrecompressedSidecars, assertNoPrecompressedSidecars } from "./staged-asset-guard.mjs";
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(frontendRoot, "../..");
@@ -174,4 +174,15 @@ await writeFile(path.join(outputRoot, "compiler-build.json"), `${JSON.stringify(
 // Generic fail-closed guard: no issue-numbered implementation filename may
 // re-enter the staged compiler asset tree (product OR proof).
 assertNoIssueNumberedStagedAssets(outputRoot, `${profile} compiler staging`);
+// Stage 7 payload cleanup: strip the dead Brotli/gzip precompressed sidecars.
+// The compiler ships as Tauri asset-protocol files requested by canonical raw
+// name; nothing negotiates content-encoding, so the `.gz`/`.br` copies are pure
+// duplicate weight. Remove them, then fail closed on both directions: the
+// canonical raw boot assets must still be present, and no sidecar may remain.
+const removedCompilerSidecars = removePrecompressedSidecars(outputRoot);
+for (const canonical of ["index.html", "compiler-harness.js", "_framework/dotnet.js", "_framework/blazor.boot.json"]) {
+  await readFile(path.join(outputRoot, canonical));
+}
+assertNoPrecompressedSidecars(outputRoot, `${profile} compiler staging`);
 console.log(`Staged verified Release compiler (${profile} profile) with ${compilerAssemblies[0]}.`);
+console.log(`Stripped ${removedCompilerSidecars.length} precompressed .gz/.br sidecars from the compiler tree.`);

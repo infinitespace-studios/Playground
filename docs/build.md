@@ -169,6 +169,63 @@ packaged proof runner (`scripts/prove-scenarios-macos.sh`) exercises that raw
 release binary and therefore builds the proof profile immediately beforehand so
 the binary embeds the proof frontend.
 
+### Final payload policy (staged frontend size)
+
+The shipping frontend `dist/` (and `dist-proof/`) is staged from three sources —
+the MonoGame native archives, the Roslyn compiler runtime, and the MonoGame
+preview runtime. Two classes of build output are deliberately **not** shipped:
+
+1. **The obsolete top-level MonoGame browser demo payload.** The MonoGame Web
+   build under `artifacts/monogame/` emits a standalone `#canvas` browser demo
+   (`_framework/`, `main.js`, `index.html`, `Content/test*`, favicons). Stage 7
+   removed the last top-level `#canvas` demo from the live workbench: the served
+   `index.html` carries no `#canvas`, and the live module graph imports only
+   `compiler/_framework` and `preview/_framework` (each publish stages its own
+   `_framework`). No live module, boot manifest, custom protocol, favicon
+   `<link>`, or Tauri asset route references the top-level payload, so
+   `stage-monogame.mjs` no longer stages it. It still **verifies** the native
+   archives (`native/mgruntime.a`, `native/libSDL2.a`, `native/libFAudio.a`)
+   and provenance and **fails closed** when those real product build inputs are
+   missing — the preview csproj links the native archives via
+   `<NativeFileReference>` (`MonoGameNativeArtifactPath`) directly from
+   `artifacts/monogame/native/`, never from the served public directory. This
+   removes ~54 MiB (a duplicate ~50 MiB `_framework`, a ~3.6 MiB demo
+   `testsound.xnb`, and the demo index/`main.js`/favicons) from the final
+   PRODUCT and PROOF frontend dist.
+
+2. **Precompressed Brotli/gzip sidecars.** A dotnet browser-wasm publish emits a
+   `*.br` and `*.gz` copy beside every canonical raw asset for HTTP
+   content-negotiation on a static web server. The shipping product never
+   negotiates them: `blazor.boot.json`/`dotnet.js` request only canonical raw
+   asset names; the preview is served by the in-process `playground-preview:`
+   custom protocol, which resolves an **exact** path and sets no
+   `Content-Encoding`/`Accept-Encoding` negotiation; the compiler ships as normal
+   Tauri asset-protocol files also requested by canonical name. So the ~32 MiB of
+   `.gz`/`.br` sidecars across the compiler + preview trees are dead weight (and,
+   for the preview, in the `build.rs`-embedded asset map). `stage-compiler.mjs`
+   and `stage-preview.mjs` strip them after staging and **fail closed** if a
+   sidecar re-enters the staged tree while the canonical raw boot assets remain
+   (`staged-asset-guard.mjs` `removePrecompressedSidecars` /
+   `assertNoPrecompressedSidecars`, with a self-test).
+
+Both policies are additionally enforced on the built dist by
+`check-profile-artifacts.mjs` (no top-level `_framework`/`main.js`/`Content`
+demo payload and no `.gz`/`.br` sidecars survive in `dist/` or `dist-proof/`),
+and the embedded preview inventory test in `lib.rs` asserts no sidecar enters
+the binary. The legitimate vite-built `index.html` (the workbench document) and
+the `compiler/`/`preview/` runtimes are the only top-level dist entries.
+
+The Rust release profile (`[profile.release]` in `src-tauri/Cargo.toml`) sets
+`strip = true` (removes the debug symbol table + DWARF from the shipped binary,
+the largest single non-asset size win and what the size gate asserts) and
+`lto = "thin"` (a portable cross-crate size/perf win). Both are portable,
+first-class Cargo profile settings — no target-specific linker flags — so they
+apply uniformly across the six-platform matrix. `build.rs`'s
+`validate_cargo_manifest` pins the `[profile.release]` table exactly and a
+negative fixture rejects any drift (disabled strip, dropped profile, an added
+runtime-behavior knob such as `panic = "abort"`, or an unapproved sibling
+profile), so the approved release profile cannot silently change.
+
 ### Compiled-artifact command-inventory enforcement
 
 Because the raw release binary path is shared and overwritten per profile (above),
@@ -242,10 +299,13 @@ does not run its tests). After packaging, each leg runs:
   bundle (identity-verified `.app` on macOS; profile-unique release binary on
   Windows/Linux);
 - the **package-size gate** (`scripts/measure-release-size.mjs`) against this
-  leg's real package, resolving the platform package format
-  (`.dmg`/`.msi`/`.exe`/`.deb`/`.AppImage`), verifying the staged dist is the
-  PRODUCT profile and the content fixtures are present, failing closed over
-  100 MiB;
+  leg's real package(s), resolving the platform package format(s)
+  (`.dmg`/`.msi`/`.exe`/`.deb`/`.AppImage`/`.rpm`), verifying the staged dist is
+  the PRODUCT profile and the content fixtures are present. The 100 MiB
+  acceptance applies to **each** distributed package: when a leg emits several
+  formats (e.g. Linux `.deb` + `.AppImage`), every recognised package is measured
+  and checked individually and any single one over 100 MiB fails closed — a
+  smaller sibling can never mask an oversized supported package;
 - the **bounded product smoke** (`scripts/smoke-product.mjs`): the full
   launch/no-immediate-crash phase on the host-native macOS arm64 leg (WKWebView +
   window server present), and identity/profile checks on the cross-compiled

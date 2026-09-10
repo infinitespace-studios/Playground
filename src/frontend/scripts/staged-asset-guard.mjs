@@ -16,7 +16,7 @@
 // the proof staging carries an issue-numbered asset filename, so applying it to
 // every staged tree is the strongest fail-closed posture.
 
-import { readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { readdirSync, mkdtempSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from "node:fs";
 import { join, basename } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -26,6 +26,57 @@ import { tmpdir } from "node:os";
 // dotnet/_framework assets (`dotnet.js`, `blazor.boot.json`,
 // `MonoGame.Framework.<hash>.wasm`) or vite hashed chunks (`index-<hash>.js`).
 export const ISSUE_NUMBERED_ASSET_REGEX = /^issue\d+/i;
+
+// Precompressed sidecar guard (Stage 7 payload cleanup).
+//
+// A dotnet browser-wasm publish emits, alongside every canonical raw asset
+// (`*.wasm`, `*.dat`, `*.js`, `blazor.boot.json`, ...), a Brotli (`*.br`) and a
+// gzip (`*.gz`) precompressed copy for HTTP content-negotiation on a static web
+// server. The shipping product never negotiates them:
+//   * blazor.boot.json / dotnet.js request the CANONICAL raw asset names only
+//     (verified: the boot manifest contains no `.gz`/`.br` reference).
+//   * The preview is served by the in-process `playground-preview:` custom
+//     protocol, which resolves an EXACT path and sets no `Content-Encoding` /
+//     `Accept-Encoding` negotiation — it never requests a sidecar.
+//   * The compiler ships as normal Tauri asset-protocol files also requested by
+//     canonical name.
+// So the ~32 MiB of `.gz`/`.br` sidecars across the compiler + preview trees are
+// dead weight in the packaged frontend (and, for the preview, in the embedded
+// asset map). They are stripped after staging, and this guard fails closed if a
+// sidecar ever re-enters a staged tree while the canonical raw assets remain.
+export const PRECOMPRESSED_SIDECAR_REGEX = /\.(gz|br)$/i;
+
+// Returns the list of `.gz`/`.br` sidecar relative paths under `stagedDir`.
+export function findPrecompressedSidecars(stagedDir) {
+  return walkFiles(stagedDir)
+    .filter((file) => PRECOMPRESSED_SIDECAR_REGEX.test(basename(file)))
+    .map((file) => file.slice(stagedDir.length + 1));
+}
+
+// Removes every `.gz`/`.br` sidecar under `stagedDir`. Returns the list of
+// removed relative paths (empty when there were none). Fail-closed callers pair
+// this with a required-raw-asset presence check so a mistaken glob can never
+// delete a canonical asset unnoticed.
+export function removePrecompressedSidecars(stagedDir) {
+  const removed = findPrecompressedSidecars(stagedDir);
+  for (const rel of removed) {
+    unlinkSync(join(stagedDir, rel));
+  }
+  return removed;
+}
+
+// Throws if any `.gz`/`.br` sidecar remains under `stagedDir`. `label` names the
+// tree for the error message.
+export function assertNoPrecompressedSidecars(stagedDir, label) {
+  const offenders = findPrecompressedSidecars(stagedDir);
+  if (offenders.length > 0) {
+    throw new Error(
+      `Staged ${label} contains precompressed .gz/.br sidecars (the product never ` +
+        `negotiates content-encoding; canonical raw assets are requested directly, so ` +
+        `sidecars are dead weight and must not re-enter staged output): ${offenders.join(", ")}`,
+    );
+  }
+}
 
 function walkFiles(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -143,6 +194,56 @@ function selfTest() {
       writeFileSync(join(fp, name), "//\n");
     }
     ok(findIssueNumberedStagedAssets(fp).length === 0, "does not flag non-issue-prefixed names");
+
+    // --- Precompressed sidecar guard ---
+    const side = join(root, "sidecars");
+    mkdirSync(join(side, "_framework"), { recursive: true });
+    // Canonical raw assets that MUST survive.
+    const rawAssets = [
+      join("_framework", "dotnet.js"),
+      join("_framework", "blazor.boot.json"),
+      join("_framework", "MonoGame.Framework.abc123.wasm"),
+      join("_framework", "corelib.dat"),
+    ];
+    for (const rel of rawAssets) writeFileSync(join(side, rel), "raw\n");
+    // Sidecars that must be stripped.
+    const sidecars = [
+      join("_framework", "MonoGame.Framework.abc123.wasm.br"),
+      join("_framework", "MonoGame.Framework.abc123.wasm.gz"),
+      join("_framework", "dotnet.js.gz"),
+      join("_framework", "blazor.boot.json.br"),
+    ];
+    for (const rel of sidecars) writeFileSync(join(side, rel), "compressed\n");
+    ok(findPrecompressedSidecars(side).length === 4, "detects all four .gz/.br sidecars");
+    let sideThrew = false;
+    try {
+      assertNoPrecompressedSidecars(side, "pre-strip tree");
+    } catch {
+      sideThrew = true;
+    }
+    ok(sideThrew, "assert rejects a tree that still has sidecars");
+    const removed = removePrecompressedSidecars(side);
+    ok(removed.length === 4, "removePrecompressedSidecars reports 4 removed");
+    ok(findPrecompressedSidecars(side).length === 0, "no sidecars remain after removal");
+    ok(
+      rawAssets.every((rel) => readdirSync(join(side, "_framework")).includes(basename(rel))),
+      "all canonical raw assets survive sidecar removal",
+    );
+    let sideClean = true;
+    try {
+      assertNoPrecompressedSidecars(side, "post-strip tree");
+    } catch {
+      sideClean = false;
+    }
+    ok(sideClean, "assert passes after sidecars stripped");
+    // False-positive guard: a raw asset whose name merely contains gz/br in the
+    // middle must NOT be flagged.
+    const sfp = join(root, "sidecar-fp");
+    mkdirSync(sfp, { recursive: true });
+    for (const name of ["gzip-helper.js", "brotli.wasm", "browser.js"]) {
+      writeFileSync(join(sfp, name), "//\n");
+    }
+    ok(findPrecompressedSidecars(sfp).length === 0, "does not flag non-sidecar names containing gz/br");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

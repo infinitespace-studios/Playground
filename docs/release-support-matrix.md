@@ -72,6 +72,12 @@ and Linux for both x64 (`x86_64`) and arm64 (`aarch64`):
 - Building the bundles requires the Tauri system dependencies
   (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `patchelf`,
   `libayatana-appindicator3-dev`), installed by the workflow on the Ubuntu legs.
+- The release binary embedded in both the `.deb` and the `.AppImage` is stripped
+  (`[profile.release] strip = true`), and the packaged frontend excludes the
+  obsolete top-level browser demo payload and the precompressed `.gz`/`.br`
+  sidecars (see `docs/build.md` “Final payload policy”). Both formats are
+  measured against the 100 MiB target individually; CI evidence (not this local
+  macOS run) is the source of truth for the Linux package sizes.
 
 ## Architecture policy
 
@@ -118,9 +124,14 @@ Each package leg runs, after staging `dist/` and before upload:
 - **Binary command-inventory** — the freshly built product executable/bundle
   carries exactly the eight product commands and zero proof surface.
 - **Package-size gate** (`scripts/measure-release-size.mjs`) — resolves this
-  platform's package format (`.dmg`/`.msi`/`.exe`/`.deb`/`.AppImage`), verifies
-  the staged dist is the PRODUCT profile and the content fixtures are present,
-  and fails closed above the 100 MiB target.
+  platform's package format(s) (`.dmg`/`.msi`/`.exe`/`.deb`/`.AppImage`/`.rpm`),
+  verifies the staged dist is the PRODUCT profile and the content fixtures are
+  present. The 100 MiB acceptance applies to **each** distributed package: when a
+  leg produces multiple formats (notably Linux `.deb` + `.AppImage`, and `.rpm`
+  where Tauri emits it), every recognised package is measured and checked
+  individually and any single one over 100 MiB fails closed. The gate never
+  selects only the smallest artifact, so a small `.deb` cannot mask an oversized
+  supported `.AppImage`/`.rpm`.
 - **Bounded product smoke** (`scripts/smoke-product.mjs`) — refuses any proof
   env/profile, verifies product identity, and runs a launch/no-immediate-crash
   check. Because robust GUI readiness needs a real display/window server, the

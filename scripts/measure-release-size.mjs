@@ -13,9 +13,13 @@
  *   - PRODUCT profile is the default and the shipping target. PROOF may be
  *     measured explicitly but is never the release gate.
  *   - CROSS-PLATFORM: accepts explicit --binary / --package / --dist inputs and
- *     resolves any of the six release package formats (.dmg/.app, .msi/.exe,
- *     .deb/.AppImage) under a --package-dir. Nothing is hardcoded to macOS or a
- *     single arch.
+ *     resolves any of the recognised release package formats (.dmg/.app,
+ *     .msi/.exe, .deb/.AppImage/.rpm) under a --package-dir. Nothing is
+ *     hardcoded to macOS or a single arch.
+ *   - HONEST MULTI-FORMAT GATE: the 100 MiB acceptance applies to EACH
+ *     distributed package. When a leg emits several formats, EVERY recognised
+ *     package is measured and checked individually, so a smaller sibling (e.g. a
+ *     small .deb) can never mask an oversized supported .AppImage/.rpm.
  *   - NO PROOF EXPECTATION IN PRODUCT: the product artifact legitimately carries
  *     no proof commands; profile integrity is proven from the staged
  *     profile-manifest.json (and, when a macOS .app is supplied, its
@@ -63,8 +67,9 @@ const TARGET_MIB = 100; // hard gate
 const STRETCH_MIB = 50; // informational stretch goal
 
 // Recognised release package artifact extensions across the six-platform matrix.
-// `.app` is a macOS bundle *directory*; the rest are files.
-const PACKAGE_EXTENSIONS = [".dmg", ".app", ".msi", ".exe", ".deb", ".AppImage"];
+// `.app` is a macOS bundle *directory*; the rest are files. `.rpm` is included
+// because Tauri emits it on some Linux configurations alongside `.deb`.
+const PACKAGE_EXTENSIONS = [".dmg", ".app", ".msi", ".exe", ".deb", ".AppImage", ".rpm"];
 
 const PRODUCT_IDENTIFIER = "com.monogame.playground";
 const PROOF_IDENTIFIER = "com.monogame.playground.proof";
@@ -138,6 +143,52 @@ function measurePathSize(path) {
     return total;
   }
   return null;
+}
+
+// Determine whether a resolved package belongs to the requested profile. This
+// is correct scoping, NOT size hiding: a PRODUCT gate must measure PRODUCT
+// packages, and the separately-built PROOF bundle (distinct productName
+// "MonoGame Playground Proof" / identifier com.monogame.playground.proof) is a
+// different product with its own gate. For a macOS `.app` the CFBundleIdentifier
+// is authoritative; for file packages the proof artifacts carry a "Proof"/
+// "proof" token in their basename that product artifacts never do.
+function packageMatchesProfile(pkgPath, profile) {
+  if (pkgPath.endsWith(".app")) {
+    const id = readBundleIdentifier(pkgPath);
+    if (id === PROOF_IDENTIFIER) return profile === "proof";
+    if (id === PRODUCT_IDENTIFIER) return profile === "product";
+    // Unknown/missing identifier: fall through to the name heuristic.
+  }
+  const isProofName = /proof/i.test(basename(pkgPath));
+  return profile === "proof" ? isProofName : !isProofName;
+}
+
+// Resolve ALL release package artifacts of the requested profile under a search
+// directory. The 100 MiB acceptance applies to EACH distributed package of that
+// profile, so the gate must see every recognised package a leg produced —
+// selecting only the smallest (e.g. a small `.deb`) would dishonestly hide an
+// oversized supported `.AppImage`/`.rpm` of the SAME product. Packages of the
+// other profile (e.g. a stale PROOF `.app` in a shared bundle dir) are excluded
+// by profile scoping. Returns an array of absolute paths (empty when none).
+function resolveAllPackages(searchDir, profile) {
+  if (!searchDir || !existsSync(searchDir)) return [];
+  const found = [];
+  const visit = (dir, depth) => {
+    if (depth > 4) return;
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const p = join(dir, entry.name);
+      const ext = PACKAGE_EXTENSIONS.find((e) => entry.name.endsWith(e));
+      if (ext === ".app" && entry.isDirectory()) {
+        found.push(p);
+      } else if (ext && ext !== ".app" && entry.isFile()) {
+        found.push(p);
+      } else if (entry.isDirectory()) {
+        visit(p, depth + 1);
+      }
+    }
+  };
+  visit(searchDir, 0);
+  return found.filter((p) => packageMatchesProfile(p, profile)).sort();
 }
 
 // Resolve the release package artifact. Preference order:
@@ -286,15 +337,26 @@ function evaluateRelease(input) {
     failures.push(`required release binary missing: ${input.binaryPath}`);
   }
 
-  if (input.packageSizeBytes == null) {
+  if (input.packages == null || input.packages.length === 0) {
     failures.push(
       `required release package missing (looked for ${PACKAGE_EXTENSIONS.join("/")}` +
         `${input.packageHint ? ` under ${input.packageHint}` : ""})`,
     );
   } else {
-    const verdict = sizeVerdict(input.packageSizeBytes / MIB);
-    if (verdict.verdict === "FAIL") {
-      failures.push(`package ${verdict.measuredMiB} MiB exceeds ${TARGET_MIB} MiB target`);
+    // The 100 MiB acceptance applies to EACH distributed package. Check every
+    // recognised package individually so a smaller sibling cannot mask an
+    // oversized one.
+    for (const pkg of input.packages) {
+      if (pkg.sizeBytes == null) {
+        failures.push(`release package unreadable: ${pkg.path}`);
+        continue;
+      }
+      const verdict = sizeVerdict(pkg.sizeBytes / MIB);
+      if (verdict.verdict === "FAIL") {
+        failures.push(
+          `package ${verdict.measuredMiB} MiB exceeds ${TARGET_MIB} MiB target: ${pkg.path}`,
+        );
+      }
     }
   }
 
@@ -369,6 +431,42 @@ function selfTest() {
     assert(measurePathSize(app) === 2048, "directory bundle size summed recursively");
     assert(measurePathSize(join(tmp, "gone")) === null, "absent path → null size");
 
+    // Profile scoping: resolveAllPackages returns only the requested profile's
+    // packages. A shared bundle dir with BOTH a product .dmg and a PROOF .app
+    // must yield only the product package for the product gate (the PROOF bundle
+    // is a different product with its own gate, not a smaller sibling of the
+    // same product).
+    const scopeDir = join(tmp, "scope", "bundle");
+    mkdirSync(join(scopeDir, "dmg"), { recursive: true });
+    const prodDmg = join(scopeDir, "dmg", "MonoGame Playground_0.1.0_aarch64.dmg");
+    writeFileSync(prodDmg, Buffer.alloc(40 * MIB));
+    const scopedProofApp = join(scopeDir, "macos", "MonoGame Playground Proof.app");
+    mkdirSync(join(scopedProofApp, "Contents"), { recursive: true });
+    writeFileSync(
+      join(scopedProofApp, "Contents", "Info.plist"),
+      `<key>CFBundleIdentifier</key>\n<string>${PROOF_IDENTIFIER}</string>`,
+    );
+    writeFileSync(join(scopedProofApp, "Contents", "placeholder"), Buffer.alloc(120 * MIB));
+    const productScoped = resolveAllPackages(join(tmp, "scope", "bundle"), "product");
+    assert(
+      productScoped.length === 1 && productScoped[0] === prodDmg,
+      "product gate scopes to the product .dmg, excluding the PROOF .app",
+    );
+    const proofScoped = resolveAllPackages(join(tmp, "scope", "bundle"), "proof");
+    assert(
+      proofScoped.length === 1 && proofScoped[0] === scopedProofApp,
+      "proof gate scopes to the PROOF .app, excluding the product .dmg",
+    );
+    // Multi-format Linux product leg: both .deb and .AppImage are the SAME
+    // product, so both are in-scope and checked individually.
+    const linuxDir = join(tmp, "linux", "bundle");
+    mkdirSync(linuxDir, { recursive: true });
+    writeFileSync(join(linuxDir, "monogame-playground_0.1.0_amd64.deb"), Buffer.alloc(40 * MIB));
+    writeFileSync(join(linuxDir, "monogame-playground_0.1.0_amd64.AppImage"), Buffer.alloc(160 * MIB));
+    writeFileSync(join(linuxDir, "monogame-playground-0.1.0-1.x86_64.rpm"), Buffer.alloc(45 * MIB));
+    const linuxScoped = resolveAllPackages(join(tmp, "linux", "bundle"), "product");
+    assert(linuxScoped.length === 3, "all three Linux product formats (.deb/.AppImage/.rpm) are in-scope");
+
     // (4) Profile-manifest integrity (match / mismatch / missing / malformed).
     const productDist = join(tmp, "dist");
     mkdirSync(productDist, { recursive: true });
@@ -395,7 +493,7 @@ function selfTest() {
     const okInput = {
       binaryExists: true,
       binaryPath: "/x/bin",
-      packageSizeBytes: 40 * MIB,
+      packages: [{ path: "/x/pkg.dmg", sizeBytes: 40 * MIB }],
       packageHint: null,
       distProfile: { ok: true, profile: "product" },
       bundleIdentity: null,
@@ -408,12 +506,48 @@ function selfTest() {
       "missing binary fails closed",
     );
     assert(
-      evaluateRelease({ ...okInput, packageSizeBytes: null }).some((f) => f.includes("package missing")),
+      evaluateRelease({ ...okInput, packages: [] }).some((f) => f.includes("package missing")),
       "missing package fails closed",
     );
     assert(
-      evaluateRelease({ ...okInput, packageSizeBytes: 101 * MIB }).some((f) => f.includes("exceeds")),
+      evaluateRelease({ ...okInput, packages: [{ path: "/x/big.dmg", sizeBytes: 101 * MIB }] }).some((f) =>
+        f.includes("exceeds"),
+      ),
       "over-target package fails closed",
+    );
+    // Honest multi-format gate: a small .deb must NOT mask an oversized .AppImage.
+    const mixed = evaluateRelease({
+      ...okInput,
+      packages: [
+        { path: "/x/app_0.1.0_amd64.deb", sizeBytes: 40 * MIB },
+        { path: "/x/app_0.1.0_amd64.AppImage", sizeBytes: 163 * MIB },
+      ],
+    });
+    assert(
+      mixed.some((f) => f.includes("exceeds") && f.includes(".AppImage")),
+      "oversized AppImage fails even when a small .deb is present",
+    );
+    assert(
+      !mixed.some((f) => f.includes(".deb")),
+      "the in-target .deb is not itself flagged in the mixed case",
+    );
+    // Every recognised package is checked individually: two oversized packages
+    // produce two failures.
+    assert(
+      evaluateRelease({
+        ...okInput,
+        packages: [
+          { path: "/x/a.deb", sizeBytes: 120 * MIB },
+          { path: "/x/b.AppImage", sizeBytes: 163 * MIB },
+        ],
+      }).filter((f) => f.includes("exceeds")).length === 2,
+      "each oversized package is flagged individually",
+    );
+    assert(
+      evaluateRelease({ ...okInput, packages: [{ path: "/x/p.rpm", sizeBytes: 200 * MIB }] }).some((f) =>
+        f.includes("exceeds") && f.includes(".rpm"),
+      ),
+      "an oversized .rpm fails closed (rpm is a recognised format)",
     );
     assert(
       evaluateRelease({ ...okInput, distProfile: { ok: false, reason: "wrong" } }).some((f) =>
@@ -480,13 +614,32 @@ function main() {
       `\n    ${binaryPath.replace(REPO + "/", "")}`,
   );
 
-  const pkgPath = resolvePackage(args.package, args.packageDir || defaults.bundleDir);
-  const packageSizeBytes = pkgPath ? measurePathSize(pkgPath) : null;
-  if (pkgPath && packageSizeBytes != null) {
-    console.log(
-      `[2] Release package: ${(packageSizeBytes / MIB).toFixed(2)} MiB` +
-        `\n    ${pkgPath.replace(REPO + "/", "")}`,
-    );
+  // Resolve EVERY recognised package this leg produced. The 100 MiB acceptance
+  // applies to each distributed package, so all are measured and checked. An
+  // explicit --package still scopes to a single artifact.
+  const pkgPaths = args.package
+    ? existsSync(args.package)
+      ? [args.package]
+      : []
+    : resolveAllPackages(args.packageDir || defaults.bundleDir, args.profile);
+  const packages = pkgPaths.map((p) => ({ path: p, sizeBytes: measurePathSize(p) }));
+  // A representative in-scope package for identity reporting. Prefer an
+  // installer/compressed artifact and the host architecture, but choose only
+  // from the already profile-scoped package set above.
+  const representativeDir = packages.filter((pkg) => !pkg.path.endsWith(".app"));
+  const representativeSet = representativeDir.length > 0 ? representativeDir : packages;
+  const hostToken = process.arch === "arm64" ? "aarch64" : "x64";
+  const pkgPath =
+    representativeSet.find((pkg) => basename(pkg.path).includes(hostToken))?.path ??
+    representativeSet[0]?.path ??
+    null;
+  if (packages.length > 0) {
+    console.log(`[2] Release packages (${packages.length}) — each checked against ${TARGET_MIB} MiB:`);
+    for (const pkg of packages) {
+      const mib = pkg.sizeBytes != null ? (pkg.sizeBytes / MIB).toFixed(2) + " MiB" : "UNREADABLE";
+      const over = pkg.sizeBytes != null && pkg.sizeBytes / MIB > TARGET_MIB;
+      console.log(`    ${over ? "OVER → " : ""}${mib}  ${pkg.path.replace(REPO + "/", "")}`);
+    }
   } else {
     console.log(`[2] Release package: MISSING (searched ${packageHint.replace(REPO + "/", "")})`);
   }
@@ -519,10 +672,14 @@ function main() {
     } (${debug.detail})`,
   );
 
-  const verdict = packageSizeBytes != null ? sizeVerdict(packageSizeBytes / MIB) : null;
+  // Size verdict of the largest package drives the informational stretch line.
+  const largest = packages
+    .filter((p) => p.sizeBytes != null)
+    .reduce((m, p) => (m == null || p.sizeBytes > m.sizeBytes ? p : m), null);
+  const verdict = largest != null ? sizeVerdict(largest.sizeBytes / MIB) : null;
   if (verdict) {
     console.log(
-      `[7] Size verdict: ${verdict.measuredMiB} MiB / ${TARGET_MIB} MiB target → ${verdict.verdict}` +
+      `[7] Size verdict (largest package): ${verdict.measuredMiB} MiB / ${TARGET_MIB} MiB target → ${verdict.verdict}` +
         (verdict.waiverNeeded ? " (WAIVER NEEDED)" : "") +
         (verdict.meetsStretch ? ` (meets ${STRETCH_MIB} MiB stretch goal)` : ""),
     );
@@ -531,7 +688,7 @@ function main() {
   const failures = evaluateRelease({
     binaryExists,
     binaryPath,
-    packageSizeBytes,
+    packages,
     packageHint: packageHint.replace(REPO + "/", ""),
     distProfile,
     bundleIdentity,
@@ -541,11 +698,11 @@ function main() {
 
   if (args.report) {
     const report = {
-      schemaVersion: 3,
+      schemaVersion: 4,
       generatedAt: new Date().toISOString(),
       profile: args.profile,
       binary: { path: binaryPath, exists: binaryExists, sizeBytes: binarySizeBytes },
-      package: pkgPath ? { path: pkgPath, sizeBytes: packageSizeBytes } : null,
+      packages: packages.map((p) => ({ path: p.path, sizeBytes: p.sizeBytes })),
       dist: { path: dist, profile: distProfile },
       bundleIdentity,
       contentFixtures: fixtures,

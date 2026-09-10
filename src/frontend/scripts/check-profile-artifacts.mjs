@@ -49,6 +49,7 @@
 import { readdirSync, readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join, resolve } from "node:path";
+import { findPrecompressedSidecars } from "./staged-asset-guard.mjs";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const frontendRoot = resolve(scriptDir, "..");
@@ -196,6 +197,40 @@ const ISSUE_NUMBERED_MODULE_REGEX = /(^|\/)issue\d+[a-z0-9-]*\.ts$/i;
 // naming a shell/Rust env var and is never emitted; it is documented in
 // COMMENT_ONLY_MARKERS (still forbidden in product, not required in proof).
 
+// Stage 7 payload policy (dist filesystem, not the Rollup module graph).
+//
+// The obsolete top-level MonoGame browser demo payload (`_framework/`,
+// `main.js`, and the demo `Content/` with `test*` assets) must NOT be staged
+// into the final PRODUCT/PROOF frontend dist: the workbench serves its own vite
+// entry, and the compiler/preview each carry their OWN `_framework` under their
+// subdirectory. The legitimate top-level `index.html` (vite's built workbench
+// document) is expected and allowed. Precompressed `.gz`/`.br` sidecars are dead
+// weight everywhere (nothing negotiates content-encoding), so none may survive
+// anywhere in the packaged dist. These are filesystem checks over the emitted
+// dist tree.
+const FORBIDDEN_TOP_LEVEL_PAYLOAD = ["_framework", "main.js", "Content"];
+
+function checkDistPayloadPolicy(distDir, label) {
+  if (!existsSync(distDir)) return; // absence already reported by readManifest
+  for (const name of FORBIDDEN_TOP_LEVEL_PAYLOAD) {
+    if (existsSync(join(distDir, name))) {
+      fail(
+        `${label} dist contains the obsolete top-level browser demo payload "${name}" ` +
+          `(removed in Stage 7; only vite's workbench index.html + the compiler/ and ` +
+          `preview/ runtimes ship at the dist top level).`,
+      );
+    }
+  }
+  const sidecars = findPrecompressedSidecars(distDir);
+  if (sidecars.length > 0) {
+    fail(
+      `${label} dist contains ${sidecars.length} precompressed .gz/.br sidecar(s) ` +
+        `(dead weight; the product never negotiates content-encoding): ` +
+        `${sidecars.slice(0, 5).join(", ")}${sidecars.length > 5 ? ", …" : ""}`,
+    );
+  }
+}
+
 function walk(dir, out = []) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const full = join(dir, entry.name);
@@ -324,6 +359,7 @@ function checkProduct() {
   console.log(`PRODUCT check: dist/`);
   const manifest = readManifest(distDir, "product");
   if (!manifest) return;
+  checkDistPayloadPolicy(distDir, "PRODUCT");
 
   const modules = new Set(manifest.modules);
 
@@ -408,6 +444,7 @@ function checkProof() {
   console.log(`PROOF check: dist-proof/`);
   const manifest = readManifest(distDir, "proof");
   if (!manifest) return;
+  checkDistPayloadPolicy(distDir, "PROOF");
 
   const modules = new Set(manifest.modules);
 

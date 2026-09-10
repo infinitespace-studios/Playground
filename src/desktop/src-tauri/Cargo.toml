@@ -13,6 +13,23 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 default = []
 proof-harness = []
 
+# Release profile policy (Stage 7 payload cleanup).
+#
+# `strip = true` removes the debug symbol table + DWARF from the shipped
+# release binary, which is the largest single non-asset size win and is what the
+# release-size gate (`measure-release-size.mjs`) asserts. `strip` is a portable,
+# first-class Cargo profile setting (no target-specific linker flags), so it
+# applies uniformly across the six-platform matrix. `lto = "thin"` is a portable
+# cross-crate size/perf win that keeps build times far below fat LTO. No
+# `panic`/`opt-level` override is applied so runtime behavior is unchanged.
+#
+# build.rs `validate_cargo_manifest` pins this table exactly and a negative
+# fixture rejects any drift, so the approved release profile cannot silently
+# change.
+[profile.release]
+strip = true
+lto = "thin"
+
 [build-dependencies]
 serde_json = "1"
 tauri-build = { version = "2", features = [] }

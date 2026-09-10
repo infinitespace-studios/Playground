@@ -341,6 +341,17 @@ proof-harness = []
 "#
     .parse::<toml::Value>()
     .expect("expected feature policy must be valid TOML");
+    // Stage 7: the approved release profile. `strip = true` is the shipped-binary
+    // size gate; `lto = "thin"` is a portable size/perf win. Pinned exactly so a
+    // drift (e.g. `strip = false`, an added `[profile.dev]`, or `panic = "abort"`
+    // changing runtime behavior) fails the build.
+    let expected_profile = r#"
+[profile.release]
+strip = true
+lto = "thin"
+"#
+    .parse::<toml::Value>()
+    .expect("expected release profile policy must be valid TOML");
     let root = actual
         .as_table()
         .ok_or("Cargo manifest root must be a table")?;
@@ -353,6 +364,7 @@ proof-harness = []
             "features",
             "lib",
             "package",
+            "profile",
             "target",
         ]
     {
@@ -370,6 +382,23 @@ proof-harness = []
     if actual.get("features") != expected_features.get("features") {
         return Err(
             "Cargo [features] table drifted from `default = []; proof-harness = []`".into(),
+        );
+    }
+    // The release profile must match the approved size policy exactly. Only the
+    // `[profile.release]` table is permitted under `[profile]`.
+    let profile_table = actual
+        .get("profile")
+        .and_then(|value| value.as_table())
+        .ok_or("Cargo manifest is missing the [profile] table")?;
+    let mut profile_keys = profile_table.keys().map(String::as_str).collect::<Vec<_>>();
+    profile_keys.sort_unstable();
+    if profile_keys != ["release"] {
+        return Err("Cargo [profile] table contains an unapproved profile".into());
+    }
+    if actual.get("profile") != expected_profile.get("profile") {
+        return Err(
+            "Cargo [profile.release] drifted from the approved `strip = true; lto = \"thin\"` policy"
+                .into(),
         );
     }
     Ok(())
@@ -478,6 +507,45 @@ fn validate_negative_fixtures(permission: &str, cargo: &str, rust: &[String]) {
     let extra_build_dependency =
         inject_toml_entry(cargo, "build-dependencies", "unapproved-build = \"1\"");
     assert!(validate_cargo_manifest(&extra_build_dependency).is_err());
+
+    // Release-profile policy drift must fail closed. Construct anchors with the
+    // manifest's actual line ending so the negative fixtures remain effective
+    // after Git checks Cargo.toml out as CRLF on Windows.
+    let newline = if cargo.contains("\r\n") { "\r\n" } else { "\n" };
+    let release_settings = format!("strip = true{newline}lto = \"thin\"");
+    // 1. Disabling strip (the shipped-binary size gate) is rejected.
+    let strip_disabled = cargo.replacen(
+        &release_settings,
+        &format!("strip = false{newline}lto = \"thin\""),
+        1,
+    );
+    assert!(validate_cargo_manifest(&strip_disabled).is_err());
+    // 2. Dropping the release profile entirely is rejected (the [profile] table
+    //    must exist and carry exactly the approved release policy).
+    let profile_start = cargo
+        .find("[profile.release]")
+        .expect("manifest must contain the release profile for the negative fixture");
+    let profile_tail = &cargo[profile_start..];
+    let next_section = profile_tail
+        .find(&format!("{newline}["))
+        .expect("release profile must be followed by another Cargo section");
+    let no_profile = format!(
+        "{}{}",
+        &cargo[..profile_start],
+        &profile_tail[next_section + newline.len()..]
+    );
+    assert!(validate_cargo_manifest(&no_profile).is_err());
+    // 3. A runtime-behavior-changing knob smuggled into the release profile is
+    //    rejected (only the approved keys are permitted).
+    let panic_abort = cargo.replacen(
+        &release_settings,
+        &format!("{release_settings}{newline}panic = \"abort\""),
+        1,
+    );
+    assert!(validate_cargo_manifest(&panic_abort).is_err());
+    // 4. An unapproved sibling profile (e.g. [profile.dev]) is rejected.
+    let extra_profile = format!("{cargo}{newline}[profile.dev]{newline}opt-level = 3{newline}");
+    assert!(validate_cargo_manifest(&extra_profile).is_err());
 }
 
 fn validate_acl_source(root: &Path) {

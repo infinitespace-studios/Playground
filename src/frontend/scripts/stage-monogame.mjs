@@ -1,4 +1,5 @@
-import { cp, mkdir, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { constants as fsConstants } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -7,82 +8,103 @@ const repositoryRoot = path.resolve(frontendRoot, "../..");
 const artifactRoot = path.join(repositoryRoot, "artifacts/monogame");
 const outputRoot = path.join(frontendRoot, ".generated-public");
 
-// Files/dirs in the built MonoGame payload that are NOT frontend runtime assets
-// and must not be staged into the served public directory:
-//  - native/          : the WASM static archives consumed by the preview build,
-//                       not the browser runtime.
-//  - provenance.json / artifact-hashes.json / monogame-build.json : build
-//                       metadata, not runtime assets.
-const excludedTopLevel = new Set([
-  "native",
-  "provenance.json",
-  "artifact-hashes.json",
-  "monogame-build.json",
-]);
+// Stage 7 payload cleanup.
+//
+// The MonoGame Web build under artifacts/monogame/ contains two disjoint kinds
+// of output:
+//
+//   1. The NATIVE static archives (native/mgruntime.a, native/libSDL2.a,
+//      native/libFAudio.a). These are the ONLY MonoGame build inputs the
+//      shipping product consumes: the preview csproj links them via
+//      <NativeFileReference> (MonoGameNativeArtifactPath) to produce the
+//      embedded browser-wasm preview runtime. They are verified here and by
+//      scripts/verify-monogame-artifacts.sh; the preview build reads them
+//      directly from artifacts/monogame/native/, never from the served public
+//      directory.
+//
+//   2. The obsolete top-level BROWSER DEMO payload (_framework/, main.js,
+//      index.html, Content/test*, favicon.ico/png). This was the standalone
+//      MonoGame `#canvas` demo runtime. Stage 7 removed the last top-level
+//      `#canvas` demo from the live frontend: the workbench index.html carries
+//      no `#canvas`, and the live source graph imports ONLY compiler/_framework
+//      and preview/_framework (each publish stages its own `_framework`). No
+//      live module, boot manifest, protocol handler, favicon <link>, or Tauri
+//      asset route references the top-level payload. Staging it added ~54 MiB of
+//      dead weight (a duplicate ~50 MiB `_framework`, a ~3.6 MiB demo
+//      testsound.xnb, and the demo index/main.js/favicons) to the final PRODUCT
+//      and PROOF frontend dist. It is therefore NOT staged.
+//
+// This script is fail-closed: it refuses to produce a staged public directory
+// unless the native archives and provenance metadata that prove a real,
+// pinned-commit MonoGame build are present.
 
-const readProvenanceCommit = async () => {
+const REQUIRED_NATIVE_ARCHIVES = ["mgruntime.a", "libSDL2.a", "libFAudio.a"];
+
+const exists = async filePath => {
   try {
-    const provenance = JSON.parse(
-      await (await import("node:fs/promises")).readFile(
-        path.join(artifactRoot, "provenance.json"),
-        "utf8",
-      ),
-    );
-    return typeof provenance.commitSha === "string" ? provenance.commitSha : null;
+    await access(filePath, fsConstants.R_OK);
+    return true;
   } catch {
-    return null;
+    return false;
   }
 };
 
-// Recursively collect the runtime files actually produced by the build, so we
-// stage whatever the fresh build emitted rather than a frozen (fingerprinted)
-// inventory that changes on every emsdk/MonoGame version bump.
-const collect = async (dir, relative = "") => {
-  const entries = await readdir(dir, { withFileTypes: true });
-  const files = [];
-  for (const entry of entries) {
-    const rel = relative ? `${relative}/${entry.name}` : entry.name;
-    if (!relative && excludedTopLevel.has(entry.name)) continue;
-    if (entry.isDirectory()) {
-      files.push(...(await collect(path.join(dir, entry.name), rel)));
-    } else if (entry.isFile()) {
-      files.push(rel);
-    }
-  }
-  return files;
-};
-
-const runtimeFiles = (await collect(artifactRoot)).sort();
-if (runtimeFiles.length === 0) {
-  throw new Error(`No MonoGame runtime files found in ${artifactRoot}; run the build first.`);
-}
-// Sanity: the browser boot entry points must be present.
-for (const required of ["_framework/dotnet.js", "main.js", "index.html"]) {
-  if (!runtimeFiles.includes(required)) {
-    throw new Error(`Staged MonoGame payload is missing a required boot file: ${required}`);
+// Fail closed: the native archives are the real product build input. Missing or
+// unreadable archives must abort staging rather than silently emit an empty
+// public directory that would later fail the preview native-artifact build.
+const nativeRoot = path.join(artifactRoot, "native");
+for (const archive of REQUIRED_NATIVE_ARCHIVES) {
+  const archivePath = path.join(nativeRoot, archive);
+  if (!(await exists(archivePath))) {
+    throw new Error(
+      `MonoGame native archive is missing: ${path.relative(repositoryRoot, archivePath)}. ` +
+        `Run the MonoGame build (scripts/build-monogame.sh) first.`,
+    );
   }
 }
 
+// Fail closed on provenance: staging must be traceable to the pinned MonoGame
+// commit. verify-monogame-artifacts.sh cross-checks this SHA against the
+// toolchain manifest; here we require the file to exist and carry a commit SHA
+// so a partial/foreign artifact tree cannot be staged.
+const provenancePath = path.join(artifactRoot, "provenance.json");
+if (!(await exists(provenancePath))) {
+  throw new Error(
+    `MonoGame artifact provenance is missing: ${path.relative(repositoryRoot, provenancePath)}. ` +
+      `Run the MonoGame build first.`,
+  );
+}
+let provenanceCommit = null;
+try {
+  const provenance = JSON.parse(await readFile(provenancePath, "utf8"));
+  provenanceCommit = typeof provenance.commitSha === "string" ? provenance.commitSha : null;
+} catch (error) {
+  throw new Error(`MonoGame provenance.json is unreadable/invalid: ${error.message}`);
+}
+if (!provenanceCommit) {
+  throw new Error("MonoGame provenance.json is missing a commitSha; refusing to stage.");
+}
+
+// Recreate the served public root. stage-monogame runs FIRST in the `stage`
+// pipeline, so it owns clearing `.generated-public`; stage-compiler and
+// stage-preview then populate their own `compiler/` and `preview/` subtrees.
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 
-for (const relativePath of runtimeFiles) {
-  const destination = path.join(outputRoot, relativePath);
-  await mkdir(path.dirname(destination), { recursive: true });
-  await cp(path.join(artifactRoot, relativePath), destination);
-}
-
+// A small provenance stamp is the only top-level artifact this step emits; the
+// obsolete browser demo payload is deliberately not staged.
 const buildMetadata = {
-  monogameCommitSha: await readProvenanceCommit(),
-  fileCount: runtimeFiles.length,
+  schemaVersion: 2,
+  monogameCommitSha: provenanceCommit,
+  nativeArchives: [...REQUIRED_NATIVE_ARCHIVES].sort(),
+  browserDemoStaged: false,
 };
-
 await writeFile(
   path.join(outputRoot, "monogame-build.json"),
   `${JSON.stringify(buildMetadata, null, 2)}\n`,
 );
 
 console.log(
-  `Staged ${runtimeFiles.length} MonoGame runtime files ` +
-    `from ${path.relative(repositoryRoot, artifactRoot)}.`,
+  `Verified MonoGame native archives + provenance (commit ${provenanceCommit}); ` +
+    `obsolete top-level browser demo payload not staged.`,
 );

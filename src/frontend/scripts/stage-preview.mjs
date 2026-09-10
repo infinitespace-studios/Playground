@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { cp, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { assertNoIssueNumberedStagedAssets } from "./staged-asset-guard.mjs";
+import { assertNoIssueNumberedStagedAssets, removePrecompressedSidecars, assertNoPrecompressedSidecars } from "./staged-asset-guard.mjs";
 
 const frontendRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const repositoryRoot = path.resolve(frontendRoot, "../..");
@@ -257,4 +257,17 @@ await writeFile(path.join(outputRoot, "preview-build.json"), `${JSON.stringify(b
 // Generic fail-closed guard: no issue-numbered implementation filename may
 // re-enter the staged preview asset tree (product OR proof).
 assertNoIssueNumberedStagedAssets(outputRoot, `${profile} preview staging`);
+// Stage 7 payload cleanup: strip the dead Brotli/gzip precompressed sidecars.
+// The preview is served by the in-process `playground-preview:` custom protocol
+// (and embedded via build.rs `preview_asset`), which resolves an EXACT path and
+// performs NO content-encoding negotiation; blazor.boot.json requests only
+// canonical raw assets. The `.gz`/`.br` copies are therefore never requested —
+// dead weight in the packaged frontend AND in the embedded asset map. Remove
+// them, then fail closed: canonical raw boot assets must remain; no sidecar may.
+const removedPreviewSidecars = removePrecompressedSidecars(outputRoot);
+for (const canonical of ["index.html", "preview.js", "_framework/dotnet.js", "_framework/blazor.boot.json"]) {
+  await readFile(path.join(outputRoot, canonical));
+}
+assertNoPrecompressedSidecars(outputRoot, `${profile} preview staging`);
 console.log(`Staged verified Release preview (${profile} profile) with ${monoGameAssets[0]}.`);
+console.log(`Stripped ${removedPreviewSidecars.length} precompressed .gz/.br sidecars from the preview tree.`);
