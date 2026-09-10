@@ -79,17 +79,34 @@ public sealed class ManagedOutputGame : Game
     }
 }`;
 
-const expectedBeforeStop = [
+const expectedConstructorOutput = [
   ["stdout", "ctor-out"],
   ["stderr", "ctor-err"],
   ["stdout", ""],
   ["stdout", "cr"],
   ["stdout", "🙂".repeat(4096)],
   ["stdout", "🙂".repeat(904)],
-  ["stdout", "draw-line"],
-  ["stderr", "partial-error"],
-  ["stdout", "update-line"],
 ] as const;
+
+// MonoGame may schedule the first Update before the first Draw (the normal game
+// loop order), or the browser startup path may surface the first Draw pair
+// before the first observed Update. Both are valid. Preserve the strict order
+// inside each callback — Draw's stdout line must precede its explicitly flushed
+// stderr line — without imposing an invalid cross-callback startup ordering.
+const expectedFrameOutputOrders = [
+  [
+    ["stdout", "update-line"],
+    ["stdout", "draw-line"],
+    ["stderr", "partial-error"],
+  ],
+  [
+    ["stdout", "draw-line"],
+    ["stderr", "partial-error"],
+    ["stdout", "update-line"],
+  ],
+] as const;
+const expectedBeforeStopCount =
+  expectedConstructorOutput.length + expectedFrameOutputOrders[0].length;
 
 function simplified(events: readonly PreviewOutput[]) {
   return events.map(event => [
@@ -98,13 +115,20 @@ function simplified(events: readonly PreviewOutput[]) {
   ]);
 }
 
-function assertPrefix(events: readonly PreviewOutput[]) {
-  const actual = simplified(events.filter(event => event.payload.source === "managed"));
-  if (JSON.stringify(actual) !== JSON.stringify(expectedBeforeStop))
+function assertManagedOutputBeforeStop(events: readonly PreviewOutput[]) {
+  const managed = events.filter(event => event.payload.source === "managed");
+  const actual = simplified(managed);
+  const constructor = actual.slice(0, expectedConstructorOutput.length);
+  const frameOutput = actual.slice(expectedConstructorOutput.length);
+  const constructorMatches =
+    JSON.stringify(constructor) === JSON.stringify(expectedConstructorOutput);
+  const frameOrderMatches = expectedFrameOutputOrders.some(order =>
+    JSON.stringify(frameOutput) === JSON.stringify(order));
+  if (!constructorMatches || !frameOrderMatches)
     throw new Error(`Managed output sequence mismatched: ${JSON.stringify(actual)}`);
-  if (!events.filter(event => event.payload.source === "managed").every(event =>
-    event.payload.source === "managed" && event.payload.category === "console"))
+  if (!managed.every(event => event.payload.category === "console"))
     throw new Error("Managed output tags mismatched.");
+  return actual;
 }
 
 async function runManagedOutputCycle(index: number) {
@@ -124,11 +148,11 @@ async function runManagedOutputCycle(index: number) {
   });
   const deadline = performance.now() + 10_000;
   while (preview.outputEvents.filter(
-    event => event.payload.source === "managed").length < expectedBeforeStop.length &&
+    event => event.payload.source === "managed").length < expectedBeforeStopCount &&
          performance.now() < deadline) {
     await wait(25);
   }
-  assertPrefix(preview.outputEvents);
+  const beforeStop = assertManagedOutputBeforeStop(preview.outputEvents);
   const writerSelfTest = await preview.proof<{
     success?: boolean;
     eventCount?: number;
@@ -147,7 +171,7 @@ async function runManagedOutputCycle(index: number) {
   if (!sequences.every((sequence, position) => position === 0 || sequence > sequences[position - 1]))
     throw new Error(`Output event sequence regressed: ${sequences}`);
   const stop = await preview.stop() as Record<string, unknown>;
-  const expectedAfterStop = [...expectedBeforeStop, ["stderr", "dispose-err"]];
+  const expectedAfterStop = [...beforeStop, ["stderr", "dispose-err"]];
   const actualAfterStop = simplified(
     preview.outputEvents.filter(event => event.payload.source === "managed"));
   if (JSON.stringify(actualAfterStop) !== JSON.stringify(expectedAfterStop))
