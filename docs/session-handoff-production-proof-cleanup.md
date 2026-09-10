@@ -1,8 +1,8 @@
 # Session handoff: production/proof architecture cleanup
 
 **Last updated:** 2026-09-10
-**Next action:** commit/push locally accepted Stage 7, then require clean-clone CI
-**Working-tree expectation:** Stage 7 diff pending commit
+**Next action:** push Stage 7 and require clean-clone quality/release CI
+**Working-tree expectation:** clean
 
 ## Read first
 
@@ -221,7 +221,7 @@ Detailed design and verification:
 
 ### Stage 7 — final architecture enforcement and cleanup
 
-Commit: pending
+Implementation commit: `bebcadc refactor: enforce final product proof architecture`
 
 Delivered:
 
@@ -266,8 +266,8 @@ Accepted local evidence:
 Detailed inventory, final architecture, and verification matrix:
 [`stage7-final-architecture.md`](stage7-final-architecture.md).
 
-Remote acceptance still required: after commit/push, require `quality.yml` and
-all six PRODUCT release matrix legs to pass. Run the opt-in proof-acceptance job
+Remote acceptance still required: after push, require `quality.yml` and all six
+PRODUCT release matrix legs to pass. Run the opt-in proof-acceptance job
 before publishing a release.
 
 ### Orchestration record
@@ -296,14 +296,12 @@ The user-level worker/reviewer definitions are expected to select
 - Protocol validation, CSP, sandboxing, IPC denial, and lifecycle cleanup must
   not be weakened.
 
-## Next task: commit and remote acceptance
+## Next task: push and remote acceptance
 
-1. Review `git diff --check`, confirm `external/MonoGame` is clean, and commit the
-   accepted Stage 7 scope without unrelated issue 057 changes.
-2. Push and require the new `quality.yml` workflow and all six PRODUCT legs of
+1. Push and require the new `quality.yml` workflow and all six PRODUCT legs of
    `release.yml` to pass from a clean clone.
-3. Run `workflow_dispatch` with `run_proof_acceptance=true` before publishing a
+2. Run `workflow_dispatch` with `run_proof_acceptance=true` before publishing a
    release; require all eight packaged scenarios and the proof binary inventory
    to pass remotely.
-4. Record the Stage 7 commit and CI run URLs in this handoff and the cleanup plan,
+3. Record the Stage 7 CI run URLs in this handoff and the cleanup plan,
    then mark the cleanup plan complete.

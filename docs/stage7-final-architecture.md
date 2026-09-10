@@ -1,8 +1,10 @@
 # Stage 7 — final architecture enforcement and cleanup (inventory & design)
 
+**Implementation commit:** `bebcadc refactor: enforce final product proof architecture`
+
 **Status:** implementation and local acceptance complete; independent review
-accepted the diff with no blocking findings. Commit and six-platform CI
-validation remain pending. Local acceptance covered native macOS arm64 PRODUCT
+accepted the diff with no blocking findings. Push and six-platform CI validation
+remain pending. Local acceptance covered native macOS arm64 PRODUCT
 and PROOF packages, the macOS x64 PRODUCT package, all eight packaged scenarios,
 offline execution, PRODUCT smoke, package size, and a fresh startup/memory
 baseline. The final source architecture, enforcement, and evidence are recorded
@@ -401,8 +403,8 @@ Completed and verified in this working tree:
 
 Remaining acceptance step:
 
-- Commit and push the Stage 7 change, then require the clean-clone `quality.yml`
-  workflow and all six PRODUCT release matrix legs to pass. Run the opt-in
+- Push the Stage 7 change, then require the clean-clone `quality.yml` workflow
+  and all six PRODUCT release matrix legs to pass. Run the opt-in
   `proof-acceptance` workflow before publishing a release; its complete path was
   already exercised locally on macOS arm64.
 
@@ -592,6 +594,6 @@ Actual commands run (pinned SDK `9.0.315`, existing native artifacts):
 | Package-size gates | `measure-release-size.mjs` on arm64/x64 DMGs | 93.36 MiB / 92.57 MiB, both under 100 MiB | ✅ run |
 | Startup/memory baseline | `measure-performance.mjs --runs 1 --memory-baseline …` | overall PASS; 0 failed/censored/missing samples | ✅ run; docs regenerated |
 | Independent strict review | read-only reviewer over complete diff and acceptance evidence | no blocking findings | ✅ accepted pending CI |
-| Clean-clone quality + six-platform release gates | `.github/workflows/quality.yml`, `.github/workflows/release.yml` | all jobs green after push | ⏳ pending commit/push |
+| Clean-clone quality + six-platform release gates | `.github/workflows/quality.yml`, `.github/workflows/release.yml` | all jobs green after push | ⏳ pending push |
 
 Legend: ✅ run and passing locally · ⏳ pending remote clean-clone CI.

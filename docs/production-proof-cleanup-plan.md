@@ -1,6 +1,6 @@
 # Production/proof architecture cleanup plan
 
-**Status:** Stage 7 implementation locally accepted; clean-clone CI pending
+**Status:** Stage 7 implementation committed and locally accepted; clean-clone CI pending
 **Started:** 2026-09-08
 **Decision basis:** ADR 0003 (embedded production preview)
 **Session handoff:** [`session-handoff-production-proof-cleanup.md`](session-handoff-production-proof-cleanup.md)
@@ -268,8 +268,10 @@ Detailed design and evidence:
 
 ### Stage 7 — Final architecture enforcement and cleanup — LOCAL ACCEPTANCE COMPLETE; CI PENDING
 
+**Implementation commit:** `bebcadc refactor: enforce final product proof architecture`
+
 **Status:** implementation complete and independently reviewed with no blocking
-findings. Local native acceptance passed; commit/push and clean-clone quality plus
+findings. Local native acceptance passed; push and clean-clone quality plus
 six-platform release CI remain. Detailed inventory, final architecture, and
 verification matrix: [`stage7-final-architecture.md`](stage7-final-architecture.md).
 
@@ -363,8 +365,8 @@ Accepted local evidence:
 - Bounded PRODUCT launch smoke passed with clean owned-process teardown. A fresh
   startup/memory baseline passed every threshold with zero failed, censored, or
   missing samples.
-- Independent strict review found no blocking issues. Remaining gate: commit and
-  push, then require `quality.yml` and all six PRODUCT release matrix legs to
+- Independent strict review found no blocking issues. Remaining gate: push, then
+  require `quality.yml` and all six PRODUCT release matrix legs to
   pass; run opt-in remote proof acceptance before publishing a release.
 
 ### Stage 7 — original scope (reference)
