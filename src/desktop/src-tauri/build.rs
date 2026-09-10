@@ -441,6 +441,16 @@ fn validate_frontend_command_inventory(source: &str) -> Result<(), String> {
     Ok(())
 }
 
+fn inject_toml_entry(cargo: &str, section: &str, entry: &str) -> String {
+    let newline = if cargo.contains("\r\n") { "\r\n" } else { "\n" };
+    let header = format!("[{section}]{newline}");
+    assert!(
+        cargo.contains(&header),
+        "Cargo manifest is missing the [{section}] table used by the negative fixture"
+    );
+    cargo.replacen(&header, &format!("{header}{entry}{newline}"), 1)
+}
+
 fn validate_negative_fixtures(permission: &str, cargo: &str, rust: &[String]) {
     let appended_permission =
         format!("{permission}\n[[permission]]\nidentifier = \"extra\"\ncommands.allow = []\n");
@@ -455,8 +465,7 @@ fn validate_negative_fixtures(permission: &str, cargo: &str, rust: &[String]) {
         assert!(validate_runtime_rust(&mutated).is_err());
     }
 
-    let extra_dependency =
-        cargo.replace("[dependencies]\n", "[dependencies]\nunapproved = \"1\"\n");
+    let extra_dependency = inject_toml_entry(cargo, "dependencies", "unapproved = \"1\"");
     assert!(validate_cargo_manifest(&extra_dependency).is_err());
     let changed_feature = cargo.replacen(
         "tauri = { version = \"2\", features = [] }",
@@ -464,15 +473,10 @@ fn validate_negative_fixtures(permission: &str, cargo: &str, rust: &[String]) {
         1,
     );
     assert!(validate_cargo_manifest(&changed_feature).is_err());
-    let dangerous_plugin = cargo.replace(
-        "[dependencies]\n",
-        "[dependencies]\ntauri-plugin-shell = \"2\"\n",
-    );
+    let dangerous_plugin = inject_toml_entry(cargo, "dependencies", "tauri-plugin-shell = \"2\"");
     assert!(validate_cargo_manifest(&dangerous_plugin).is_err());
-    let extra_build_dependency = cargo.replace(
-        "[build-dependencies]\n",
-        "[build-dependencies]\nunapproved-build = \"1\"\n",
-    );
+    let extra_build_dependency =
+        inject_toml_entry(cargo, "build-dependencies", "unapproved-build = \"1\"");
     assert!(validate_cargo_manifest(&extra_build_dependency).is_err());
 }
 
