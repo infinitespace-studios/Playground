@@ -1,7 +1,7 @@
 # Session handoff: production/proof architecture cleanup
 
 **Last updated:** 2026-09-10
-**Next action:** push Stage 7 and require clean-clone quality/release CI
+**Next action:** cleanup complete; preserve the final architecture invariants
 **Working-tree expectation:** clean
 
 ## Read first
@@ -221,7 +221,8 @@ Detailed design and verification:
 
 ### Stage 7 — final architecture enforcement and cleanup
 
-Implementation commit: `bebcadc refactor: enforce final product proof architecture`
+Implementation commits: `bebcadc`, `842162a`, `992d9f0`, `f36133b`,
+`9029845`, `b0a5584`, and `dfca462`; local-acceptance record: `fa598b9`.
 
 Delivered:
 
@@ -253,8 +254,9 @@ Accepted local evidence:
 - Rust format/Clippy plus 23 PRODUCT and 37 PROOF tests passed. Product and proof
   native binary inventories passed.
 - Native macOS arm64 PRODUCT and PROOF packages and macOS x64 PRODUCT package
-  built. PRODUCT was built last. DMGs were 93.36 MiB arm64 and 92.57 MiB x64,
-  both under the 100 MiB limit.
+  built locally. The final clean-clone workflow built all six PRODUCT packages;
+  every binary, ACL, size, and smoke gate passed. Linux AppImages were 98.58 MiB
+  x64 and 96.85 MiB arm64; macOS apps were below 50 MiB.
 - All eight packaged scenarios passed with zero orphans and a clean invoke-key
   scan. The process-sandboxed offline content/audio proof passed under network
   denial. Bounded PRODUCT launch smoke passed with clean owned-process teardown.
@@ -266,9 +268,14 @@ Accepted local evidence:
 Detailed inventory, final architecture, and verification matrix:
 [`stage7-final-architecture.md`](stage7-final-architecture.md).
 
-Remote acceptance still required: after push, require `quality.yml` and all six
-PRODUCT release matrix legs to pass. Run the opt-in proof-acceptance job
-before publishing a release.
+Remote acceptance:
+
+- Quality: https://github.com/infinitespace-studios/Playground/actions/runs/34532612728
+- Six-platform PRODUCT + packaged PROOF acceptance:
+  https://github.com/infinitespace-studios/Playground/actions/runs/34532693231
+
+Both passed. The proof job passed all eight scenarios, every mapped sub-proof,
+37 Rust tests, the 67-command inventory, zero-orphan check, and key-leak scan.
 
 ### Orchestration record
 
@@ -296,12 +303,8 @@ The user-level worker/reviewer definitions are expected to select
 - Protocol validation, CSP, sandboxing, IPC denial, and lifecycle cleanup must
   not be weakened.
 
-## Next task: push and remote acceptance
+## Cleanup complete
 
-1. Push and require the new `quality.yml` workflow and all six PRODUCT legs of
-   `release.yml` to pass from a clean clone.
-2. Run `workflow_dispatch` with `run_proof_acceptance=true` before publishing a
-   release; require all eight packaged scenarios and the proof binary inventory
-   to pass remotely.
-3. Record the Stage 7 CI run URLs in this handoff and the cleanup plan,
-   then mark the cleanup plan complete.
+There is no next cleanup stage. Future changes must preserve ADR 0003, default
+PRODUCT selection, explicit PROOF selection, the eight-scenario suite, and all
+frontend/staging/ACL/binary/package enforcement gates.

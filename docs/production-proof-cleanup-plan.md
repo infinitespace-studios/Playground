@@ -1,6 +1,6 @@
 # Production/proof architecture cleanup plan
 
-**Status:** Stage 7 implementation committed and locally accepted; clean-clone CI pending
+**Status:** Complete
 **Started:** 2026-09-08
 **Decision basis:** ADR 0003 (embedded production preview)
 **Session handoff:** [`session-handoff-production-proof-cleanup.md`](session-handoff-production-proof-cleanup.md)
@@ -266,13 +266,22 @@ Accepted evidence:
 Detailed design and evidence:
 [`stage6-proof-binary-separation.md`](stage6-proof-binary-separation.md).
 
-### Stage 7 — Final architecture enforcement and cleanup — LOCAL ACCEPTANCE COMPLETE; CI PENDING
+### Stage 7 — Final architecture enforcement and cleanup — COMPLETE
 
-**Implementation commit:** `bebcadc refactor: enforce final product proof architecture`
+**Implementation commits:**
 
-**Status:** implementation complete and independently reviewed with no blocking
-findings. Local native acceptance passed; push and clean-clone quality plus
-six-platform release CI remain. Detailed inventory, final architecture, and
+- `bebcadc refactor: enforce final product proof architecture`
+- `fa598b9 docs: record Stage 7 local acceptance`
+- `842162a ci: make Cargo policy fixtures newline portable`
+- `992d9f0 build: remove dead payload from release packages`
+- `f36133b test: stabilize security fixtures on Windows`
+- `9029845 build: omit unused Roslyn localizations`
+- `b0a5584 ci: install Tauri CLI for proof acceptance`
+- `dfca462 test: allow valid startup output ordering`
+
+**Status:** implementation, independent review, local native acceptance,
+clean-clone quality, six-platform PRODUCT release acceptance, and remote packaged
+PROOF acceptance all passed. Detailed inventory, final architecture, and
 verification matrix: [`stage7-final-architecture.md`](stage7-final-architecture.md).
 
 Delivered in this working tree:
@@ -357,17 +366,25 @@ Accepted local evidence:
   exactly 8 PRODUCT commands, 59 feature-gated proof commands, 67 total, with
   effective ACL counts of 10 and 71.
 - Native macOS arm64 PRODUCT and PROOF packages and macOS x64 PRODUCT package
-  built successfully. PRODUCT/PROOF binary checks passed, PRODUCT was built
-  last, and arm64/x64 DMGs passed at 93.36 MiB and 92.57 MiB.
+  built successfully locally. Final clean-clone CI built all six PRODUCT
+  platform/architecture packages and passed binary, ACL, size, and smoke gates.
+  Final PRODUCT package maxima were 98.58 MiB (Linux x64 AppImage) and 96.85 MiB
+  (Linux arm64 AppImage); macOS arm64/x64 apps were 49.42/49.30 MiB and DMGs
+  28.25/28.05 MiB.
 - All eight packaged scenarios and every mapped sub-proof passed with zero
   orphans and a clean invoke-key scan. The process-sandboxed offline content/
   audio proof passed under network denial.
 - Bounded PRODUCT launch smoke passed with clean owned-process teardown. A fresh
   startup/memory baseline passed every threshold with zero failed, censored, or
   missing samples.
-- Independent strict review found no blocking issues. Remaining gate: push, then
-  require `quality.yml` and all six PRODUCT release matrix legs to
-  pass; run opt-in remote proof acceptance before publishing a release.
+- Independent strict review found no blocking issues.
+- Clean-clone quality CI passed:
+  https://github.com/infinitespace-studios/Playground/actions/runs/34532612728
+- Six-platform PRODUCT release CI and opt-in packaged PROOF acceptance passed in
+  one final workflow run:
+  https://github.com/infinitespace-studios/Playground/actions/runs/34532693231
+  The proof job passed 37 Rust tests, all eight scenarios and every mapped
+  sub-proof, the 67-command binary check, zero-orphan check, and invoke-key scan.
 
 ### Stage 7 — original scope (reference)
 
@@ -380,12 +397,9 @@ Accepted local evidence:
 - Update architecture/build/security documentation to describe only the final
   product and separate test architecture.
 
-## Resume instructions
+## Completion
 
-At the start of a later session:
-
-1. Read this file, ADR 0003, and the last completed stage commit.
-2. Confirm `git status --short --branch` is clean.
-3. Run the next PENDING stage with a fresh worker and reviewer according to the
-   execution protocol above.
-4. Update this file's status/evidence in the accepted stage commit.
+Stages 1–7 are complete. Future product work should treat the final architecture
+and CI guards as maintained invariants, not reopen this transitional cleanup
+plan. Historical issue records, ADR 0002, and stage evidence remain available for
+design provenance; ADR 0003 remains the authoritative preview architecture.

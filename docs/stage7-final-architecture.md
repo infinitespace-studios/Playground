@@ -1,14 +1,16 @@
 # Stage 7 — final architecture enforcement and cleanup (inventory & design)
 
-**Implementation commit:** `bebcadc refactor: enforce final product proof architecture`
+**Implementation commits:** `bebcadc`, `842162a`, `992d9f0`, `f36133b`,
+`9029845`, `b0a5584`, and `dfca462`; acceptance record: `fa598b9`.
 
-**Status:** implementation and local acceptance complete; independent review
-accepted the diff with no blocking findings. Push and six-platform CI validation
-remain pending. Local acceptance covered native macOS arm64 PRODUCT
-and PROOF packages, the macOS x64 PRODUCT package, all eight packaged scenarios,
-offline execution, PRODUCT smoke, package size, and a fresh startup/memory
-baseline. The final source architecture, enforcement, and evidence are recorded
-below.
+**Status:** COMPLETE. Implementation, local acceptance, independent review,
+clean-clone quality CI, all six PRODUCT package legs, and remote packaged PROOF
+acceptance passed. Final acceptance runs:
+
+- https://github.com/infinitespace-studios/Playground/actions/runs/34532612728
+- https://github.com/infinitespace-studios/Playground/actions/runs/34532693231
+
+The final source architecture, enforcement, and evidence are recorded below.
 **Decision basis:** ADR 0003 (embedded opaque-origin product preview);
 `production-proof-cleanup-plan.md` Stage 7; `session-handoff-production-proof-cleanup.md`.
 **Predecessor evidence:** Stages 1–6 (`6675761`, `f2f4013`, `0a45457`,
@@ -311,9 +313,9 @@ Historical stage evidence continues to name the scripts that existed at the time
 | Gap | Stage 7 action | Verifiable here? |
 | --- | --- | --- |
 | `measure-release-size.mjs` expected proof commands in PRODUCT, marked implemented content fixtures "not yet implemented", hardcoded `aarch64` DMG, and always wrote a report | **REPAIRED** (this pass): cross-platform PRODUCT-profile fail-closed gate accepting explicit `--binary/--package/--package-dir/--dist`; resolves any of the six package formats; verifies required artifacts + <=100 MiB target; validates staged-dist profile (+ `.app` identity) without proof-command expectation; recognises the implemented content fixtures; only writes a report with `--report`; 28/28 self-test | **Yes** (node) |
-| No consolidated CI quality workflow | **ADDED** (this pass) `.github/workflows/quality.yml`: clean-clone-only checks — `npm ci`, typecheck, focused tests, perf tests, the four tool self-tests, shell `bash -n` + static runner tests, and `cargo fmt --check`. Asset-dependent Rust/profile/packaged checks are deliberately NOT here (they need staged assets/MonoGame). | **Partially** (YAML validated; runs are CI-only) |
+| No consolidated CI quality workflow | **ADDED** `.github/workflows/quality.yml`: clean-clone-only checks — `npm ci`, typecheck, focused tests, perf tests, the four tool self-tests, shell `bash -n` + static runner tests, and `cargo fmt --check`. Asset-dependent checks remain in release CI after staging. | **Verified** — run 34532612728 passed |
 | Product smoke gate (launch/no-immediate-crash) | **ADDED** (this pass) `scripts/smoke-product.mjs`: bounded, refuses proof env/profile, verifies product identity, launches, requires survival past a bounded readiness window, terminates only the owned PID/tree, scans logs for crash/proof markers, fails on orphans; honest release matrix (full launch on host-native macOS arm64, identity-only for cross-compiled macOS x64 and where no reliable display exists); 25/25 self-test incl. real process-tree termination | **Yes** (node self-test; identity-only run verified) |
-| Asset-dependent Rust + package-size + smoke against freshly built bundles | **WIRED** into `release.yml`: post-staging `cargo clippy` (all legs) + `cargo test` (host-native legs); post-package binary-inventory + package-size + smoke per leg; six-platform packaging + x64 fix preserved. Workflow artifacts upload only after required checks; tag builds attach bundles to a draft Release during the build step, which must not be published unless all legs are green. Opt-in `proof-acceptance` runs PROOF clippy/test + packaged scenarios. | macOS arm64/x64 paths verified locally; six-platform CI pending |
+| Asset-dependent Rust + package-size + smoke against freshly built bundles | **WIRED** into `release.yml`: post-staging `cargo clippy` (all legs) + `cargo test` (host-native legs); post-package binary-inventory + package-size + smoke per leg; opt-in `proof-acceptance` runs PROOF clippy/test + packaged scenarios. | **Verified** — all six PRODUCT legs and proof acceptance passed in run 34532693231 |
 
 ---
 
@@ -403,10 +405,8 @@ Completed and verified in this working tree:
 
 Remaining acceptance step:
 
-- Push the Stage 7 change, then require the clean-clone `quality.yml` workflow
-  and all six PRODUCT release matrix legs to pass. Run the opt-in
-  `proof-acceptance` workflow before publishing a release; its complete path was
-  already exercised locally on macOS arm64.
+- No acceptance work remains. The clean-clone quality workflow, all six PRODUCT
+  release matrix legs, and opt-in packaged PROOF acceptance passed remotely.
 
 ### 7.1 C# preview split (this pass)
 
@@ -591,9 +591,10 @@ Actual commands run (pinned SDK `9.0.315`, existing native artifacts):
 | Packaged scenario suite | `prove-scenarios-macos.sh` | all 8 scenarios and mapped sub-proofs PASS; 0 orphans; clean key scan | ✅ run |
 | Offline packaged proof | `prove-packaged-offline-macos.sh --skip-build` | clean content/audio report under process network denial; 0 orphans | ✅ run |
 | Product/proof binary checks | `check:binary:product/proof` | arm64 PRODUCT+PROOF and x64 PRODUCT PASS | ✅ run |
-| Package-size gates | `measure-release-size.mjs` on arm64/x64 DMGs | 93.36 MiB / 92.57 MiB, both under 100 MiB | ✅ run |
+| Package-size gates | `measure-release-size.mjs` on every emitted package | all formats under 100 MiB; largest: Linux x64 AppImage 98.58 MiB, Linux arm64 AppImage 96.85 MiB | ✅ local + six-platform CI |
 | Startup/memory baseline | `measure-performance.mjs --runs 1 --memory-baseline …` | overall PASS; 0 failed/censored/missing samples | ✅ run; docs regenerated |
-| Independent strict review | read-only reviewer over complete diff and acceptance evidence | no blocking findings | ✅ accepted pending CI |
-| Clean-clone quality + six-platform release gates | `.github/workflows/quality.yml`, `.github/workflows/release.yml` | all jobs green after push | ⏳ pending push |
+| Independent strict review | read-only reviewer over complete diff and acceptance evidence | no blocking findings | ✅ accepted |
+| Clean-clone quality gate | `.github/workflows/quality.yml` | all jobs green | ✅ run 34532612728 |
+| Six-platform PRODUCT + remote PROOF acceptance | `.github/workflows/release.yml` with `run_proof_acceptance=true` | all 8 jobs green; all scenarios/sub-proofs pass; 0 orphans; clean key scan | ✅ run 34532693231 |
 
-Legend: ✅ run and passing locally · ⏳ pending remote clean-clone CI.
+Legend: ✅ accepted and passing. No Stage 7 gate remains pending.
