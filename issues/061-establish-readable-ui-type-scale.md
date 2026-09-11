@@ -1,7 +1,7 @@
 # Establish a readable application-wide type scale
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [059-remove-stale-workbench-telemetry.md](059-remove-stale-workbench-telemetry.md), [046-add-persistent-theme-and-accessibility.md](046-add-persistent-theme-and-accessibility.md)
 **Feature area:** Accessibility
 **Triage:** feature-backlog

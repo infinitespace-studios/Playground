@@ -1,7 +1,7 @@
 # Render project assets in the file rail
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [059-remove-stale-workbench-telemetry.md](059-remove-stale-workbench-telemetry.md), [052-route-focus-input-resize-and-content-workflow.md](052-route-focus-input-resize-and-content-workflow.md)
 **Feature area:** Assets
 **Triage:** feature-backlog
