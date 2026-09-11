@@ -305,8 +305,21 @@ test("issue 057: Save All never writes a preview block back for a legacy on-disk
     h.project.syncActiveBuffer();
     assert.equal(await h.project.saveAll(), true);
 
-    // No write (manifest or otherwise) re-emits the legacy preview block.
-    assert.equal(shell.written.some(w => w.content.includes("preview")), false);
+    // Save All canonicalizes the legacy manifest exactly once and does not
+    // re-emit the removed preview block.
+    const manifestWrites = shell.written.filter(w => w.path.endsWith("playground.json"));
+    assert.equal(manifestWrites.length, 1);
+    assert.equal(manifestWrites[0].content.includes("preview"), false);
+    assert.deepEqual(JSON.parse(manifestWrites[0].content), {
+      name: "Legacy",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
+      contentProfile: "Web",
+    });
+
+    // Once normalized, a second Save All with no edits is a no-op.
+    const writesBefore = shell.written.length;
+    assert.equal(await h.project.saveAll(), true);
+    assert.equal(shell.written.length, writesBefore);
   } finally {
     shell.restore();
     __resetProjectManagerState();

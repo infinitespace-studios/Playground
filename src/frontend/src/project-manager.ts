@@ -97,8 +97,8 @@ let activePath: string | null = null;
 let manifest: ProjectManifest | null = null;
 /** Issue 052: raw Content/ assets discovered at Open (base64), for pre-Run mount. */
 let contentFiles: ProjectContentFile[] = [];
-/** True when the manifest existed on disk at Open (vs. created-on-first-Save). */
-let manifestOnDisk = false;
+/** True when Save All must create or normalize playground.json. */
+let manifestNeedsWrite = false;
 
 function invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T> {
   const internals = (window as unknown as {
@@ -159,6 +159,12 @@ export function parseManifest(text: string, folderName: string): ProjectManifest
 /** Serialize the manifest for on-disk storage (stable, pretty-printed). */
 export function serializeManifest(m: ProjectManifest): string {
   return `${JSON.stringify(m, null, 2)}\n`;
+}
+
+/** Whether a valid legacy manifest needs one canonical rewrite on Save All. */
+function hasLegacyPreviewBlock(text: string): boolean {
+  const raw = JSON.parse(text) as unknown;
+  return typeof raw === "object" && raw !== null && Object.hasOwn(raw, "preview");
 }
 
 // ----- Public API -----
@@ -262,7 +268,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
     activePath = null;
     manifest = null;
     contentFiles = [];
-    manifestOnDisk = false;
+    manifestNeedsWrite = false;
     hooks.setDirtyIndicator(false);
     renderExplorer();
   }
@@ -312,11 +318,13 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       // (newer/unrecognized) schemaVersion leaves everything untouched and
       // never writes to disk.
       let parsedManifest: ProjectManifest;
-      let existedOnDisk: boolean;
+      let needsManifestWrite: boolean;
       if (project.manifestText !== null) {
         try {
           parsedManifest = parseManifest(project.manifestText, project.folderName);
-          existedOnDisk = true;
+          // Normalize only the known vestigial field. Other unknown same-version
+          // fields do not trigger a rewrite and are left untouched on disk.
+          needsManifestWrite = hasLegacyPreviewBlock(project.manifestText);
         } catch (error) {
           hooks.showError(
             "Unsupported project",
@@ -326,7 +334,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         }
       } else {
         parsedManifest = defaultManifest(project.folderName);
-        existedOnDisk = false;
+        needsManifestWrite = true;
       }
 
       // Derive the stable identity before mutating module state. The root is
@@ -348,7 +356,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       currentProjectIdentity = identity;
       projectFolderName = project.folderName;
       manifest = parsedManifest;
-      manifestOnDisk = existedOnDisk;
+      manifestNeedsWrite = needsManifestWrite;
       contentFiles = project.contentFiles ?? [];
       files = project.csFiles.map(f => ({
         relativePath: f.relativePath,
@@ -370,7 +378,6 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
 
       const dirtyFiles = files.filter(f => f.dirty);
       const manifestPath = `${projectRoot}/playground.json`;
-      const manifestNeedsWrite = !manifestOnDisk;
       if (dirtyFiles.length === 0 && !manifestNeedsWrite) return true;
 
       // Write every dirty file, then the manifest. If any write throws, abort
@@ -401,7 +408,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         file.savedContent = file.currentContent;
         file.dirty = false;
       }
-      manifestOnDisk = true;
+      manifestNeedsWrite = false;
       hooks.setDirtyIndicator(false);
       renderExplorer();
       return true;
@@ -422,5 +429,5 @@ export function __resetProjectManagerState(): void {
   activePath = null;
   manifest = null;
   contentFiles = [];
-  manifestOnDisk = false;
+  manifestNeedsWrite = false;
 }
