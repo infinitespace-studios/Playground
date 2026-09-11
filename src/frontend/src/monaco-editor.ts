@@ -14,6 +14,11 @@
 
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import {
+  readPersistedAppScale,
+  monacoFontSizeForScale,
+  type AppScaleLevel,
+} from "./scaling-controller";
 
 // The default example loaded into the editor on first launch. Imported as raw
 // text from the canonical example file (examples/HelloWorld/Game1.cs) so the
@@ -150,6 +155,26 @@ function installTabFocusIndicator(editor: monaco.editor.IStandaloneCodeEditor): 
 }
 
 /**
+ * Issue 062: re-layout Monaco while preserving the cursor position and any
+ * selection. Monaco's `automaticLayout` already reflows on host resize, but a
+ * UI-scale change resizes the host synchronously and an explicit
+ * capture/`layout()`/restore is a deterministic safety net that guarantees the
+ * cursor/selection survive the reflow. Everything here is public Monaco API.
+ */
+export function relayoutPreservingSelection(
+  editor: monaco.editor.IStandaloneCodeEditor,
+): void {
+  const selections = editor.getSelections();
+  const position = editor.getPosition();
+  editor.layout();
+  if (selections && selections.length > 0) {
+    editor.setSelections(selections);
+  } else if (position) {
+    editor.setPosition(position);
+  }
+}
+
+/**
  * Mount the Monaco editor into the editor region and load the default
  * `Game1.cs` example. Returns a live source provider that reads the current
  * editor buffer (unsaved edits included). Must be called after the DOM has
@@ -163,19 +188,28 @@ export function installEditor(): {
   revealAndFocus: (line: number, column: number) => void;
   getStatus: () => EditorStatusState;
   onStatusChange: (listener: (status: EditorStatusState) => void) => void;
+  applyScale: (level: AppScaleLevel) => void;
 } {
   const host = document.querySelector<HTMLElement>("#editor-host");
   if (!host) throw new Error("Issue 047 editor host (#editor-host) is missing.");
 
   defineThemes();
 
+  // Issue 062: resolve the persisted application scale before creating the
+  // editor and derive Monaco's font size from it. The default level (100 %)
+  // yields the readable 14 px floor (issue 061); a malformed persisted value
+  // falls back to that default. Applying it as the create-time option means the
+  // editor renders at the saved size immediately (no flash).
+  const initialFontSize = monacoFontSizeForScale(readPersistedAppScale());
+
   const model = monaco.editor.createModel(defaultGame1Source, "csharp");
   editorInstance = monaco.editor.create(host, {
     model,
     theme: resolveMonacoTheme(),
     automaticLayout: true,
-    // Issue 061: editor text defaults to >= 14 px for readability.
-    fontSize: 14,
+    // Issue 061: editor text defaults to >= 14 px for readability. Issue 062:
+    // the persisted application scale drives this font size via `applyScale`.
+    fontSize: initialFontSize,
     fontFamily: '"SFMono-Regular", "Cascadia Code", monospace',
     minimap: { enabled: false },
     scrollBeyondLastLine: false,
@@ -283,6 +317,16 @@ export function installEditor(): {
     // Issue 060: subscribe to live cursor/selection/indentation changes.
     onStatusChange: (listener: (status: EditorStatusState) => void) => {
       statusListeners.push(listener);
+    },
+    // Issue 062: apply an application-scale level to Monaco by deriving its font
+    // size from the same single preference that drives the Workbench typography,
+    // then re-laying-out while preserving cursor/selection. Monaco is updated
+    // ONLY through its public options API (updateOptions), and the manual
+    // layout() reflow keeps the cursor/selection correct as glyph metrics change.
+    applyScale: (level: AppScaleLevel) => {
+      if (!editorInstance) return;
+      editorInstance.updateOptions({ fontSize: monacoFontSizeForScale(level) });
+      relayoutPreservingSelection(editorInstance);
     },
   };
 }

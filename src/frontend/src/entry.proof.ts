@@ -10,6 +10,12 @@
 // so the auto-proof environment markers below (MONOGAME_ISSUE0xx_PROOF) stay
 // out of the shipping product dist.
 import "./style.css";
+// Issue 062: apply the persisted application scale to the document root BEFORE
+// the app mounts Monaco / paints, so the interface never flashes at the wrong
+// size. This side-effect import must precede `./app` (imported below). ES module
+// imports execute in source order, so placing it here guarantees the early
+// application runs before the workbench app module.
+import "./scaling-early";
 // Proof frontend entry. `entry.proof.ts` dispatches the EIGHT
 // responsibility-named durable scenario entrypoints below. Each scenario driver
 // owns its own sub-proof selection and failure reporting; the packaged proof

@@ -19,6 +19,11 @@
 
 import "./style.css";
 
+// Issue 062: apply the persisted application scale to the document root BEFORE
+// the app mounts Monaco / paints, so the interface never flashes at the wrong
+// size. This side-effect import must precede `./app`.
+import "./scaling-early";
+
 // Workbench application controller wiring (editor, panels, run/stop, projects).
 import "./app";
 

@@ -29,16 +29,31 @@
      A single readable scale replaces scattered 8-11 px literals. Every
      interactive/control/status tier is >= 12 px; the editor tier is >= 14 px.
      Sizes are in px so the computed value is guaranteed regardless of any
-     ancestor font-size. */
-  --fs-caption: 12px;   /* smallest allowed: labels, status, badges, tabs */
-  --fs-control: 12px;   /* toolbar buttons, drawer tabs */
-  --fs-body: 13px;      /* running prose: empty states, dialog copy */
-  --fs-editor: 14px;    /* code / editor-adjacent text (Monaco is >= 14 too) */
-  --fs-title: 17px;     /* brand wordmark */
-  --fs-heading: 18px;   /* dialog headings */
+     ancestor font-size.
+
+     Issue 062: each tier is multiplied by --ui-scale, a bounded whole-app text
+     scale factor (1 = 100%, the readable issue-061 default). Discrete levels
+     are selected via html[data-app-scale] below, so at every level the smallest
+     tier stays at or above the 12 px floor and the editor tier at or above 14. */
+  --ui-scale: 1;
+  --fs-caption: calc(12px * var(--ui-scale));   /* smallest allowed: labels, status, badges, tabs */
+  --fs-control: calc(12px * var(--ui-scale));   /* toolbar buttons, drawer tabs */
+  --fs-body: calc(13px * var(--ui-scale));      /* running prose: empty states, dialog copy */
+  --fs-editor: calc(14px * var(--ui-scale));    /* code / editor-adjacent text (Monaco is >= 14 too) */
+  --fs-title: calc(17px * var(--ui-scale));     /* brand wordmark */
+  --fs-heading: calc(18px * var(--ui-scale));   /* dialog headings */
   --lh-tight: 1.35;     /* dense single-line controls */
   --lh-body: 1.6;       /* multi-line readable prose */
 }
+
+/* ---------- Issue 062: bounded application-scale levels ----------
+   One discrete, keyboard-selectable scale persisted by scaling-controller.ts.
+   The attribute is set on <html>; level 100 (the readable issue-061 default and
+   minimum) leaves --ui-scale at its 1 default (no attribute). The same level
+   also drives the Monaco editor font size. Bounds are intentional: no smaller
+   than the readable default and no arbitrary/unbounded zoom. */
+html[data-app-scale="115"] { --ui-scale: 1.15; }
+html[data-app-scale="130"] { --ui-scale: 1.30; }
 
 * { box-sizing: border-box; }
 button { font: inherit; }

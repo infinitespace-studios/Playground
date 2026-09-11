@@ -25,6 +25,8 @@ const monacoPath = join(here, "monaco-editor.ts");
 const css = readFileSync(cssPath, "utf8");
 const html = readFileSync(htmlPath, "utf8");
 const monaco = readFileSync(monacoPath, "utf8");
+const scalingPath = join(here, "scaling-controller.ts");
+const scaling = readFileSync(scalingPath, "utf8");
 
 // ---------------------------------------------------------------------------
 // WCAG contrast helpers
@@ -98,9 +100,15 @@ test("editor tier is at least 14px", () => {
 });
 
 test("Monaco editor default fontSize is at least 14", () => {
-  const m = /fontSize:\s*(\d+)/.exec(monaco);
-  assert.ok(m, "Could not find Monaco fontSize option");
-  assert.ok(Number(m![1]) >= 14, `Monaco fontSize must be >= 14, got ${m![1]}`);
+  // Issue 062: Monaco's create-time fontSize is derived from the single
+  // persisted application scale (monacoFontSizeForScale(readPersistedAppScale())).
+  // Assert the editor is created from that persisted scale and that the base
+  // Monaco font size stays >= 14 px so issue 061's readable floor is preserved.
+  assert.match(monaco, /fontSize:\s*initialFontSize/, "Monaco should mount at the scale-derived font size");
+  assert.match(monaco, /monacoFontSizeForScale\(readPersistedAppScale\(\)\)/, "initial font size should come from the persisted scale");
+  const m = /MONACO_BASE_FONT_SIZE\s*=\s*(\d+)/.exec(scaling);
+  assert.ok(m, "Could not find MONACO_BASE_FONT_SIZE in scaling-controller.ts");
+  assert.ok(Number(m![1]) >= 14, `MONACO_BASE_FONT_SIZE must be >= 14, got ${m![1]}`);
 });
 
 test("no visible font shorthand smaller than 12px remains in style.css", () => {

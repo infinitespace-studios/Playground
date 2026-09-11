@@ -8,6 +8,7 @@ import { installProjectManager } from "./project-manager";
 import { installPreviewPanel } from "./preview-panel";
 import { installStatusBar, type FileStatus } from "./status-bar";
 import { prepareProjectContent } from "./project-content";
+import { installAppScaleControls } from "./scaling-controller";
 
 // Workbench application controller wiring
 // Run/Stop buttons are wired into the workbench toolbar (see index.html)
@@ -33,6 +34,14 @@ const statusBar = installStatusBar({
   status: editor.getStatus(),
 });
 editor.onStatusChange(status => statusBar.setEditorStatus(status));
+
+// Issue 062: one keyboard-accessible, bounded, persisted application scale. The
+// persisted level was already applied to the document root before mount
+// (scaling-early); this wires the conventional global Cmd/Ctrl +/-/0 shortcuts
+// and, on every change, scales Monaco from the same single preference and
+// re-layouts it so the editor reflows and preserves cursor/selection. There is
+// no visible font-size chrome — scaling is keyboard-only by product decision.
+installAppScaleControls({ onChange: level => editor.applyScale(level) });
 
 // Issue 060: the editor panel header shows the same real filename + dirty cue
 // as the status bar. It used to carry a hard-coded "Game1.cs" / "● UNSAVED"
