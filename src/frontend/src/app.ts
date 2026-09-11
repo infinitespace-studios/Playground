@@ -6,6 +6,7 @@ import { installOutputPanel } from "./output-panel";
 import installDirtyStateTracker, { setApplicationDirtyState } from "./dirty-state";
 import { installProjectManager } from "./project-manager";
 import { installPreviewPanel } from "./preview-panel";
+import { installStatusBar, type FileStatus } from "./status-bar";
 import { prepareProjectContent } from "./project-content";
 
 // Workbench application controller wiring
@@ -20,6 +21,44 @@ const editor = installEditor();
 // Issue 050: dirty-state tracking for the Monaco editor
 // Initialize with the default example content
 const tracker = installDirtyStateTracker(editor.getValue);
+
+// Issue 060: live editor status bar. Seed it with the real initial file
+// identity (the default scratch Game1.cs, clean) and the editor's actual
+// starting cursor/selection/indentation so the first paint shows no sample
+// values. The editor's public status events then drive live updates, while
+// the workspace controllers below drive the active file name + dirty cue.
+let currentFileStatus: FileStatus = { name: "Game1.cs", dirty: false };
+const statusBar = installStatusBar({
+  file: currentFileStatus,
+  status: editor.getStatus(),
+});
+editor.onStatusChange(status => statusBar.setEditorStatus(status));
+
+// Issue 060: the editor panel header shows the same real filename + dirty cue
+// as the status bar. It used to carry a hard-coded "Game1.cs" / "● UNSAVED"
+// label that conflicted with the live state; drive it from the one source of
+// truth instead so the two never disagree.
+const editorFilenameEl = document.getElementById("editor-filename");
+const editorDirtyCueEl = document.getElementById("editor-dirty-cue");
+function renderEditorHeader(file: FileStatus): void {
+  if (editorFilenameEl) editorFilenameEl.textContent = file.name;
+  if (editorDirtyCueEl) editorDirtyCueEl.hidden = !file.dirty;
+}
+renderEditorHeader(currentFileStatus);
+
+// Update the active file name / dirty cue in every live surface (status bar and
+// editor header). Skip the write entirely when nothing actually changed so the
+// status bar's aria-live file region is not re-announced on every scratch
+// keystroke (the content-change handler calls this with an unchanged name).
+function setStatusFile(next: Partial<FileStatus>): void {
+  const merged = { ...currentFileStatus, ...next };
+  if (merged.name === currentFileStatus.name && merged.dirty === currentFileStatus.dirty) {
+    return;
+  }
+  currentFileStatus = merged;
+  statusBar.setFile(currentFileStatus);
+  renderEditorHeader(currentFileStatus);
+}
 
 // Issue 051: folder-based multi-file project manager. Coexists with the
 // single-scratch-file tracker (issue 50): when a folder project is open, issue
@@ -66,6 +105,10 @@ const project = installProjectManager({
       button.addEventListener("click", () => project.switchTo(entry.relativePath));
       fileExplorer.appendChild(button);
     }
+    // Issue 060: mirror the active folder file + its dirty state into the
+    // status bar so filename/dirty cues track file switches and edits.
+    const active = entries.find(entry => entry.active);
+    if (active) setStatusFile({ name: active.relativePath, dirty: active.dirty });
   },
   // Publish folder dirty state through the same application-level path as the
   // scratch tracker. This keeps both the visible indicator and the native
@@ -87,6 +130,9 @@ function showScratchWorkspace(fileName: string): void {
   if (saveButton) saveButton.hidden = false;
   if (saveAllButton) saveAllButton.hidden = true;
   if (projectLabel) projectLabel.textContent = "Project / scratch";
+  // Issue 060: reflect the active scratch file in the status bar. The dirty
+  // cue is refreshed separately by the content-change handler / baseline load.
+  setStatusFile({ name: fileName });
   renderScratchExplorer(fileName);
 }
 
@@ -113,6 +159,8 @@ function enterScratchWorkspace(content: string, fileName: string): void {
   tracker.loadBaseline(content, fileName);
   editor.setValue(content);
   showScratchWorkspace(fileName);
+  // Issue 060: a freshly loaded baseline is clean.
+  setStatusFile({ name: fileName, dirty: false });
 }
 
 // Wire live buffer edits into the dirty tracker so the indicator updates on
@@ -123,6 +171,8 @@ editor.onDidChangeContent(() => {
     project.syncActiveBuffer();
   } else {
     tracker.setBuffer(editor.getValue());
+    // Issue 060: keep the scratch file's dirty cue in sync with each edit.
+    setStatusFile({ dirty: tracker.isDirty() });
   }
 });
 
@@ -173,7 +223,19 @@ if (openButton) {
 if (saveButton) {
   saveButton.addEventListener("click", async () => {
     if (project.hasProject()) await project.saveAll();
-    else await tracker.saveAs();
+    else {
+      const saved = await tracker.saveAs();
+      // Issue 060: a successful scratch Save As can retarget the file to a new
+      // name and always clears the dirty cue. Reflect the tracker's post-save
+      // filename + dirty state in the status bar, editor header, and explorer.
+      if (saved) {
+        const savedName = tracker.getFileName();
+        setStatusFile({ name: savedName, dirty: tracker.isDirty() });
+        renderScratchExplorer(savedName);
+      } else {
+        setStatusFile({ dirty: tracker.isDirty() });
+      }
+    }
   });
 }
 

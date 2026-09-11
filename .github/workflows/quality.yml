@@ -70,6 +70,7 @@ jobs:
             src/frontend/src/protocol.test.ts \
             src/frontend/src/content-validation.test.ts \
             src/frontend/src/audio-content.test.ts \
+            src/frontend/src/status-bar.test.ts \
             src/frontend/src/project-lifecycle.test.ts
 
       - name: Performance-tooling unit tests

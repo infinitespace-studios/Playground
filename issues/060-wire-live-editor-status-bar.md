@@ -1,7 +1,7 @@
 # Wire the status bar to live editor state
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [059-remove-stale-workbench-telemetry.md](059-remove-stale-workbench-telemetry.md)
 **Feature area:** Editor UX
 **Triage:** feature-backlog
@@ -28,11 +28,11 @@ The current footer contains hard-coded values such as `Ln 18, Col 29`, `Spaces: 
 
 ## Acceptance criteria
 
-- [ ] Line and column update after keyboard, mouse, and Problems-row navigation.
-- [ ] Selection length appears only for a non-empty selection.
-- [ ] Indentation reflects Monaco's current insert-spaces/tab-size options.
-- [ ] Active filename and dirty cue update across scratch and folder-project file switches.
-- [ ] No status value is hard-coded.
+- [x] Line and column update after keyboard, mouse, and Problems-row navigation.
+- [x] Selection length appears only for a non-empty selection.
+- [x] Indentation reflects Monaco's current insert-spaces/tab-size options.
+- [x] Active filename and dirty cue update across scratch and folder-project file switches.
+- [x] No status value is hard-coded.
 
 ## Verification
 
@@ -42,10 +42,30 @@ Record exact positions/files tested and screenshots or precise observations.
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent `reviewer` subagent
+- **Date:** 2026-09-11
+- **Evidence:**
+  - Inspected the complete `c02b42e`-to-worktree diff and confirmed all changes
+    were scoped to live editor/file status, tests, and CI registration.
+  - `npm --prefix src/frontend run typecheck` passed with zero errors.
+  - Focused suites passed: status bar 10/10, protocol 104/104, content
+    validation 31/31, audio content 10/10, and project lifecycle 12/12.
+  - Launched the real PRODUCT Tauri debug binary against the staged PRODUCT
+    frontend and drove it with a two-file temporary project.
+  - Cursor checks covered mouse and keyboard movement plus Problems navigation;
+    observed values included `Ln 7, Col 34`, `Ln 3, Col 9`, and
+    `Ln 6, Col 9`, matching the visible Monaco cursor.
+  - A four-character selection displayed `4 selected` and disappeared when
+    collapsed. Indentation reported the live `Spaces: 4` model options.
+  - Dirty and active-file cues tracked `Game1.cs` and `Player.cs` independently.
+    Scratch Save As to `RenamedScratch.cs` updated the editor header, explorer,
+    and status bar and cleared the dirty cue.
+  - Dark and light themes both rendered the status legibly. Only the file/dirty
+    element is a polite live region; cursor/selection/indentation are plain text,
+    and duplicate file-state writes are suppressed.
+  - PRODUCT staging verified the pinned MonoGame artifacts; all launched app
+    and Vite processes were terminated after verification.
 
 ## Commit gate
 

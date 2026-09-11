@@ -34,6 +34,25 @@ const LIGHT_THEME = "workbench-light";
 
 let editorInstance: monaco.editor.IStandaloneCodeEditor | null = null;
 
+/**
+ * A snapshot of the live editor state the status bar (issue 060) renders:
+ * cursor line/column, selected character count (0 when the selection is empty),
+ * and Monaco's current indentation model options. Every value is read from the
+ * editor/model through public Monaco APIs — nothing is fabricated.
+ */
+export interface EditorStatusState {
+  /** 1-based cursor line. */
+  line: number;
+  /** 1-based cursor column. */
+  column: number;
+  /** Characters covered by the primary selection; 0 when it is empty. */
+  selectionLength: number;
+  /** True when the model inserts spaces for indentation, false for tabs. */
+  insertSpaces: boolean;
+  /** The model's active tab size. */
+  tabSize: number;
+}
+
 /** Resolve the Monaco theme name from the workbench <body data-theme>. */
 function resolveMonacoTheme(): string {
   return document.body.dataset.theme === "light" ? LIGHT_THEME : DARK_THEME;
@@ -142,6 +161,8 @@ export function installEditor(): {
   onDidChangeContent: (listener: () => void) => void;
   setMarkers: (markers: monaco.editor.IMarkerData[]) => void;
   revealAndFocus: (line: number, column: number) => void;
+  getStatus: () => EditorStatusState;
+  onStatusChange: (listener: (status: EditorStatusState) => void) => void;
 } {
   const host = document.querySelector<HTMLElement>("#editor-host");
   if (!host) throw new Error("Issue 047 editor host (#editor-host) is missing.");
@@ -181,6 +202,50 @@ export function installEditor(): {
   // onDidChangeConfiguration (no reliance on Monaco internals).
   installTabFocusIndicator(editorInstance);
 
+  // Issue 060: expose live cursor/selection/indentation state through public
+  // Monaco events so the status bar can render honest values. `computeStatus`
+  // reads directly from the editor and its model every time, so callers always
+  // get the current truth (no cached sample values).
+  const computeStatus = (): EditorStatusState => {
+    const ed = editorInstance;
+    const position = ed?.getPosition() ?? { lineNumber: 1, column: 1 };
+    const model = ed?.getModel() ?? null;
+    const selection = ed?.getSelection() ?? null;
+    let selectionLength = 0;
+    if (model && selection && !selection.isEmpty()) {
+      selectionLength = model.getValueInRange(selection).length;
+    }
+    const options = model?.getOptions();
+    return {
+      line: position.lineNumber,
+      column: position.column,
+      selectionLength,
+      insertSpaces: options?.insertSpaces ?? true,
+      tabSize: options?.tabSize ?? 4,
+    };
+  };
+
+  const statusListeners: Array<(status: EditorStatusState) => void> = [];
+  const emitStatus = (): void => {
+    const snapshot = computeStatus();
+    for (const listener of statusListeners) listener(snapshot);
+  };
+
+  // Cursor moves (keyboard, mouse, Problems-row reveal via setPosition) and
+  // selection changes both flow through these public events.
+  editorInstance.onDidChangeCursorPosition(() => emitStatus());
+  editorInstance.onDidChangeCursorSelection(() => emitStatus());
+  // Indentation is a model option; re-attach if the model is ever swapped so we
+  // never listen to a stale model. The workbench reuses one model today, but
+  // this keeps the wiring correct regardless.
+  let optionsSubscription = model.onDidChangeOptions(() => emitStatus());
+  editorInstance.onDidChangeModel(() => {
+    optionsSubscription.dispose();
+    const nextModel = editorInstance?.getModel();
+    if (nextModel) optionsSubscription = nextModel.onDidChangeOptions(() => emitStatus());
+    emitStatus();
+  });
+
   return {
     // PRD 8.6: Run must compile the current in-memory source, so always read
     // the live buffer rather than any previously saved copy.
@@ -211,6 +276,12 @@ export function installEditor(): {
       editorInstance.revealLineInCenter(safeLine);
       editorInstance.setPosition({ lineNumber: safeLine, column: safeColumn });
       editorInstance.focus();
+    },
+    // Issue 060: current cursor/selection/indentation snapshot, read live.
+    getStatus: () => computeStatus(),
+    // Issue 060: subscribe to live cursor/selection/indentation changes.
+    onStatusChange: (listener: (status: EditorStatusState) => void) => {
+      statusListeners.push(listener);
     },
   };
 }

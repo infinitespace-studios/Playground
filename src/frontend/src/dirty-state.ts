@@ -129,6 +129,8 @@ export function installDirtyStateTracker(
 ): {
   /** Whether the current buffer has unsaved changes. */
   isDirty: () => boolean;
+  /** The active scratch file name (basename), tracked across Save As. */
+  getFileName: () => string;
   /** Set the current file name (used in the dirty indicator). */
   setFileName: (name: string) => void;
   /** Save As flow: opens native dialog, writes atomically, clears dirty. */
@@ -179,6 +181,7 @@ export function installDirtyStateTracker(
   // Export the public API
   const api = {
     isDirty: () => isDirty,
+    getFileName: () => currentFileName,
     setFileName: (name: string) => {
       currentFileName = name;
       setApplicationDirtyState(isDirty);
@@ -217,6 +220,10 @@ export function installDirtyStateTracker(
           },
         );
 
+        // Save As can retarget the scratch file to a new name. Adopt the
+        // chosen file's basename so the tracked identity (dirty indicator,
+        // next Save As suggestion, and issue 060 status bar) reflects reality.
+        currentFileName = filePath.split(/[\\/]/).pop() || currentFileName;
         lastSavedContent = content;
         isDirty = false;
         setApplicationDirtyState(false);

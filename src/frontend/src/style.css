@@ -494,6 +494,16 @@ body[data-running="true"] .screen-label {
   margin-left: 20px;
 }
 
+/* Issue 060: live editor status items. The dirty file cue reuses the muted
+   palette; a dirty file is emphasised via its data attribute. */
+.status-item {
+  white-space: nowrap;
+}
+
+.status-file[data-dirty="true"] {
+  color: var(--text);
+}
+
 /* ---------- Proof element styles (kept from original layout) ---------- */
 
 /* Canvas: proof auto-proof reads WebGL context from this element */
