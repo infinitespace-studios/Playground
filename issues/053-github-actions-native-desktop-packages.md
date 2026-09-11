@@ -1,7 +1,7 @@
 # Produce native desktop packages for macOS, Windows, and Linux via GitHub Actions
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [048-navigate-problems-rows-to-editor-markers.md](048-navigate-problems-rows-to-editor-markers.md), [049-show-output-and-runtime-failures.md](049-show-output-and-runtime-failures.md), [050-save-scratch-project-with-dirty-state-protection.md](050-save-scratch-project-with-dirty-state-protection.md), [051-open-folder-edit-multiple-files-persist-manifest.md](051-open-folder-edit-multiple-files-persist-manifest.md), [052-route-focus-input-resize-and-content-workflow.md](052-route-focus-input-resize-and-content-workflow.md)
 **PRD references:** 18, 22.5, 24 (Phase 5)
 **User stories:** US7, US8
@@ -55,12 +55,12 @@ A GitHub Actions workflow (under `.github/workflows/`) that, on demand (`workflo
 
 ## Acceptance criteria
 
-- [ ] A GitHub Actions workflow under `.github/workflows/` triggers on `workflow_dispatch`, on `push` to `main`, and on `push` of `v*` tags, checks out the MonoGame submodule recursively, and provisions the pinned .NET/Node/Rust/emsdk toolchain.
-- [ ] The workflow builds and hash-verifies the MonoGame WASM artifacts (issues 4–5) and builds the full Workbench frontend + compiler + preview WASM in Release.
-- [ ] The workflow builds the Tauri shell on a matrix of macOS, Windows, and Linux, **each for x64 and arm64 (six bundles)**, and uploads each platform/arch native bundle as a workflow artifact; on `v*` tags the artifacts are attached to a GitHub Release.
-- [ ] `src/desktop/src-tauri/tauri.conf.json` `bundle.targets`/metadata are configured so each OS's native package format is emitted.
-- [ ] `docs/release-support-matrix.md` documents each platform/arch combination's supported OS version(s), CPU architecture (x64 + arm64), artifact format, and (Windows) minimum WebView2 version.
-- [ ] The workflow file passes `actionlint`, and the build command sequence is confirmed correct on at least the macOS leg (reproduced locally or via a successful `workflow_dispatch` run).
+- [x] A GitHub Actions workflow under `.github/workflows/` triggers on `workflow_dispatch`, on `push` to `main`, and on `push` of `v*` tags, checks out the MonoGame submodule recursively, and provisions the pinned .NET/Node/Rust/emsdk toolchain.
+- [x] The workflow builds and hash-verifies the MonoGame WASM artifacts (issues 4–5) and builds the full Workbench frontend + compiler + preview WASM in Release.
+- [x] The workflow builds the Tauri shell on a matrix of macOS, Windows, and Linux, **each for x64 and arm64 (six bundles)**, and uploads each platform/arch native bundle as a workflow artifact; on `v*` tags the artifacts are attached to a GitHub Release.
+- [x] `src/desktop/src-tauri/tauri.conf.json` `bundle.targets`/metadata are configured so each OS's native package format is emitted.
+- [x] `docs/release-support-matrix.md` documents each platform/arch combination's supported OS version(s), CPU architecture (x64 + arm64), artifact format, and (Windows) minimum WebView2 version.
+- [x] The workflow file passes `actionlint`, and the build command sequence is confirmed correct on at least the macOS leg (reproduced locally or via a successful `workflow_dispatch` run).
 
 ## Verification
 
@@ -77,10 +77,34 @@ Record the exact evidence (actionlint output, the CI run URL with per-leg artifa
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent pi reviewer (`claude-opus-4.8`, session `01a08fad-92a3-716e-8729-bb80de510e44`)
+- **Date:** 2026-09-11
+- **Evidence:**
+  - `actionlint .github/workflows/release.yml` exited 0 with no findings.
+  - Successful `workflow_dispatch` run:
+    https://github.com/infinitespace-studios/Playground/actions/runs/34532693231
+    (`dfca462c51e2ea75fe25e7dba77c36039bde45ee`).
+  - `build-monogame-wasm` passed all steps, hash/provenance verification reported
+    `Verified 3 Release MonoGame native archives`, and uploaded the shared
+    `monogame-wasm` artifact.
+  - All six package jobs passed and uploaded artifacts:
+    `monogame-playground-macos-arm64`, `monogame-playground-macos-x64`,
+    `monogame-playground-windows-arm64`, `monogame-playground-windows-x64`,
+    `monogame-playground-linux-arm64`, and `monogame-playground-linux-x64`.
+  - Bundling logs confirmed macOS `.app`/`.dmg`, Windows `.msi`/NSIS `.exe`,
+    and Linux `.deb`/`.rpm`/`.AppImage` output. Each leg passed the PRODUCT
+    frontend, Rust, binary-inventory, package-size, and smoke gates.
+  - The same run's opt-in `proof-acceptance (macos-arm64)` job passed 37 Rust
+    tests, the 67-command PROOF binary inventory, all eight packaged scenarios
+    and every mapped sub-proof, with zero orphan processes and a clean invoke-key
+    scan.
+  - `docs/release-support-matrix.md` records all six OS/architecture rows,
+    native-versus-cross build method, package formats, minimum OS, and Windows
+    WebView2 requirements.
+  - Tag-triggered draft GitHub Release attachment is actionlint-clean and wired
+    through `tauri-apps/tauri-action`; the verifying dispatch run exercised
+    workflow artifact upload rather than creating a release, as designed.
 
 ## Commit gate
 
