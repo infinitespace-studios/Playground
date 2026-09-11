@@ -1,8 +1,7 @@
 # Build responsive Workbench app frame
 
 **Type:** AFK
-**Status:** Implementation complete — awaiting independent verification
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [044-approve-phase1-feasibility-gate.md](044-approve-phase1-feasibility-gate.md)
 **PRD references:** 14.6, 8
 **User stories:** US10
@@ -42,11 +41,11 @@ Replace the placeholder frontend page (issue 6) with the real Workbench applicat
 
 ## Acceptance criteria
 
-- [ ] The application displays the PRD section 8 two-column layout with a toolbar, files region, editor region (placeholder acceptable), preview region, and bottom tabbed Problems/Output/Assets region
-- [ ] The visual structure and density closely matches `frontend-designs/workbench.html`
-- [ ] The existing Run and Stop behavior (issues 23/24/38) functions identically after being re-parented into the new layout
-- [ ] The layout remains usable (both editor and preview regions visible and interactable, no overlapping/clipped content) at both 1024px and 800px window widths
-- [ ] The preview iframe's security boundary (sandbox attribute, CSP) is unchanged by the re-parenting, confirmed by re-running at least one issue 34/35 security check
+- [x] The application displays the PRD section 8 two-column layout with a toolbar, files region, editor region (placeholder acceptable), preview region, and bottom tabbed Problems/Output/Assets region
+- [x] The visual structure and density closely matches `frontend-designs/workbench.html`
+- [x] The existing Run and Stop behavior (issues 23/24/38) functions identically after being re-parented into the new layout
+- [x] The layout remains usable (both editor and preview regions visible and interactable, no overlapping/clipped content) at both 1024px and 800px window widths
+- [x] The preview iframe's security boundary (sandbox attribute, CSP) is unchanged by the re-parenting, confirmed by re-running at least one issue 34/35 security check
 
 ## Verification
 
@@ -68,6 +67,20 @@ Complete this section during independent verification. Do not delete failed atte
   6. Build is clean: `npm run build` produces 44 modules, 10.39 kB CSS, 271.96 kB JS, zero errors.
   7. TypeScript: zero new errors (pre-existing `issue041.ts:771` unrelated).
   8. Tauri window creation fixed: `window.show()` added after `build()` to resolve blank-window-in-dev-mode bug.
+
+### Current PRODUCT re-verification
+
+- **Verdict:** PASS
+- **Verifier:** Product owner (human)
+- **Date:** 2026-09-11
+- **Evidence:** Launched the current PRODUCT package and directly completed the
+  issue verification steps. The Workbench regions rendered correctly; the
+  editor and preview remained visible and usable at approximately 1024 px and
+  800 px widths with no overlap or clipping; Run rendered Cornflower Blue; Stop
+  stopped the preview; a subsequent Run started a fresh preview; and no immediate
+  layout or interaction defects were observed. The current security boundary is
+  the stricter ADR 0003 opaque-origin iframe (`sandbox="allow-scripts"`), which
+  supersedes the historical sandbox value quoted in the 2025 verification above.
 
 ## Implementation notes
 
