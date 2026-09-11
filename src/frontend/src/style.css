@@ -5,11 +5,39 @@
   --panel2: #202626;
   --line: #343c3b;
   --text: #d9ded8;
-  --muted: #7d8884;
+  /* Issue 061: muted lightened from #7d8884 so small UI/status text clears
+     WCAG 2.2 AA (>=4.5:1) even on the lightest dark surface (panel2 #202626,
+     was 4.19:1, now 5.30:1). */
+  --muted: #909a95;
   --amber: #f4b73e;
   --green: #79dc9c;
   --red: #ff685f;
+  /* Issue 061: dedicated text-on-surface accent. In dark theme amber already
+     clears AA as text; the light theme overrides this to a dark burnt-orange
+     so accent *text* passes AA without changing the amber control fill. */
+  --accent-text: #f4b73e;
+  /* Issue 061: log timestamp / de-emphasised metadata colour, promoted to a
+     themed variable so it meets AA on the drawer background (was 2.49:1). */
+  --log-time: #78827c;
+  /* Runtime failures use a themed surface so error/detail text keeps AA
+     contrast in both dark and light modes. */
+  --runtime-error-bg: #241a1a;
+  --runtime-error-message: #e6d2d0;
   font-family: "Aptos Narrow", "Arial Narrow", sans-serif;
+
+  /* ---------- Issue 061: named application type scale ----------
+     A single readable scale replaces scattered 8-11 px literals. Every
+     interactive/control/status tier is >= 12 px; the editor tier is >= 14 px.
+     Sizes are in px so the computed value is guaranteed regardless of any
+     ancestor font-size. */
+  --fs-caption: 12px;   /* smallest allowed: labels, status, badges, tabs */
+  --fs-control: 12px;   /* toolbar buttons, drawer tabs */
+  --fs-body: 13px;      /* running prose: empty states, dialog copy */
+  --fs-editor: 14px;    /* code / editor-adjacent text (Monaco is >= 14 too) */
+  --fs-title: 17px;     /* brand wordmark */
+  --fs-heading: 18px;   /* dialog headings */
+  --lh-tight: 1.35;     /* dense single-line controls */
+  --lh-body: 1.6;       /* multi-line readable prose */
 }
 
 * { box-sizing: border-box; }
@@ -28,6 +56,39 @@ body[data-theme="light"] button:focus-visible,
 body[data-theme="light"] .file:focus-visible,
 body[data-theme="light"] .tab:focus-visible {
   outline-color: var(--red);
+}
+
+/* Issue 061: forced-colors / Windows High Contrast safety.
+   When the OS forces its own palette, authored colours are discarded, so
+   state that we normally convey with colour must fall back to system colour
+   keywords. Keep focus rings on the accent-agnostic `Highlight`, and give the
+   coloured status/severity chips a visible `CanvasText` border so the cue
+   survives even though their text/border colours are overridden. */
+@media (forced-colors: active) {
+  button:focus-visible,
+  .file:focus-visible,
+  .tab:focus-visible,
+  .problem:focus-visible,
+  #canvas-frame:focus-visible,
+  #canvas:focus-visible {
+    outline: 3px solid Highlight;
+    outline-offset: 2px;
+  }
+
+  /* Status/severity indicators rely on colour + text; add a forced border so
+     the boundary stays perceivable when colours collapse to the system set. */
+  .preview-status,
+  .tabfocus-indicator[data-state="focus"],
+  .problem[data-severity] b {
+    border: 1px solid CanvasText;
+  }
+
+  /* The running lamp and runtime light are pure-colour cues; force a visible
+     outline so "running" remains distinguishable in forced-colors mode. */
+  body[data-running="true"] .lamp,
+  .runtime-state-light {
+    outline: 2px solid Highlight;
+  }
 }
 
 body {
@@ -56,13 +117,13 @@ body {
 }
 
 .brand {
-  font: 900 17px "Rockwell", serif;
+  font: 900 var(--fs-title) "Rockwell", serif;
   letter-spacing: -0.03em;
   margin-right: 20px;
 }
 
 .brand i {
-  color: var(--amber);
+  color: var(--accent-text);
   font-style: normal;
 }
 
@@ -73,7 +134,7 @@ body {
   color: var(--muted);
   padding: 0 12px;
   text-transform: uppercase;
-  font: 700 10px ui-monospace, monospace;
+  font: 700 var(--fs-control) ui-monospace, monospace;
   letter-spacing: 0.09em;
   cursor: pointer;
 }
@@ -123,7 +184,7 @@ body {
 
 .theme-switch span::after {
   content: " DARK";
-  font-size: 8px;
+  font-size: var(--fs-caption);
 }
 
 /* Status lamp */
@@ -143,8 +204,8 @@ body[data-running="true"] .lamp {
 
 .label {
   color: var(--muted);
-  font: 700 9px ui-monospace, monospace;
-  letter-spacing: 0.16em;
+  font: 700 var(--fs-caption) ui-monospace, monospace;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
   padding: 4px 7px 12px;
 }
@@ -180,12 +241,12 @@ body[data-running="true"] .lamp {
   padding: 8px;
   text-align: left;
   cursor: pointer;
-  font: 12px ui-monospace, monospace;
+  font: var(--fs-editor) ui-monospace, monospace;
 }
 
 .file::before {
   content: "CS";
-  font-size: 8px;
+  font-size: var(--fs-caption);
   color: var(--green);
 }
 
@@ -211,7 +272,7 @@ body[data-running="true"] .lamp {
 
 .asset-browser-empty {
   color: var(--muted);
-  font: 11px ui-monospace, monospace;
+  font: var(--fs-body) ui-monospace, monospace;
   margin: 0;
 }
 
@@ -231,7 +292,7 @@ body[data-running="true"] .lamp {
   padding: 0 12px;
   border-bottom: 1px solid var(--line);
   color: var(--muted);
-  font: 10px ui-monospace, monospace;
+  font: var(--fs-caption) ui-monospace, monospace;
   letter-spacing: 0.1em;
 }
 
@@ -241,7 +302,7 @@ body[data-running="true"] .lamp {
 }
 
 .dirty {
-  color: var(--amber);
+  color: var(--accent-text);
 }
 
 /* Issue 052 (option B): Tab-focus-mode indicator in the editor panel header.
@@ -252,14 +313,14 @@ body[data-running="true"] .lamp {
   padding: 1px 7px;
   border: 1px solid transparent;
   border-radius: 3px;
-  font: 700 9px ui-monospace, monospace;
+  font: 700 var(--fs-caption) ui-monospace, monospace;
   letter-spacing: 0.08em;
   color: var(--muted);
   white-space: nowrap;
 }
 
 .tabfocus-indicator[data-state="focus"] {
-  color: var(--amber);
+  color: var(--accent-text);
   border-color: var(--amber);
 }
 
@@ -269,7 +330,7 @@ body[data-running="true"] .lamp {
   height: 100%;
   overflow: auto;
   padding: 13px 0;
-  font: 12px/1.62 "SFMono-Regular", "Cascadia Code", monospace;
+  font: var(--fs-editor)/1.62 "SFMono-Regular", "Cascadia Code", monospace;
   background: #111616;
   color: #d9ded8;
   border: none;
@@ -336,8 +397,8 @@ body[data-running="true"] .lamp {
   display: grid;
   place-items: center;
   color: var(--muted);
-  font: 700 10px ui-monospace, monospace;
-  letter-spacing: 0.16em;
+  font: 700 var(--fs-caption) ui-monospace, monospace;
+  letter-spacing: 0.14em;
 }
 
 body[data-running="true"] .scope {
@@ -388,13 +449,13 @@ body[data-running="true"] .screen-label {
   background: #111616;
   color: var(--muted);
   padding: 0 18px;
-  font: 700 9px ui-monospace, monospace;
+  font: 700 var(--fs-control) ui-monospace, monospace;
   letter-spacing: 0.12em;
   cursor: pointer;
 }
 
 .tab.active {
-  color: var(--amber);
+  color: var(--accent-text);
   background: var(--panel2);
 }
 
@@ -408,7 +469,7 @@ body[data-running="true"] .screen-label {
   min-height: 0;
   overflow: auto;
   padding: 9px 13px;
-  font: 11px/1.7 ui-monospace, monospace;
+  font: var(--fs-body)/var(--lh-body) ui-monospace, monospace;
   background: #0f1313;
 }
 
@@ -419,7 +480,7 @@ body[data-running="true"] .screen-label {
 }
 
 .log-row time {
-  color: #4c5753;
+  color: var(--log-time);
 }
 
 .log-row.success span {
@@ -446,7 +507,7 @@ body[data-running="true"] .screen-label {
 /* Issue 048: severity cue is the bold text label (ERROR/WARNING/INFO), never
    color alone (issue 46 accessibility). Colour is a secondary reinforcement. */
 .problem[data-severity="warning"] b {
-  color: var(--amber);
+  color: var(--accent-text);
 }
 
 .problem[data-severity="info"] b {
@@ -484,8 +545,8 @@ body[data-running="true"] .screen-label {
   align-items: center;
   padding: 0 9px;
   color: var(--muted);
-  font: 9px ui-monospace, monospace;
-  letter-spacing: 0.08em;
+  font: var(--fs-caption) ui-monospace, monospace;
+  letter-spacing: 0.06em;
   border: 1px solid var(--line);
   background: var(--panel);
 }
@@ -555,18 +616,18 @@ body[data-running="true"] .screen-label {
   padding: 1px 7px;
   border: 1px solid var(--line);
   border-radius: 3px;
-  font: 700 9px ui-monospace, monospace;
+  font: 700 var(--fs-caption) ui-monospace, monospace;
   letter-spacing: 0.1em;
   color: var(--muted);
   white-space: nowrap;
 }
 
 .preview-status-glyph {
-  font-size: 10px;
+  font-size: var(--fs-caption);
   line-height: 1;
 }
 
-.preview-status[data-state="loading"] { color: var(--amber); border-color: var(--amber); }
+.preview-status[data-state="loading"] { color: var(--accent-text); border-color: var(--amber); }
 .preview-status[data-state="running"] { color: var(--green); border-color: var(--green); }
 .preview-status[data-state="stopped"] { color: var(--muted); }
 .preview-status[data-state="error"] { color: var(--red); border-color: var(--red); }
@@ -609,14 +670,16 @@ html[data-runtime="error"] .runtime-state-light {
   50% { opacity: 0.4; transform: scale(0.72); }
 }
 
-/* Proof section buttons */
-#compile-load,
-#run-clear-color {
+/* Proof section buttons. The visible Run control (#run-clear-color) is a
+   product primary control and is deliberately NOT styled here: it takes the
+   amber `.tool.primary` look (PRD 14.6) with AA-contrast text. Only the hidden
+   proof buttons keep the green proof styling. */
+#compile-load {
   border: 1px solid var(--green);
   color: var(--text);
   background: var(--green);
   padding: 8px 10px;
-  font: 700 11px "SFMono-Regular", monospace;
+  font: 700 var(--fs-editor) "SFMono-Regular", monospace;
   cursor: pointer;
 }
 
@@ -639,8 +702,8 @@ html[data-runtime="error"] .runtime-state-light {
   grid-template-columns: max-content 1fr;
   gap: 8px;
   padding: 2px 0;
-  color: #bdc8c3;
-  font: 11px/1.5 ui-monospace, monospace;
+  color: var(--text);
+  font: var(--fs-body)/var(--lh-body) ui-monospace, monospace;
 }
 
 .output-tag {
@@ -653,7 +716,7 @@ html[data-runtime="error"] .runtime-state-light {
 }
 
 .output-row[data-source="native"] .output-tag {
-  color: var(--amber);
+  color: var(--accent-text);
 }
 
 .output-text {
@@ -666,18 +729,18 @@ html[data-runtime="error"] .runtime-state-light {
   padding: 8px 10px;
   border: 1px solid var(--red);
   border-left-width: 3px;
-  background: #241a1a;
+  background: var(--runtime-error-bg);
 }
 
 .runtime-error-heading {
   color: var(--red);
-  font: 700 11px/1.5 ui-monospace, monospace;
+  font: 700 var(--fs-body)/var(--lh-body) ui-monospace, monospace;
   letter-spacing: 0.04em;
 }
 
 .runtime-error-message {
-  color: #e6d2d0;
-  font: 11px/1.5 ui-monospace, monospace;
+  color: var(--runtime-error-message);
+  font: var(--fs-body)/var(--lh-body) ui-monospace, monospace;
   margin: 3px 0 6px;
   white-space: pre-wrap;
 }
@@ -686,12 +749,12 @@ html[data-runtime="error"] .runtime-state-light {
   margin: 0;
   padding-left: 16px;
   color: var(--muted);
-  font: 11px/1.6 ui-monospace, monospace;
+  font: var(--fs-body)/var(--lh-body) ui-monospace, monospace;
 }
 
 .runtime-error-noframes {
   color: var(--muted);
-  font: 11px/1.5 ui-monospace, monospace;
+  font: var(--fs-body)/var(--lh-body) ui-monospace, monospace;
 }
 
 /* ---------- Responsive layout (PRD 14.6 requirement) ---------- */
@@ -764,10 +827,22 @@ body[data-theme="light"] {
   --panel2: #deded4;
   --line: #aaa99c;
   --text: #202522;
-  --muted: #68706b;
+  /* Issue 061: muted darkened from #68706b so small text clears AA on the
+     lightest light surface (drawer #f5f4ed, was 4.33:1, now >=5:1). */
+  --muted: #565c58;
   --amber: #e98a19;
-  --green: #16784a;
-  --red: #c8463d;
+  /* Issue 061: green darkened from #16784a so the file badge / success cue
+     clears AA on the panel background (was 3.83:1). */
+  --green: #136640;
+  /* Issue 061: red darkened from #c8463d so stop/error text clears AA on the
+     lightest control/background surfaces (Stop on tool #e4e4dc was 4.40:1). */
+  --red: #a03028;
+  /* Issue 061: accent *text* in light theme is a dark burnt-orange (AA on all
+     light surfaces); the amber control fill above is unchanged. */
+  --accent-text: #8a4a06;
+  --log-time: #5f645f;
+  --runtime-error-bg: #f6e4e1;
+  --runtime-error-message: var(--text);
 }
 
 body[data-theme="light"] .bar,
@@ -791,7 +866,9 @@ body[data-theme="light"] .tool:hover {
 
 body[data-theme="light"] .tool.primary {
   background: var(--amber);
-  color: #fff;
+  /* Issue 061: was #fff on amber = 2.59:1 (FAIL). Dark ink on the safety-orange
+     fill is 7.24:1 and matches the dark theme's primary control. */
+  color: #10130d;
   border-color: #cc7310;
 }
 
@@ -831,9 +908,8 @@ body[data-theme="light"] .drawer-body {
   background: #f5f4ed;
 }
 
-body[data-theme="light"] .log-row time {
-  color: #9a9e99;
-}
+/* Issue 061: log timestamp colour is now a themed variable (--log-time); the
+   old light-only override is unnecessary. */
 
 body[data-theme="light"] .problem:hover {
   background: #f3d9d5;
@@ -880,7 +956,7 @@ body[data-theme="light"] .theme-switch span::after {
 
 .first-run-marker {
   margin-bottom: 10px;
-  color: var(--amber);
+  color: var(--accent-text);
   font-size: 22px;
   line-height: 1;
 }
@@ -888,15 +964,15 @@ body[data-theme="light"] .theme-switch span::after {
 .first-run-title {
   margin: 0 0 12px;
   color: var(--text);
-  font-size: 18px;
+  font-size: var(--fs-heading);
   font-weight: 600;
   letter-spacing: -0.02em;
 }
 
 .first-run-desc {
   margin: 0 0 10px;
-  color: #bdc8c3;
-  font-size: 13px;
+  color: var(--text);
+  font-size: var(--fs-body);
   line-height: 1.55;
 }
 
@@ -904,7 +980,7 @@ body[data-theme="light"] .theme-switch span::after {
   margin: 0 0 20px;
   color: var(--muted);
   font-family: "SFMono-Regular", monospace;
-  font-size: 10px;
+  font-size: var(--fs-caption);
   letter-spacing: 0.04em;
 }
 
@@ -918,7 +994,7 @@ body[data-theme="light"] .theme-switch span::after {
 .first-run-confirm {
   border: 1px solid var(--line);
   padding: 8px 14px;
-  font: 700 11px "SFMono-Regular", monospace;
+  font: 700 var(--fs-control) "SFMono-Regular", monospace;
   cursor: pointer;
   letter-spacing: 0.02em;
 }
@@ -978,13 +1054,13 @@ body[data-theme="light"] .theme-switch span::after {
 
 .confirmation-dialog h3 {
   margin: 0 0 12px 0;
-  font-size: 16px;
+  font-size: var(--fs-heading);
   font-weight: 600;
 }
 
 .confirmation-dialog p {
   margin: 0 0 16px 0;
-  font-size: 14px;
+  font-size: var(--fs-editor);
   line-height: 1.4;
 }
 
@@ -1000,7 +1076,7 @@ body[data-theme="light"] .theme-switch span::after {
   border-radius: 3px;
   background: var(--panel2);
   color: var(--text);
-  font-size: 13px;
+  font-size: var(--fs-body);
   cursor: pointer;
   min-width: 80px;
 }
@@ -1011,7 +1087,8 @@ body[data-theme="light"] .theme-switch span::after {
 
 .dialog-buttons .btn-confirm {
   background: var(--amber);
-  color: #fff;
+  /* Issue 061: was #fff on amber (FAIL); dark ink is >=7:1 on the fill. */
+  color: #10130d;
   border-color: var(--amber);
 }
 
@@ -1023,9 +1100,9 @@ body[data-theme="light"] .theme-switch span::after {
 /* Dirty indicator (issue 050) */
 .dirty-indicator {
   display: inline-block;
-  font-size: 14px;
+  font-size: var(--fs-editor);
   font-weight: bold;
-  color: var(--amber);
+  color: var(--accent-text);
   margin-left: 4px;
   min-width: 16px;
   text-align: center;

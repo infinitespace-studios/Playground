@@ -1,7 +1,7 @@
 # Replace the per-project warning wall with a compact safety notice
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [061-establish-readable-ui-type-scale.md](061-establish-readable-ui-type-scale.md), [037-warn-before-first-run-of-new-project.md](037-warn-before-first-run-of-new-project.md)
 **Feature area:** Run UX, accessibility
 **Triage:** feature-backlog

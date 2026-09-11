@@ -86,7 +86,10 @@
     <!-- Hidden proof elements kept for compatibility -->
     <iframe id="compiler-frame" title="Persistent compiler runtime" data-src="/compiler/index.html" hidden></iframe>
     <span id="runtime-build" hidden>MonoGame artifacts: verifying</span>
-    <!-- Proof element: unfocused input focus target (issue 009) -->
-    <div id="runtime-status" hidden role="status" aria-live="polite">STOPPED</div>
+    <!-- Proof element: unfocused input focus target (issue 009). Renamed from a
+         second runtime-status element (issue 061: duplicate ids are invalid
+         HTML and confuse assistive tech); the visible toolbar span above is the
+         sole #runtime-status. -->
+    <div id="input-focus-proof-target" hidden role="status" aria-live="polite">STOPPED</div>
   </body>
 </html>

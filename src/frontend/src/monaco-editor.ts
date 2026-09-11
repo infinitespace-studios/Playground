@@ -174,7 +174,8 @@ export function installEditor(): {
     model,
     theme: resolveMonacoTheme(),
     automaticLayout: true,
-    fontSize: 12,
+    // Issue 061: editor text defaults to >= 14 px for readability.
+    fontSize: 14,
     fontFamily: '"SFMono-Regular", "Cascadia Code", monospace',
     minimap: { enabled: false },
     scrollBeyondLastLine: false,

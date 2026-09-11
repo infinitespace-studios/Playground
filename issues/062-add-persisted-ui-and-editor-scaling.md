@@ -1,7 +1,7 @@
 # Add persisted UI and editor text scaling
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [061-establish-readable-ui-type-scale.md](061-establish-readable-ui-type-scale.md)
 **Feature area:** Accessibility
 **Triage:** feature-backlog
