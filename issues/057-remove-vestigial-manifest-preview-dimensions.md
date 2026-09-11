@@ -1,7 +1,7 @@
 # Remove vestigial manifest preview.width/height from the schema
 
 **Type:** AFK
-**Status:** Open
+**Status:** Implementation complete — awaiting packaged human verification
 **Blocked by:** [052-route-focus-input-resize-and-content-workflow.md](052-route-focus-input-resize-and-content-workflow.md)
 **PRD references:** 14.4, 15
 **User stories:** US3, US6
@@ -74,13 +74,13 @@ field (ignore it, do not error).
 
 ## Acceptance criteria
 
-- [ ] The `playground.json` schema no longer includes `preview.width/height`; no
+- [x] The `playground.json` schema no longer includes `preview.width/height`; no
       code reads or writes it.
-- [ ] Opening a project whose on-disk `playground.json` still contains a
+- [x] Opening a project whose on-disk `playground.json` still contains a
       `preview` block succeeds (field ignored, no error), and a subsequent Save
       All does not write the block back.
 - [ ] Example manifests updated; the workbench still opens them and Run works.
-- [ ] Manifest docs reflect the reduced schema.
+- [x] Manifest docs reflect the reduced schema.
 - [ ] Render resolution and display scaling behave exactly as before (no visible
       change to how the preview renders or resizes).
 
@@ -97,10 +97,18 @@ checks.
 
 Complete this section during independent verification. Do not delete failed attempts; append the latest result.
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Static/automated verdict:** PASS
+- **Verifier:** Independent pi reviewer (`claude-opus-4.8`)
+- **Date:** 2026-09-11
+- **Implementation commit:** `6c065cd frontend: remove vestigial manifest preview dimensions`
+- **Evidence:** TypeScript passed; project-lifecycle tests passed 12/12,
+  including legacy parse/drop and Save-All no-re-emission coverage; protocol
+  tests passed 104/104; both example manifests parse as JSON; grep found no live
+  `preview.width`/`preview.height` reads; no CSS, layout, preview, or graphics
+  implementation changed.
+- **Packaged human verdict:** Pending. Open `examples/ContentExample/`, Run it,
+  and open/save a throwaway legacy manifest containing `preview` before marking
+  this issue Done.
 
 ## Commit gate
 
