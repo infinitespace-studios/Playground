@@ -1,11 +1,11 @@
 # Verify release on clean Windows machine/VM
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Parked
 **Blocked by:** [054-add-installer-signing-notices-sbom.md](054-add-installer-signing-notices-sbom.md)
 **PRD references:** 22.5, 23
 **User stories:** US1, US2, US3, US4, US5, US6, US7, US8, US9, US10
-**Triage:** needs-triage
+**Triage:** parked by product owner — clean-machine release verification deferred with issue 054
 
 ## Context
 

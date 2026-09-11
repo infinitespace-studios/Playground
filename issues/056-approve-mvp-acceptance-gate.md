@@ -1,11 +1,11 @@
 # Approve MVP acceptance gate
 
 **Type:** HITL
-**Status:** Blocked
+**Status:** Parked
 **Blocked by:** [055-verify-release-on-clean-windows-machine.md](055-verify-release-on-clean-windows-machine.md)
 **PRD references:** 23, 27
 **User stories:** US1, US2, US3, US4, US5, US6, US7, US8, US9, US10
-**Triage:** needs-triage
+**Triage:** parked by product owner — final release acceptance deferred while feature development resumes
 
 ## Context
 

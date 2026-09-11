@@ -1,11 +1,11 @@
 # Add installer, signing policy, notices, and SBOM
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Parked
 **Blocked by:** [053-github-actions-native-desktop-packages.md](053-github-actions-native-desktop-packages.md)
 **PRD references:** 22.5, 24 (Phase 5)
 **User stories:** US7, US8
-**Triage:** needs-triage
+**Triage:** parked by product owner — installer/release hardening deferred while feature development resumes
 
 ## Context
 
