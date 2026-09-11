@@ -265,6 +265,10 @@ test("Save All writes only dirty .cs files and clears their dirty flags", async 
     assert.equal(csWrites[0].path, "/tmp/playground-project/Game1.cs");
     assert.equal(csWrites[0].content, "class Game1 { int x; }");
     assert.ok(shell.written.some(w => w.path.endsWith("playground.json")));
+    // Issue 057: the created-on-first-save manifest carries no preview block.
+    const manifestWrite = shell.written.find(w => w.path.endsWith("playground.json"));
+    assert.ok(manifestWrite);
+    assert.equal(manifestWrite.content.includes("preview"), false);
 
     // Dirty state cleared after a successful save.
     assert.equal(h.project.isDirty(), false);
@@ -274,6 +278,35 @@ test("Save All writes only dirty .cs files and clears their dirty flags", async 
     const writesBefore = shell.written.length;
     assert.equal(await h.project.saveAll(), true);
     assert.equal(shell.written.length, writesBefore);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("issue 057: Save All never writes a preview block back for a legacy on-disk manifest", async () => {
+  __resetProjectManagerState();
+  const legacyProject = {
+    ...defaultProject(),
+    manifestText: JSON.stringify({
+      name: "Legacy",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
+      contentProfile: "Web",
+      preview: { width: 800, height: 480 },
+    }),
+  };
+  const shell = installMockShell({ readProject: legacyProject });
+  try {
+    const h = installHarness();
+    // Opens without error despite the vestigial preview block.
+    assert.equal(await h.project.openFolder(), true);
+
+    h.setEditorContent("class Game1 { int y; }");
+    h.project.syncActiveBuffer();
+    assert.equal(await h.project.saveAll(), true);
+
+    // No write (manifest or otherwise) re-emits the legacy preview block.
+    assert.equal(shell.written.some(w => w.content.includes("preview")), false);
   } finally {
     shell.restore();
     __resetProjectManagerState();
@@ -311,18 +344,44 @@ test("a failed write during Save All is atomic: no dirty flag is cleared", async
 
 test("manifest round-trips and rejects a newer schemaVersion without touching disk", async () => {
   const manifest = parseManifest(
-    JSON.stringify({ name: "Demo", schemaVersion: PROJECT_SCHEMA_VERSION, contentProfile: "Web", preview: { width: 640, height: 360 } }),
+    JSON.stringify({ name: "Demo", schemaVersion: PROJECT_SCHEMA_VERSION, contentProfile: "Web" }),
     "fallback-folder",
   );
   assert.equal(manifest.name, "Demo");
-  assert.equal(manifest.preview.width, 640);
+  assert.equal(manifest.schemaVersion, PROJECT_SCHEMA_VERSION);
+  assert.equal(manifest.contentProfile, "Web");
   const serialized = serializeManifest(manifest);
-  assert.equal(parseManifest(serialized, "fallback-folder").name, "Demo");
+  const reparsed = parseManifest(serialized, "fallback-folder");
+  assert.equal(reparsed.name, "Demo");
+  // Issue 057: the reduced schema carries no preview block.
+  assert.equal(Object.hasOwn(manifest as object, "preview"), false);
+  assert.equal(serialized.includes("preview"), false);
 
   assert.throws(
     () => parseManifest(JSON.stringify({ name: "X", schemaVersion: PROJECT_SCHEMA_VERSION + 1 }), "f"),
     /newer than this application supports/,
   );
+});
+
+test("issue 057: a legacy on-disk preview block parses but is never re-emitted", async () => {
+  const manifest = parseManifest(
+    JSON.stringify({
+      name: "Legacy",
+      schemaVersion: PROJECT_SCHEMA_VERSION,
+      contentProfile: "Web",
+      preview: { width: 640, height: 360 },
+    }),
+    "fallback-folder",
+  );
+  // Opens/parses successfully, ignoring the vestigial block.
+  assert.equal(manifest.name, "Legacy");
+  assert.equal(manifest.contentProfile, "Web");
+  assert.equal(Object.hasOwn(manifest as object, "preview"), false);
+  // Serialization drops the legacy block entirely.
+  const serialized = serializeManifest(manifest);
+  assert.equal(serialized.includes("preview"), false);
+  assert.equal(serialized.includes("640"), false);
+  assert.equal(serialized.includes("360"), false);
 });
 
 test("a project whose folder has no .cs files is rejected on open", async () => {

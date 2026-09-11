@@ -9,9 +9,17 @@
 // migrate older / reject newer).
 //
 // PRD §15: a project folder holds multiple .cs files + a playground.json
-// manifest (name, schemaVersion, contentProfile, preview.width/height); the
-// manifest is not required for a one-file scratch project; unsupported
-// schemaVersions are rejected without modifying the project.
+// manifest (name, schemaVersion, contentProfile); the manifest is not required
+// for a one-file scratch project; unsupported schemaVersions are rejected
+// without modifying the project.
+//
+// Issue 057: an earlier draft schema carried a vestigial preview.width/height
+// block (issue 051) that was never applied to the preview panel (display size
+// is driven by CSS scaling of the render backing store, per issue 052). It has
+// been removed from the schema. A legacy on-disk preview block is tolerated
+// (ignored) on Open so older projects still parse, and is never re-emitted.
+// schemaVersion stays 1 because ignoring the field is forward/backward
+// compatible.
 
 function normalizeProjectPath(path: string): string {
   let normalized = path.replaceAll("\\", "/");
@@ -50,7 +58,6 @@ export interface ProjectManifest {
   name: string;
   schemaVersion: number;
   contentProfile: string;
-  preview: { width: number; height: number };
 }
 
 interface ProjectFile {
@@ -108,7 +115,6 @@ function defaultManifest(name: string): ProjectManifest {
     name,
     schemaVersion: PROJECT_SCHEMA_VERSION,
     contentProfile: "Web",
-    preview: { width: 800, height: 480 },
   };
 }
 
@@ -140,19 +146,13 @@ export function parseManifest(text: string, folderName: string): ProjectManifest
     );
   }
   // version === PROJECT_SCHEMA_VERSION (1) today. Future: migrate older
-  // recognized versions here before returning.
-  const preview =
-    typeof obj.preview === "object" && obj.preview !== null
-      ? (obj.preview as Record<string, unknown>)
-      : {};
+  // recognized versions here before returning. A legacy `preview` block
+  // (issue 057) is intentionally not read, so it is ignored and never
+  // re-serialized.
   return {
     name: typeof obj.name === "string" ? obj.name : folderName,
     schemaVersion: PROJECT_SCHEMA_VERSION,
     contentProfile: typeof obj.contentProfile === "string" ? obj.contentProfile : "Web",
-    preview: {
-      width: typeof preview.width === "number" ? preview.width : 800,
-      height: typeof preview.height === "number" ? preview.height : 480,
-    },
   };
 }
 

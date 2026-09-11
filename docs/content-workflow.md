@@ -108,3 +108,29 @@ produces byte-for-byte the same XNB SoundEffect as the committed `blip.xnb`.
 | `PG0213_CONTENT_INVALID_IMAGE` | Not a recognized PNG/JPEG/BMP (or empty/oversized) |
 | `PG0214_CONTENT_IMAGE_EXTENSION_MISMATCH` | File contents don't match the extension |
 | `PG0212_CONTENT_UNSUPPORTED_EXTENSION` | A `Content/` file type the preview cannot mount |
+
+## `playground.json` manifest schema
+
+The project manifest is a small JSON object. `schemaVersion` is `1`.
+
+```json
+{
+  "name": "Hello World",
+  "schemaVersion": 1,
+  "contentProfile": "Web"
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `name` | Display name (falls back to the folder name if absent) |
+| `schemaVersion` | Manifest format version; a newer version than the app supports is rejected on Open |
+| `contentProfile` | Content build profile; must be `"Web"` |
+
+The manifest deliberately does **not** carry preview panel dimensions. Render
+resolution comes from the game's `GraphicsDeviceManager` back-buffer size, and
+the displayed size is CSS-scaled to fill the responsive preview panel (see
+`preview.css`). An earlier draft schema included a vestigial
+`preview: { width, height }` block that was never applied; it has been removed.
+Projects whose on-disk `playground.json` still contains a `preview` block open
+normally (the block is ignored) and it is never written back on Save All.
