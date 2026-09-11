@@ -1,7 +1,7 @@
 # Fix initial Linux WebKitGTK window rendering
 
 **Type:** AFK
-**Status:** Implementation complete — awaiting packaged Raspberry Pi verification
+**Status:** Done
 **Blocked by:** None
 **PRD references:** 8, 22.5, 23
 **User stories:** US1, US10
@@ -35,8 +35,8 @@ and preserve an explicit Linux override for diagnostics or future driver fixes.
 - [x] The workaround is Linux-only and executes before `monogame_playground_lib::run()` initializes Tauri/WebKitGTK.
 - [x] An explicitly supplied `WEBKIT_DISABLE_DMABUF_RENDERER` value is preserved.
 - [x] macOS and Windows startup code is unchanged.
-- [ ] A fresh Linux arm64 package launches on the affected Raspberry Pi with the complete Workbench correctly rendered before any resize.
-- [ ] Run renders Cornflower Blue and Stop/fresh Run continue to work after the workaround.
+- [x] A fresh Linux arm64 package launches on the affected Raspberry Pi with the complete Workbench correctly rendered before any resize.
+- [x] Run renders Cornflower Blue and Stop/fresh Run continue to work after the workaround.
 
 ## Verification
 
@@ -55,8 +55,18 @@ and preserve an explicit Linux override for diagnostics or future driver fixes.
 - **Evidence:** The previously garbled Raspberry Pi window rendered correctly on
   first launch when the installed PRODUCT application was started with
   `WEBKIT_DISABLE_DMABUF_RENDERER=1`.
-- **Packaged-fix verdict:** Pending
-- **Evidence:** Pending fresh package installation.
+- **Packaged-fix verdict:** PASS
+- **Verifier:** Product owner (human)
+- **Date:** 2026-09-11
+- **Evidence:** Installed the fresh Linux arm64 PRODUCT `.deb` on the affected
+  Raspberry Pi and completed every verification step. Normal launch without a
+  manually supplied environment variable rendered the complete Workbench
+  correctly before any resize; Run rendered Cornflower Blue; Stop worked; and a
+  subsequent Run started normally. No immediate regression was observed.
+- **Clean-clone CI:** The quality and six-platform release workflows for
+  `a7ddba2` passed at
+  https://github.com/infinitespace-studios/Playground/actions/runs/34595795032
+  and https://github.com/infinitespace-studios/Playground/actions/runs/34595795026.
 
 ## Commit gate
 

@@ -1,7 +1,7 @@
 # Remove vestigial manifest preview.width/height from the schema
 
 **Type:** AFK
-**Status:** Implementation complete — awaiting packaged human verification
+**Status:** Done
 **Blocked by:** [052-route-focus-input-resize-and-content-workflow.md](052-route-focus-input-resize-and-content-workflow.md)
 **PRD references:** 14.4, 15
 **User stories:** US3, US6
@@ -79,9 +79,9 @@ field (ignore it, do not error).
 - [x] Opening a project whose on-disk `playground.json` still contains a
       `preview` block succeeds (field ignored, no error), and a subsequent Save
       All does not write the block back.
-- [ ] Example manifests updated; the workbench still opens them and Run works.
+- [x] Example manifests updated; the workbench still opens them and Run works.
 - [x] Manifest docs reflect the reduced schema.
-- [ ] Render resolution and display scaling behave exactly as before (no visible
+- [x] Render resolution and display scaling behave exactly as before (no visible
       change to how the preview renders or resizes).
 
 ## Verification
@@ -106,9 +106,17 @@ Complete this section during independent verification. Do not delete failed atte
   tests passed 104/104; both example manifests parse as JSON; grep found no live
   `preview.width`/`preview.height` reads; no CSS, layout, preview, or graphics
   implementation changed.
-- **Packaged human verdict:** Pending. Open `examples/ContentExample/`, Run it,
-  and open/save a throwaway legacy manifest containing `preview` before marking
-  this issue Done.
+- **Packaged human verdict:** PASS
+- **Verifier:** Product owner (human)
+- **Date:** 2026-09-11
+- **Evidence:** Using the fresh packaged PRODUCT build, opened and ran
+  `examples/ContentExample/` successfully; opened a throwaway project containing
+  the legacy `preview: { width, height }` block; Save All rewrote the manifest
+  without that block; render resolution and responsive display scaling remained
+  correct with no immediate issues.
+- **Clean-clone CI:** Quality and six-platform release workflows passed at
+  https://github.com/infinitespace-studios/Playground/actions/runs/34595795032
+  and https://github.com/infinitespace-studios/Playground/actions/runs/34595795026.
 
 ## Commit gate
 
