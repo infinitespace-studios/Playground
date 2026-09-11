@@ -69,6 +69,10 @@ and Linux for both x64 (`x86_64`) and arm64 (`aarch64`):
   is distributions providing it — Ubuntu 22.04+/24.04, Debian 12+, and
   equivalents. The `.deb` declares its dependencies; the `.AppImage` bundles
   more of them but still relies on a compatible host GLIBC/WebKitGTK.
+- The shell defaults `WEBKIT_DISABLE_DMABUF_RENDERER=1` before WebKitGTK starts,
+  addressing corrupted initial window surfaces observed and independently
+  diagnosed on Raspberry Pi arm64. An explicitly supplied environment value is
+  preserved so maintainers can retest the DMA-BUF renderer as drivers evolve.
 - Building the bundles requires the Tauri system dependencies
   (`libwebkit2gtk-4.1-dev`, `libgtk-3-dev`, `librsvg2-dev`, `patchelf`,
   `libayatana-appindicator3-dev`), installed by the workflow on the Ubuntu legs.
