@@ -90,7 +90,7 @@ function installStatusIndicator(): (state: PreviewLifecycleState) => void {
   };
   apply("idle");
 
-  // Place the indicator at the end of the header (after the WEBGL2 · 60HZ span).
+  // Place the live lifecycle indicator at the end of the otherwise neutral header.
   head.appendChild(indicator);
 
   return (state: PreviewLifecycleState) => apply(state);

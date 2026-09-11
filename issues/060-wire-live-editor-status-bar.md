@@ -1,7 +1,7 @@
 # Wire the status bar to live editor state
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [059-remove-stale-workbench-telemetry.md](059-remove-stale-workbench-telemetry.md)
 **Feature area:** Editor UX
 **Triage:** feature-backlog

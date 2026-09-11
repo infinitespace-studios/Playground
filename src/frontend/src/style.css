@@ -201,30 +201,18 @@ body[data-running="true"] .lamp {
   justify-content: flex-start;
 }
 
-/* Mini meters */
-.mini-meter {
+/* Asset browser host (issue 059: honest empty state; real assets arrive in
+   issue 064). Replaces the former fixed heap meter / pinned-runtime block. */
+.asset-browser {
   margin-top: 30px;
   border-top: 1px solid var(--line);
   padding: 14px 7px;
 }
 
-.mini-meter b {
-  display: block;
-  font: 10px ui-monospace, monospace;
+.asset-browser-empty {
   color: var(--muted);
-  margin-bottom: 8px;
-}
-
-.meter {
-  height: 5px;
-  background: #0b0e0e;
-}
-
-.meter span {
-  display: block;
-  width: 62%;
-  height: 100%;
-  background: var(--green);
+  font: 11px ui-monospace, monospace;
+  margin: 0;
 }
 
 /* Editor */
@@ -504,11 +492,6 @@ body[data-running="true"] .screen-label {
 
 .status span + span {
   margin-left: 20px;
-}
-
-.status .runtime {
-  margin-left: auto;
-  color: var(--green);
 }
 
 /* ---------- Proof element styles (kept from original layout) ---------- */
@@ -844,10 +827,6 @@ body[data-theme="light"] .log-row time {
 
 body[data-theme="light"] .problem:hover {
   background: #f3d9d5;
-}
-
-body[data-theme="light"] .meter {
-  background: #bbbdb5;
 }
 
 body[data-theme="light"] .theme-switch::before {

@@ -1,7 +1,7 @@
 # Remove stale Workbench telemetry and proof-era visible placeholders
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [045-build-responsive-workbench-app-frame.md](045-build-responsive-workbench-app-frame.md), [052-route-focus-input-resize-and-content-workflow.md](052-route-focus-input-resize-and-content-workflow.md)
 **Feature area:** UI cleanup, assets, preview
 **Triage:** feature-backlog
@@ -36,10 +36,10 @@ Start with `src/frontend/index.html` and `src/frontend/src/style.css`. Search ev
 
 ## Acceptance criteria
 
-- [ ] No fabricated heap percentage, pinned hash, fixed preview dimensions, fixed refresh rate, or pending WASM diagnostic appears in PRODUCT.
-- [ ] The left rail contains an accessible asset-browser host and honest empty state.
-- [ ] Output, Problems, and preview lifecycle state still work.
-- [ ] PRODUCT and PROOF artifact/profile checks still pass.
+- [x] No fabricated heap percentage, pinned hash, fixed preview dimensions, fixed refresh rate, or pending WASM diagnostic appears in PRODUCT.
+- [x] The left rail contains an accessible asset-browser host and honest empty state.
+- [x] Output, Problems, and preview lifecycle state still work.
+- [x] PRODUCT and PROOF artifact/profile checks still pass.
 
 ## Verification
 
@@ -52,10 +52,28 @@ Record commands, search results, and precise visual observations in the verifica
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent `reviewer` subagent
+- **Date:** 2026-09-11
+- **Evidence:**
+  - Inspected the complete `6d605e3`-to-worktree diff and confirmed that only
+    `src/frontend/index.html`, `src/frontend/src/style.css`, and the stale
+    placement comment in `src/frontend/src/preview-panel.ts` changed outside
+    issue bookkeeping; every change was in scope.
+  - `npm --prefix src/frontend run typecheck` passed with zero errors.
+  - `npm --prefix src/frontend run test:protocol` passed 104/104 tests.
+  - PRODUCT and PROOF frontend builds passed; `check:profiles` accepted the
+    clean PRODUCT graph with zero proof markers and the PROOF graph with all
+    13 expected markers.
+  - Source and built-PRODUCT literal scans found none of the removed heap,
+    pinned-runtime, fixed dimensions/rate, branch, WASM-pending, or offline
+    runtime placeholders. Remaining `player.xnb` references were confined to
+    tests/PROOF content evidence.
+  - Direct PRODUCT GUI inspection covered idle, running, Problems, and stopped
+    states. The rail showed the accessible Assets empty state; the preview
+    lifecycle indicator changed `Idle` -> `Running` -> `Stopped`; live Output
+    and Problems remained functional; the Assets drawer tab and all fabricated
+    telemetry were absent.
 
 ## Commit gate
 

@@ -38,8 +38,10 @@
           <div class="project" id="file-explorer">
             <button class="file active" data-file="Game1.cs">Game1.cs</button>
           </div>
-          <div class="mini-meter"><b>WASM HEAP / 128 MB</b><div class="meter"><span style="width:62%"></span></div></div>
-          <div class="mini-meter"><b>PINNED RUNTIME</b><span style="font:10px ui-monospace;color:var(--green)">eb687a0ec</span></div>
+          <section class="asset-browser" id="asset-browser" aria-labelledby="asset-browser-heading">
+            <h2 class="label" id="asset-browser-heading">Assets</h2>
+            <p class="asset-browser-empty" id="asset-browser-empty">No assets in this project.</p>
+          </section>
         </aside>
 
         <!-- Editor region -->
@@ -50,7 +52,7 @@
 
         <!-- Preview region -->
         <section class="preview">
-          <div class="panel-head"><strong>PREVIEW / 800 × 480</strong><span>WEBGL2 · 60HZ</span></div>
+          <div class="panel-head"><strong>Preview</strong></div>
           <div class="scope" id="canvas-frame">
             <div class="screen-label" id="preview-context-status">Press Run to start the preview</div>
             <iframe
@@ -67,26 +69,18 @@
           <nav class="tabs">
             <button class="tab active" data-panel="output">OUTPUT</button>
             <button class="tab" data-panel="problems">PROBLEMS <em hidden></em></button>
-            <button class="tab" data-panel="assets">ASSETS</button>
           </nav>
           <div class="drawer-body">
             <div data-panel-view="output" data-log></div>
             <div data-panel-view="problems" hidden>
               <div class="problem-empty">No problems detected.</div>
             </div>
-            <div data-panel-view="assets" hidden>Content/player.xnb <span style="color:var(--green)">WEB PROFILE · VALID</span></div>
           </div>
         </section>
       </section>
 
-      <!-- Status bar -->
-      <footer class="status">
-        <span>main*</span>
-        <span>Ln 18, Col 29</span>
-        <span>Spaces: 4</span>
-        <span id="wasm-diagnostic" role="status" aria-live="polite">WASM URL pending · content-type pending · instantiateStreaming waiting</span>
-        <span class="runtime">● OFFLINE RUNTIME READY</span>
-      </footer>
+      <!-- Status bar (container retained for issue 060's live editor status) -->
+      <footer class="status" id="status-bar"></footer>
     </main>
 
     <!-- Hidden proof elements kept for compatibility -->

@@ -126,8 +126,8 @@ Copilot-Session: 1428e10b-3d66-414a-b04c-5944666db423
 | 056 | [Approve MVP acceptance gate](056-approve-mvp-acceptance-gate.md) | HITL | Parked | [055-verify-release-on-clean-windows-machine.md](055-verify-release-on-clean-windows-machine.md) | US1–US10 |
 | 057 | [Remove vestigial manifest preview dimensions](057-remove-vestigial-manifest-preview-dimensions.md) | AFK | Done | [052-route-focus-input-resize-and-content-workflow.md](052-route-focus-input-resize-and-content-workflow.md) | US3, US6 |
 | 058 | [Fix initial Linux WebKitGTK window rendering](058-fix-initial-linux-webkitgtk-window-rendering.md) | AFK | Done | None | US1, US10 |
-| 059 | [Remove stale Workbench telemetry](059-remove-stale-workbench-telemetry.md) | AFK | Ready | 045, 052 | Feature 1, 7 |
-| 060 | [Wire live editor status bar](060-wire-live-editor-status-bar.md) | AFK | Blocked | 059 | Feature 3 |
+| 059 | [Remove stale Workbench telemetry](059-remove-stale-workbench-telemetry.md) | AFK | Done | 045, 052 | Feature 1, 7 |
+| 060 | [Wire live editor status bar](060-wire-live-editor-status-bar.md) | AFK | Ready | 059 | Feature 3 |
 | 061 | [Establish readable UI type scale](061-establish-readable-ui-type-scale.md) | AFK | Blocked | 046, 059 | Feature 8 |
 | 062 | [Add persisted UI and editor scaling](062-add-persisted-ui-and-editor-scaling.md) | AFK | Blocked | 061 | Feature 8 |
 | 063 | [Replace project warning with compact safety notice](063-replace-project-warning-with-compact-safety-notice.md) | AFK | Blocked | 037, 061 | Feature 9 |
