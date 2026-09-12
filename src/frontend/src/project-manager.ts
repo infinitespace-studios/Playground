@@ -21,6 +21,8 @@
 // schemaVersion stays 1 because ignoring the field is forward/backward
 // compatible.
 
+import type { ProjectContentSnapshot } from "./asset-inventory";
+
 function normalizeProjectPath(path: string): string {
   let normalized = path.replaceAll("\\", "/");
   // Windows canonical paths may use the extended `//?/` prefix. It identifies
@@ -84,6 +86,8 @@ interface ProjectReadResult {
   folderName: string;
   csFiles: Array<{ relativePath: string; absolutePath: string; content: string }>;
   contentFiles?: ProjectContentFile[];
+  /** Whether the project has a `Content/` directory on disk (issue 064). */
+  contentRootExists?: boolean;
   manifestText: string | null;
 }
 
@@ -97,6 +101,8 @@ let activePath: string | null = null;
 let manifest: ProjectManifest | null = null;
 /** Issue 052: raw Content/ assets discovered at Open (base64), for pre-Run mount. */
 let contentFiles: ProjectContentFile[] = [];
+/** Issue 064: whether the open project has a `Content/` directory on disk. */
+let contentRootExists = false;
 /** True when Save All must create or normalize playground.json. */
 let manifestNeedsWrite = false;
 
@@ -180,6 +186,14 @@ export interface ProjectManagerHooks {
   setDirtyIndicator: (anyDirty: boolean) => void;
   /** Show a modal error message (rejected Open, failed Save). */
   showError: (title: string, message: string) => void;
+  /**
+   * Issue 064: called whenever the project's discovered content inventory
+   * changes (folder open/close, and — via `refreshContent()` — after a later
+   * import re-reads the project). The asset browser subscribes to keep the rail
+   * in sync and to guarantee no stale assets survive a project switch. It is
+   * given a fresh, DOM-free snapshot; it moves no file bytes.
+   */
+  onContentChanged?: (snapshot: ProjectContentSnapshot) => void;
 }
 
 export interface ProjectManagerApi {
@@ -216,6 +230,30 @@ export interface ProjectManagerApi {
     contentProfile: string;
     contentFiles: ReadonlyArray<{ relativePath: string; extension: string; byteLength: number; base64: string }>;
   } | null;
+  /**
+   * Issue 064: a DOM-free snapshot of the project's content state for the asset
+   * browser (scratch vs folder, whether a `Content/` folder exists, and the
+   * discovered files). Always available (returns the scratch state when no
+   * folder is open).
+   */
+  contentSnapshot: () => ProjectContentSnapshot;
+  /**
+   * Issue 064: re-read the open project's `Content/` inventory from disk (via
+   * the existing `project_read` command — no new command or channel, and no
+   * binary transfer beyond what Open already does) and republish the refreshed
+   * snapshot through `onContentChanged`. This is the refresh hook later import
+   * issues (065/066) `await` after they change the project's Content so the
+   * rail reflects what is actually on disk rather than a re-emit of stale
+   * arrays.
+   *
+   * Only the content inventory and the `Content/`-exists flag are updated; open
+   * source buffers, dirty state, the manifest, and the active file are left
+   * untouched. In scratch mode it simply republishes the no-project snapshot.
+   * If the disk read fails, the prior (last-known-true) inventory is preserved
+   * — it never asserts an empty or changed inventory it cannot verify — and the
+   * error is surfaced to the user.
+   */
+  refreshContent: () => Promise<void>;
 }
 
 export function installProjectManager(hooks: ProjectManagerHooks): ProjectManagerApi {
@@ -225,6 +263,20 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
 
   function activeFile(): ProjectFile | null {
     return files.find(f => f.relativePath === activePath) ?? null;
+  }
+
+  /** Issue 064: build the current DOM-free content snapshot for the rail. */
+  function contentSnapshot(): ProjectContentSnapshot {
+    return {
+      hasProject: projectRoot !== null,
+      contentRootExists,
+      contentFiles: contentFiles.map(f => ({ relativePath: f.relativePath })),
+    };
+  }
+
+  /** Issue 064: notify the asset browser the inventory changed. */
+  function emitContentChanged(): void {
+    hooks.onContentChanged?.(contentSnapshot());
   }
 
   function renderExplorer(): void {
@@ -268,9 +320,13 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
     activePath = null;
     manifest = null;
     contentFiles = [];
+    contentRootExists = false;
     manifestNeedsWrite = false;
     hooks.setDirtyIndicator(false);
     renderExplorer();
+    // Issue 064: clearing to scratch state must clear the rail's assets too, so
+    // a project switch can never leave stale assets from the prior project.
+    emitContentChanged();
   }
 
   const api: ProjectManagerApi = {
@@ -294,6 +350,40 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         contentProfile: manifest?.contentProfile ?? "Web",
         contentFiles,
       };
+    },
+    contentSnapshot,
+    refreshContent: async () => {
+      // Scratch mode: nothing on disk to re-read. Republish the no-project
+      // snapshot so a caller can uniformly rely on the rail being in sync.
+      if (projectRoot === null) {
+        emitContentChanged();
+        return;
+      }
+
+      const root = projectRoot;
+      let project: ProjectReadResult;
+      try {
+        project = await invoke<ProjectReadResult>("project_read", { path: root });
+      } catch (error) {
+        // Do not claim an empty/changed inventory we cannot verify: keep the
+        // last-known-true state and surface the failure honestly.
+        hooks.showError(
+          "Could not refresh project content",
+          error instanceof Error ? error.message : String(error),
+        );
+        return;
+      }
+
+      // Guard against a project switch/close that happened while the read was in
+      // flight: only adopt the result if we are still on the same project root.
+      if (projectRoot !== root) return;
+
+      // Update ONLY the content inventory + Content/-exists flag. Source buffers,
+      // dirty flags, the manifest, and the active file are deliberately left
+      // untouched (this is a content refresh, not a re-open).
+      contentFiles = project.contentFiles ?? [];
+      contentRootExists = project.contentRootExists ?? contentFiles.length > 0;
+      emitContentChanged();
     },
     syncActiveBuffer,
     switchTo,
@@ -358,6 +448,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       manifest = parsedManifest;
       manifestNeedsWrite = needsManifestWrite;
       contentFiles = project.contentFiles ?? [];
+      contentRootExists = project.contentRootExists ?? contentFiles.length > 0;
       files = project.csFiles.map(f => ({
         relativePath: f.relativePath,
         absolutePath: f.absolutePath,
@@ -370,6 +461,9 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       if (active) hooks.setEditorContent(active.currentContent);
       hooks.setDirtyIndicator(false);
       renderExplorer();
+      // Issue 064: publish the newly-opened project's content inventory to the
+      // rail (replacing any prior project's assets).
+      emitContentChanged();
       return true;
     },
     saveAll: async () => {
@@ -429,5 +523,6 @@ export function __resetProjectManagerState(): void {
   activePath = null;
   manifest = null;
   contentFiles = [];
+  contentRootExists = false;
   manifestNeedsWrite = false;
 }

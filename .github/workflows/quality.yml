@@ -72,6 +72,8 @@ jobs:
             src/frontend/src/audio-content.test.ts \
             src/frontend/src/status-bar.test.ts \
             src/frontend/src/ui-accessibility.test.ts \
+            src/frontend/src/asset-inventory.test.ts \
+            src/frontend/src/asset-browser.test.ts \
             src/frontend/src/scaling.test.ts \
             src/frontend/src/project-lifecycle.test.ts
 

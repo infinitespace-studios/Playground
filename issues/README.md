@@ -131,8 +131,8 @@ Copilot-Session: 1428e10b-3d66-414a-b04c-5944666db423
 | 061 | [Establish readable UI type scale](061-establish-readable-ui-type-scale.md) | AFK | Done | 046, 059 | Feature 8 |
 | 062 | [Add persisted keyboard application scaling](062-add-persisted-ui-and-editor-scaling.md) | AFK | Done | 061 | Feature 8 |
 | 063 | [Replace project warning with compact safety notice](063-replace-project-warning-with-compact-safety-notice.md) | AFK | Done | 037, 061 | Feature 9 |
-| 064 | [Render project assets in file rail](064-render-project-assets-in-file-rail.md) | AFK | Ready | 052, 059 | Feature 1 |
-| 065 | [Add secure binary asset import command](065-add-secure-binary-asset-import-command.md) | AFK | Blocked | 064 | Feature 1 |
+| 064 | [Render project assets in file rail](064-render-project-assets-in-file-rail.md) | AFK | Done | 052, 059 | Feature 1 |
+| 065 | [Add secure binary asset import command](065-add-secure-binary-asset-import-command.md) | AFK | Ready | 064 | Feature 1 |
 | 066 | [Add asset picker and drag-drop import](066-add-asset-picker-and-drag-drop-import.md) | AFK | Blocked | 065 | Feature 1 |
 | 067 | [Create source files in folder projects](067-create-source-files-in-folder-projects.md) | AFK | Ready | 051 | Feature 4 |
 | 068 | [Rename and delete source files](068-rename-and-delete-source-files.md) | AFK | Blocked | 067 | Feature 4 |

@@ -43,6 +43,10 @@ interface MockShell {
   written: WrittenFile[];
   setCancelPicker: (cancel: boolean) => void;
   setWriteFailure: (path: string | null) => void;
+  /** Issue 064: change the `project_read` result returned by later invocations. */
+  setReadProject: (project: unknown) => void;
+  /** Issue 064: make later `project_read` invocations throw the given message. */
+  setReadThrows: (message: string | null) => void;
   restore: () => void;
 }
 
@@ -72,6 +76,8 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
   const written: WrittenFile[] = [];
   let cancelPicker = options.cancelPicker ?? false;
   let writeFailurePath = options.writeThrowsForPath ?? null;
+  let readProject = options.readProject;
+  let readThrows = options.readProjectThrows ?? null;
 
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -82,8 +88,8 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
             case "project_pick_folder":
               return cancelPicker ? null : "/tmp/playground-project";
             case "project_read":
-              if (options.readProjectThrows) throw new Error(options.readProjectThrows);
-              return options.readProject ?? defaultProject();
+              if (readThrows) throw new Error(readThrows);
+              return readProject ?? defaultProject();
             case "workspace_write_file": {
               const path = String(args?.path);
               if (writeFailurePath && path === writeFailurePath) {
@@ -104,6 +110,8 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
     written,
     setCancelPicker: cancel => { cancelPicker = cancel; },
     setWriteFailure: path => { writeFailurePath = path; },
+    setReadProject: project => { readProject = project; },
+    setReadThrows: message => { readThrows = message; },
     restore: () => {
       if (originalWindow === undefined) {
         Reflect.deleteProperty(globalThis, "window");
@@ -124,6 +132,7 @@ interface Harness {
   dirtyStates: boolean[];
   explorer: () => ReadonlyArray<{ relativePath: string; dirty: boolean; active: boolean }>;
   errors: Array<{ title: string; message: string }>;
+  contentSnapshots: Array<ReturnType<ProjectManagerApi["contentSnapshot"]>>;
 }
 
 function installHarness(): Harness {
@@ -131,6 +140,7 @@ function installHarness(): Harness {
   const dirtyStates: boolean[] = [];
   let explorerEntries: ReadonlyArray<{ relativePath: string; dirty: boolean; active: boolean }> = [];
   const errors: Array<{ title: string; message: string }> = [];
+  const contentSnapshots: Array<ReturnType<ProjectManagerApi["contentSnapshot"]>> = [];
 
   const hooks: ProjectManagerHooks = {
     setEditorContent: content => { editorContent = content; },
@@ -138,6 +148,7 @@ function installHarness(): Harness {
     renderExplorer: entries => { explorerEntries = entries; },
     setDirtyIndicator: dirty => { dirtyStates.push(dirty); },
     showError: (title, message) => { errors.push({ title, message }); },
+    onContentChanged: snapshot => { contentSnapshots.push(snapshot); },
   };
 
   return {
@@ -147,6 +158,7 @@ function installHarness(): Harness {
     dirtyStates,
     explorer: () => explorerEntries,
     errors,
+    contentSnapshots,
   };
 }
 
@@ -238,6 +250,240 @@ test("closing a project clears identity, sources, dirty-state, and explorer", as
     assert.deepEqual(h.project.getSources(), []);
     assert.deepEqual(h.explorer(), []);
     assert.equal(h.dirtyStates.at(-1), false);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+// ---- Content inventory snapshot + refresh hook (issue 064) ----
+
+test("scratch mode reports a no-project content snapshot", () => {
+  __resetProjectManagerState();
+  const shell = installMockShell();
+  try {
+    const h = installHarness();
+    const snap = h.project.contentSnapshot();
+    assert.equal(snap.hasProject, false);
+    assert.equal(snap.contentRootExists, false);
+    assert.deepEqual(snap.contentFiles, []);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("opening a project publishes its content inventory to the rail hook", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: {
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [
+        { relativePath: "textures/player.png", extension: "png", byteLength: 200, base64: "AA==" },
+        { relativePath: "tile.xnb", extension: "xnb", byteLength: 224, base64: "AA==" },
+      ],
+      manifestText: JSON.stringify({ name: "P", schemaVersion: 1, contentProfile: "Web" }),
+    },
+  });
+  try {
+    const h = installHarness();
+    assert.equal(await h.project.openFolder(), true);
+    const snap = h.contentSnapshots.at(-1)!;
+    assert.equal(snap.hasProject, true);
+    assert.equal(snap.contentRootExists, true);
+    // The rail snapshot carries filenames/paths only — no metadata fields.
+    assert.deepEqual(
+      snap.contentFiles.map(f => f.relativePath),
+      ["textures/player.png", "tile.xnb"],
+    );
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("a folder without a Content directory is distinct from an empty one", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: { ...defaultProject(), contentRootExists: false, contentFiles: [] },
+  });
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    const snap = h.contentSnapshots.at(-1)!;
+    assert.equal(snap.contentRootExists, false);
+    assert.deepEqual(snap.contentFiles, []);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("closing a project clears the rail to the scratch (no-project) snapshot", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: {
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [{ relativePath: "tile.xnb", extension: "xnb", byteLength: 224, base64: "AA==" }],
+    },
+  });
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    h.project.closeProject();
+    const snap = h.contentSnapshots.at(-1)!;
+    assert.equal(snap.hasProject, false);
+    assert.equal(snap.contentRootExists, false);
+    assert.deepEqual(snap.contentFiles, []);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("refreshContent re-reads the project Content from disk and republishes it", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: {
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [{ relativePath: "tile.xnb", extension: "xnb", byteLength: 10, base64: "AA==" }],
+    },
+  });
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    const before = h.contentSnapshots.length;
+
+    // Simulate a later import adding a file on disk; refreshContent must pick up
+    // the NEW inventory (not merely re-emit the arrays captured at Open).
+    shell.setReadProject({
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [
+        { relativePath: "tile.xnb", extension: "xnb", byteLength: 10, base64: "AA==" },
+        { relativePath: "textures/hero.png", extension: "png", byteLength: 512, base64: "AA==" },
+      ],
+    });
+
+    await h.project.refreshContent();
+    assert.equal(h.contentSnapshots.length, before + 1);
+    const snap = h.contentSnapshots.at(-1)!;
+    assert.deepEqual(
+      snap.contentFiles.map(f => f.relativePath),
+      ["tile.xnb", "textures/hero.png"],
+    );
+    // getContent() (the pre-Run mount source) reflects the refreshed inventory.
+    assert.equal(h.project.getContent()!.contentFiles.length, 2);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("refreshContent reflects a Content directory being removed on disk", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: {
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [{ relativePath: "tile.xnb", extension: "xnb", byteLength: 10, base64: "AA==" }],
+    },
+  });
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    shell.setReadProject({ ...defaultProject(), contentRootExists: false, contentFiles: [] });
+    await h.project.refreshContent();
+    const snap = h.contentSnapshots.at(-1)!;
+    assert.equal(snap.contentRootExists, false);
+    assert.deepEqual(snap.contentFiles, []);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("refreshContent preserves the last-known inventory and reports an error on a failed disk read", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: {
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [{ relativePath: "tile.xnb", extension: "xnb", byteLength: 10, base64: "AA==" }],
+    },
+  });
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    const emitsBefore = h.contentSnapshots.length;
+
+    shell.setReadThrows("disk read failed");
+    await h.project.refreshContent();
+
+    // No stale/false claim was emitted; the failure was surfaced honestly.
+    assert.equal(h.contentSnapshots.length, emitsBefore);
+    assert.equal(h.errors.at(-1)?.title, "Could not refresh project content");
+    // The prior (last-known-true) inventory is still intact.
+    const snap = h.project.contentSnapshot();
+    assert.equal(snap.contentRootExists, true);
+    assert.deepEqual(snap.contentFiles.map(f => f.relativePath), ["tile.xnb"]);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("refreshContent does not disturb open source buffers or dirty state", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell({
+    readProject: {
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [{ relativePath: "tile.xnb", extension: "xnb", byteLength: 10, base64: "AA==" }],
+    },
+  });
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    h.setEditorContent("class Game1 { /* edited */ }");
+    h.project.syncActiveBuffer();
+    assert.equal(h.project.isDirty(), true);
+
+    shell.setReadProject({
+      ...defaultProject(),
+      contentRootExists: true,
+      contentFiles: [
+        { relativePath: "tile.xnb", extension: "xnb", byteLength: 10, base64: "AA==" },
+        { relativePath: "audio/blip.wav", extension: "wav", byteLength: 64, base64: "AA==" },
+      ],
+    });
+    await h.project.refreshContent();
+
+    // The refresh updated content but left the live edit + dirty state alone.
+    assert.equal(h.project.isDirty(), true);
+    assert.equal(h.project.getSources()[0].text, "class Game1 { /* edited */ }");
+    assert.equal(h.project.getContent()!.contentFiles.length, 2);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("refreshContent in scratch mode republishes the no-project snapshot", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell();
+  try {
+    const h = installHarness();
+    const before = h.contentSnapshots.length;
+    await h.project.refreshContent();
+    assert.equal(h.contentSnapshots.length, before + 1);
+    const snap = h.contentSnapshots.at(-1)!;
+    assert.equal(snap.hasProject, false);
+    assert.equal(snap.contentRootExists, false);
+    assert.deepEqual(snap.contentFiles, []);
   } finally {
     shell.restore();
     __resetProjectManagerState();

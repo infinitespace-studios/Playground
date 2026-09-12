@@ -8,6 +8,7 @@ import { installProjectManager } from "./project-manager";
 import { installPreviewPanel } from "./preview-panel";
 import { installStatusBar, type FileStatus } from "./status-bar";
 import { prepareProjectContent } from "./project-content";
+import { installAssetBrowser } from "./asset-browser";
 import { installAppScaleControls } from "./scaling-controller";
 
 // Workbench application controller wiring
@@ -100,6 +101,14 @@ function showModalError(title: string, message: string): void {
   dialog.showModal();
 }
 
+// Issue 064: the file-rail asset browser renders the open project's discovered
+// Content/ inventory as a conventional recursive file-explorer hierarchy (one
+// Content root, nested folders, filenames only — no metadata). It subscribes to
+// the project manager's content-changed hook so open/close (and later imports
+// via refreshContent) keep the rail in sync and never leave stale assets from a
+// prior project.
+const assetBrowser = installAssetBrowser();
+
 const project = installProjectManager({
   setEditorContent: content => editor.setValue(content),
   getEditorContent: () => editor.getValue(),
@@ -124,7 +133,13 @@ const project = installProjectManager({
   // close/quit guard synchronized.
   setDirtyIndicator: setApplicationDirtyState,
   showError: showModalError,
+  // Issue 064: keep the file-rail asset browser in sync with the project's
+  // discovered content inventory.
+  onContentChanged: snapshot => assetBrowser.render(snapshot),
 });
+
+// Issue 064: paint the initial rail state (scratch: no folder open yet).
+assetBrowser.render(project.contentSnapshot());
 
 function renderScratchExplorer(fileName: string): void {
   if (!fileExplorer) return;

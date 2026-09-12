@@ -301,8 +301,10 @@ async fn project_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, St
 ///
 /// Returns a JSON object: `{ root, folderName, csFiles: [{ relativePath,
 /// absolutePath, content }], contentFiles: [{ relativePath, extension,
-/// byteLength, base64 }], manifestText: string | null }`. `contentFiles` holds
-/// the project's `Content/` assets (issue 052) for pre-Run mounting.
+/// byteLength, base64 }], contentRootExists: bool, manifestText: string | null }`.
+/// `contentFiles` holds the project's `Content/` assets (issue 052) for pre-Run
+/// mounting; `contentRootExists` distinguishes a project with no `Content/`
+/// folder from one whose `Content/` folder is present but empty (issue 064).
 #[tauri::command]
 async fn project_read(path: String) -> Result<serde_json::Value, String> {
     let root = std::path::PathBuf::from(&path);
@@ -388,7 +390,8 @@ async fn project_read(path: String) -> Result<serde_json::Value, String> {
     // return each supported asset's bytes (base64) for pre-Run mounting. Scoped
     // to Content/ per PRD §15; skips hidden entries; enforces its own bounds.
     let content_root = root.join("Content");
-    let content_files = if content_root.is_dir() {
+    let content_root_exists = content_root.is_dir();
+    let content_files = if content_root_exists {
         project_discover_content(&content_root)?
     } else {
         Vec::new()
@@ -410,6 +413,7 @@ async fn project_read(path: String) -> Result<serde_json::Value, String> {
         "folderName": folder_name,
         "csFiles": cs_files,
         "contentFiles": content_files,
+        "contentRootExists": content_root_exists,
         "manifestText": manifest_text,
     }))
 }

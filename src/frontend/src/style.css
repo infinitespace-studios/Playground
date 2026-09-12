@@ -287,8 +287,11 @@ body[data-running="true"] .lamp {
   justify-content: flex-start;
 }
 
-/* Asset browser host (issue 059: honest empty state; real assets arrive in
-   issue 064). Replaces the former fixed heap meter / pinned-runtime block. */
+/* Asset browser host (issue 059 host; issue 064 renders the real project
+   Content inventory here as a conventional recursive file-explorer hierarchy:
+   one Content root, nested folders, filenames only — no kind tags, sizes,
+   counts, or profile/validation metadata). Folder-vs-file is conveyed
+   structurally (a folder owns a nested list) and by text, not color alone. */
 .asset-browser {
   margin-top: 30px;
   border-top: 1px solid var(--line);
@@ -299,6 +302,40 @@ body[data-running="true"] .lamp {
   color: var(--muted);
   font: var(--fs-body) ui-monospace, monospace;
   margin: 0;
+}
+
+.asset-tree,
+.asset-folder-children {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.asset-folder-children {
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+.asset-folder-name {
+  display: block;
+  color: var(--muted);
+  font: var(--fs-caption) ui-monospace, monospace;
+  padding: 4px 0 2px;
+}
+
+.asset-file {
+  display: flex;
+  align-items: baseline;
+  padding: 2px 0;
+  font: var(--fs-body) ui-monospace, monospace;
+}
+
+.asset-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Editor */

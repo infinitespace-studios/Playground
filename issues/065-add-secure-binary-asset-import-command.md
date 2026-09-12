@@ -1,7 +1,7 @@
 # Add a secure native command for importing project assets
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [064-render-project-assets-in-file-rail.md](064-render-project-assets-in-file-rail.md)
 **Feature area:** Assets, native filesystem boundary
 **Triage:** feature-backlog security-sensitive
