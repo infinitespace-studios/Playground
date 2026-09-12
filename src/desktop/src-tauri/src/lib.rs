@@ -4,7 +4,7 @@
 // shipping PRODUCT build never links this module. Re-exported with a glob so
 // the `tauri::generate_handler!` command identifiers stay bare (as `build.rs`
 // requires) and the crate-root test module can reach the proof helpers via
-// `super::`. The eight PRODUCT commands plus the workspace/project/first-run/
+// `super::`. The nine PRODUCT commands plus the workspace/project/first-run/
 // preview protocol responsibilities remain in this file.
 #[cfg(feature = "proof-harness")]
 mod proof_harness;
@@ -151,16 +151,38 @@ const PROJECT_MAX_TOTAL_BYTES: u64 = 32 * 1024 * 1024;
 const PROJECT_MAX_DEPTH: usize = 32;
 
 // Issue 052: Content/ discovery limits (separate from the .cs source limits
-// above — binary assets are larger). Mirrors the preview mount bounds:
-// per-image <= 16 MiB, per-audio <= 8 MiB, aggregate content <= 24 MiB.
+// above — binary assets are larger). Mirrors the preview mount bounds
+// (issue 038/052 audio pipeline): a raw `.wav` is transcoded to an XNB
+// SoundEffect whose block-aligned PCM payload is capped at 8 MiB, so a raw
+// `.wav` source/destination is bounded to 8 MiB; images and other general
+// supported content are bounded to 16 MiB; aggregate content is bounded to
+// 24 MiB across at most 256 files. `content_max_file_bytes` centralizes the
+// per-type per-file bound so discovery and import enforce one policy.
 const PROJECT_CONTENT_MAX_FILES: usize = 256;
+/// General/image per-file bound (`.xnb`, `.png`, `.jpg`, `.jpeg`, `.bmp`).
 const PROJECT_CONTENT_MAX_FILE_BYTES: u64 = 16 * 1024 * 1024;
+/// Raw audio (`.wav`) per-file bound — matches the 8 MiB block-aligned PCM cap
+/// the preview mount gate enforces when transcoding to an XNB SoundEffect.
+const PROJECT_CONTENT_MAX_AUDIO_BYTES: u64 = 8 * 1024 * 1024;
 const PROJECT_CONTENT_MAX_TOTAL_BYTES: u64 = 24 * 1024 * 1024;
 
 /// Supported raw/precompiled content extensions the preview can mount
 /// (issue 052). `.wav` is transcoded to an XNB SoundEffect at mount time; images
 /// load via the runtime's Texture2D.FromStream fallback; `.xnb` is precompiled.
 const PROJECT_CONTENT_EXTENSIONS: &[&str] = &["xnb", "png", "jpg", "jpeg", "bmp", "wav"];
+
+/// Centralized per-type per-file byte bound for a supported Content extension
+/// (already lowercased). Raw `.wav` audio is bounded to 8 MiB (the preview
+/// mount gate's block-aligned PCM cap); every other supported type is bounded
+/// to 16 MiB. Pure — directly unit-testable and shared by discovery and import
+/// so a single policy governs both the read and the write paths.
+fn content_max_file_bytes(extension: &str) -> u64 {
+    if extension == "wav" {
+        PROJECT_CONTENT_MAX_AUDIO_BYTES
+    } else {
+        PROJECT_CONTENT_MAX_FILE_BYTES
+    }
+}
 
 /// Minimal, dependency-free standard base64 encoder (RFC 4648) for returning
 /// binary Content/ asset bytes inside the JSON project-read result. Hand-rolled
@@ -238,9 +260,10 @@ fn project_discover_content(
             }
             let metadata = std::fs::metadata(&entry)
                 .map_err(|e| format!("failed to inspect content file: {e}"))?;
-            if metadata.len() > PROJECT_CONTENT_MAX_FILE_BYTES {
+            let per_file_limit = content_max_file_bytes(&extension);
+            if metadata.len() > per_file_limit {
                 return Err(format!(
-                    "{file_name} exceeds the {PROJECT_CONTENT_MAX_FILE_BYTES}-byte per-content-file limit"
+                    "{file_name} exceeds the {per_file_limit}-byte per-content-file limit"
                 ));
             }
             *total_bytes += metadata.len();
@@ -418,6 +441,500 @@ async fn project_read(path: String) -> Result<serde_json::Value, String> {
     }))
 }
 
+// --- Issue 065: bounded binary asset import into the project Content/ root ---
+//
+// `project_import_asset` copies bytes from a user-selected local source into a
+// destination under the currently opened project's `Content/` directory. It is
+// the trusted-frontend counterpart to the future picker/drag-drop UI (issue
+// 066): the UI resolves an absolute source path (through the native file dialog
+// or an OS drop payload) and a Content-relative destination, then invokes this
+// command. It must never become an arbitrary filesystem-write primitive.
+//
+// AUTHORIZATION MODEL (defence in depth):
+//   1. ACL — this is a PRODUCT command registered only through the sole local
+//      `main` capability (`capabilities/main.json` → `main-commands`), scoped to
+//      the trusted `main` window. The opaque-origin preview iframe has no Tauri
+//      IPC and cannot invoke it (issue 034 boundary). So although the command
+//      takes a `project_root` argument, only the trusted main frame can ever
+//      supply one.
+//   2. Confinement — the command NEVER trusts `project_root` as a write target.
+//      It canonicalizes `project_root`, requires it to be an existing directory,
+//      derives `Content/` beneath it, canonicalizes that, and confines every
+//      byte written to the canonical Content root. A caller cannot widen the
+//      write surface by passing a crafted root: the destination is always
+//      `<canonical project_root>/Content/<validated relative path>`, and any
+//      symlink that would resolve outside the canonical Content root is
+//      rejected. The pair (trusted caller ∧ canonical confinement) means neither
+//      the preview nor a compromised caller can choose an unconstrained root.
+//
+// The destination is validated (no absolute paths, no traversal, no hidden
+// segments, bounded characters, supported extension), per-file and aggregate
+// content limits are enforced, and the copy is atomic (write a hidden temp file
+// in the destination directory, then rename). Existing destinations are never
+// overwritten: a structured `{ status: "conflict" }` result is returned. This
+// command has no UI and performs no content compilation.
+
+// Bound the Content-relative destination string. 1024 bytes comfortably exceeds
+// any realistic nested content path while preventing unbounded growth.
+const IMPORT_MAX_DEST_BYTES: usize = 1024;
+
+/// Windows reserved device-name stems. A path segment whose stem (the portion
+/// before the first `.`) case-insensitively equals one of these is rejected in
+/// EVERY destination segment — not just the last — because Windows resolves
+/// `CON`, `CON.png`, and even `dir\CON\x.png` to the console device rather than
+/// a file, which would make an imported tree unopenable (or worse, a device
+/// write) on Windows. We enforce this on every host so imported Content trees
+/// stay portable and the write target is never a device alias. `COM0`/`LPT0`
+/// are NOT reserved; only `COM1`–`COM9` and `LPT1`–`LPT9` are.
+const WINDOWS_RESERVED_STEMS: &[&str] = &[
+    "con", "prn", "aux", "nul", "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8",
+    "com9", "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+];
+
+/// Reject a destination path segment that Windows would silently rewrite or
+/// reinterpret: a reserved device-name stem (`CON`, `PRN`, `AUX`, `NUL`,
+/// `COM1`–`COM9`, `LPT1`–`LPT9`, matched case-insensitively on the pre-dot
+/// stem), a leading or trailing space, or a trailing dot. Windows strips
+/// trailing dots/spaces from filenames, so allowing them would let two distinct
+/// destinations collapse onto one file (a conflict-bypass / overwrite vector).
+/// Enforced on every host for portability. Pure — directly unit-testable.
+fn import_segment_is_windows_safe(segment: &str) -> Result<(), String> {
+    if segment.starts_with(' ') || segment.ends_with(' ') {
+        return Err("destination segment must not have leading or trailing spaces".into());
+    }
+    if segment.ends_with('.') {
+        return Err("destination segment must not end with a dot".into());
+    }
+    let stem = segment.split('.').next().unwrap_or(segment);
+    let lowered = stem.to_ascii_lowercase();
+    if WINDOWS_RESERVED_STEMS.contains(&lowered.as_str()) {
+        return Err(format!(
+            "destination segment uses a reserved device name: {segment}"
+        ));
+    }
+    Ok(())
+}
+
+/// Validate and normalize a caller-supplied Content-relative destination path.
+/// Returns `Ok((normalized_relative, extension))` where `normalized_relative`
+/// is forward-slashed and safe to join onto the Content root one segment at a
+/// time, and `extension` is the lowercased, supported file extension. Rejects
+/// absolute paths, `..`/`.` traversal, empty or hidden segments, disallowed
+/// characters, and unsupported extensions. Pure — directly unit-testable.
+fn import_validate_destination(destination: &str) -> Result<(String, String), String> {
+    if destination.is_empty() || destination.len() > IMPORT_MAX_DEST_BYTES {
+        return Err("destination path must be 1–1024 bytes".into());
+    }
+    // A Windows-style drive prefix, a leading slash, or a backslash are all
+    // treated as absolute/again-rooted and rejected up front.
+    if destination.starts_with('/') || destination.starts_with('\\') || destination.contains(':') {
+        return Err("destination must be a relative path under Content/".into());
+    }
+    // Normalize backslashes to forward slashes, then validate every segment.
+    let normalized = destination.replace('\\', "/");
+    let segments: Vec<&str> = normalized.split('/').collect();
+    for segment in &segments {
+        if segment.is_empty() {
+            return Err("destination must not contain empty path segments".into());
+        }
+        if *segment == "." || *segment == ".." {
+            return Err("destination must not contain '.' or '..' traversal".into());
+        }
+        if segment.starts_with('.') {
+            return Err("destination must not contain hidden (dot-prefixed) names".into());
+        }
+        if !segment
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"._- ".contains(&byte))
+        {
+            return Err("destination contains an unsupported character".into());
+        }
+        // Reject Windows-hostile segments (reserved device names, leading/
+        // trailing spaces, trailing dots) in every segment for portability.
+        import_segment_is_windows_safe(segment)?;
+    }
+    let file_name = *segments.last().ok_or("destination must name a file")?;
+    let extension = std::path::Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or("destination file must have an extension")?;
+    if !PROJECT_CONTENT_EXTENSIONS.contains(&extension.as_str()) {
+        return Err(format!("unsupported content extension: {extension}"));
+    }
+    Ok((normalized, extension))
+}
+
+/// Validate the user-selected source filename against the validated destination
+/// extension. Issue 065 rejects unsupported source extensions and requires the
+/// source and destination to name the same content type, failing closed: the
+/// bytes are copied byte-identically (format/magic validation stays the
+/// preview mount gate's job), so a mislabelled copy — e.g. `enemy.wav` written
+/// as `enemy.png` — would smuggle an unmountable/mis-typed asset past the
+/// extension allowlist. `source_path` is the raw, user-supplied path (its
+/// filename is what the user selected, before any symlink resolution).
+///
+/// The only accepted cross-extension pairing is `jpg`↔`jpeg`: they are the
+/// same JPEG container and the preview mounts both through one image path, so
+/// treating them as equivalent is justified and does not weaken the type gate.
+/// Every other mismatch is rejected. Pure — directly unit-testable.
+fn import_validate_source_extension(
+    source_path: &str,
+    destination_extension: &str,
+) -> Result<(), String> {
+    // Take the trailing path component regardless of separator style, since the
+    // source path may be Windows- or Unix-flavoured.
+    let file_name = source_path
+        .rsplit(['/', '\\'])
+        .next()
+        .unwrap_or(source_path);
+    let source_extension = std::path::Path::new(file_name)
+        .extension()
+        .and_then(|value| value.to_str())
+        .map(|value| value.to_ascii_lowercase())
+        .ok_or("source file must have an extension")?;
+    if !PROJECT_CONTENT_EXTENSIONS.contains(&source_extension.as_str()) {
+        return Err(format!("unsupported source extension: {source_extension}"));
+    }
+    let compatible = source_extension == destination_extension
+        || matches!(
+            (source_extension.as_str(), destination_extension),
+            ("jpg", "jpeg") | ("jpeg", "jpg")
+        );
+    if !compatible {
+        return Err(format!(
+            "source extension {source_extension} is incompatible with destination extension {destination_extension}"
+        ));
+    }
+    Ok(())
+}
+
+/// Sum the count and byte size of the supported, non-hidden content already
+/// present under `content_root` (used to enforce the aggregate import limits).
+/// Missing roots contribute nothing. Pure sync IO — unit-testable.
+fn import_content_totals(content_root: &std::path::Path) -> Result<(usize, u64), String> {
+    fn walk(
+        dir: &std::path::Path,
+        depth: usize,
+        count: &mut usize,
+        bytes: &mut u64,
+    ) -> Result<(), String> {
+        if depth > PROJECT_MAX_DEPTH {
+            return Ok(());
+        }
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(format!("failed to read Content folder: {error}")),
+        };
+        let mut sorted: Vec<std::path::PathBuf> = entries
+            .filter_map(|entry| entry.ok().map(|entry| entry.path()))
+            .collect();
+        sorted.sort();
+        for entry in sorted {
+            let file_name = entry
+                .file_name()
+                .map(|name| name.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            if file_name.starts_with('.') {
+                continue;
+            }
+            if entry.is_dir() {
+                walk(&entry, depth + 1, count, bytes)?;
+                continue;
+            }
+            let Some(extension) = entry
+                .extension()
+                .and_then(|value| value.to_str())
+                .map(|value| value.to_ascii_lowercase())
+            else {
+                continue;
+            };
+            if !PROJECT_CONTENT_EXTENSIONS.contains(&extension.as_str()) {
+                continue;
+            }
+            let metadata = std::fs::metadata(&entry)
+                .map_err(|error| format!("failed to inspect content file: {error}"))?;
+            *count += 1;
+            *bytes += metadata.len();
+        }
+        Ok(())
+    }
+    let mut count = 0usize;
+    let mut bytes = 0u64;
+    walk(content_root, 0, &mut count, &mut bytes)?;
+    Ok((count, bytes))
+}
+
+/// Dependency-free SHA-256 (FIPS 180-4). The desktop shell pins
+/// `tauri = { features = [] }` and an exact dependency allowlist (issue 034), so
+/// a hashing crate cannot be added; this is hand-rolled like `base64_encode`.
+/// Returns the lowercase hex digest. Used to prove byte-identical imports.
+fn sha256_hex(bytes: &[u8]) -> String {
+    const K: [u32; 64] = [
+        0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
+        0xab1c5ed5, 0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe,
+        0x9bdc06a7, 0xc19bf174, 0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f,
+        0x4a7484aa, 0x5cb0a9dc, 0x76f988da, 0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7,
+        0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967, 0x27b70a85, 0x2e1b2138, 0x4d2c6dfc,
+        0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85, 0xa2bfe8a1, 0xa81a664b,
+        0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070, 0x19a4c116,
+        0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+        0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7,
+        0xc67178f2,
+    ];
+    let mut h: [u32; 8] = [
+        0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab,
+        0x5be0cd19,
+    ];
+
+    let bit_len = (bytes.len() as u64).wrapping_mul(8);
+    let mut message = bytes.to_vec();
+    message.push(0x80);
+    while message.len() % 64 != 56 {
+        message.push(0);
+    }
+    message.extend_from_slice(&bit_len.to_be_bytes());
+
+    for block in message.as_chunks::<64>().0 {
+        let mut w = [0u32; 64];
+        for (word, chunk) in w.iter_mut().zip(block.as_chunks::<4>().0) {
+            *word = u32::from_be_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+        }
+        for index in 16..64 {
+            let s0 = w[index - 15].rotate_right(7)
+                ^ w[index - 15].rotate_right(18)
+                ^ (w[index - 15] >> 3);
+            let s1 = w[index - 2].rotate_right(17)
+                ^ w[index - 2].rotate_right(19)
+                ^ (w[index - 2] >> 10);
+            w[index] = w[index - 16]
+                .wrapping_add(s0)
+                .wrapping_add(w[index - 7])
+                .wrapping_add(s1);
+        }
+        let mut a = h[0];
+        let mut b = h[1];
+        let mut c = h[2];
+        let mut d = h[3];
+        let mut e = h[4];
+        let mut f = h[5];
+        let mut g = h[6];
+        let mut hh = h[7];
+        for (kv, wv) in K.iter().zip(w.iter()) {
+            let s1 = e.rotate_right(6) ^ e.rotate_right(11) ^ e.rotate_right(25);
+            let ch = (e & f) ^ ((!e) & g);
+            let temp1 = hh
+                .wrapping_add(s1)
+                .wrapping_add(ch)
+                .wrapping_add(*kv)
+                .wrapping_add(*wv);
+            let s0 = a.rotate_right(2) ^ a.rotate_right(13) ^ a.rotate_right(22);
+            let maj = (a & b) ^ (a & c) ^ (b & c);
+            let temp2 = s0.wrapping_add(maj);
+            hh = g;
+            g = f;
+            f = e;
+            e = d.wrapping_add(temp1);
+            d = c;
+            c = b;
+            b = a;
+            a = temp1.wrapping_add(temp2);
+        }
+        h[0] = h[0].wrapping_add(a);
+        h[1] = h[1].wrapping_add(b);
+        h[2] = h[2].wrapping_add(c);
+        h[3] = h[3].wrapping_add(d);
+        h[4] = h[4].wrapping_add(e);
+        h[5] = h[5].wrapping_add(f);
+        h[6] = h[6].wrapping_add(g);
+        h[7] = h[7].wrapping_add(hh);
+    }
+
+    use std::fmt::Write as _;
+    let mut hex = String::with_capacity(64);
+    for word in h {
+        write!(hex, "{word:08x}").expect("writing to a String cannot fail");
+    }
+    hex
+}
+
+/// Monotonic counter for unique temp-file names during atomic imports.
+static IMPORT_TEMP_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// Issue 065: import a binary asset from a user-selected local source into a
+/// destination under the currently opened project's `Content/` root. See the
+/// authorization/confinement notes above. The source bytes are copied
+/// byte-identically (the returned SHA-256 proves this); format/magic validation
+/// is NOT performed here — it remains the preview mount gate's responsibility.
+/// Returns a structured JSON result:
+///   success:  { status:"imported", relativePath, extension, byteLength, sha256 }
+///   conflict: { status:"conflict", relativePath }
+/// Rejections (traversal, symlink escape, absolute/hidden names, Windows-hostile
+/// segments, unsupported/incompatible extension, oversize, aggregate-limit)
+/// return `Err(String)` and never leave a partial destination file behind.
+#[tauri::command]
+async fn project_import_asset(
+    project_root: String,
+    source_path: String,
+    destination: String,
+) -> Result<serde_json::Value, String> {
+    // 1. Validate the destination string before touching the filesystem, then
+    //    require the user-selected source filename to be a supported type that
+    //    is compatible with the destination extension (fail closed — the copy
+    //    is byte-identical, so a mislabelled type must not slip through).
+    let (relative, extension) = import_validate_destination(&destination)?;
+    import_validate_source_extension(&source_path, &extension)?;
+
+    // 2. Canonicalize and confine the project root / Content root. The write
+    //    surface is ALWAYS <canonical project_root>/Content, never the raw
+    //    caller-supplied string.
+    let root = std::path::PathBuf::from(&project_root);
+    if !root.is_dir() {
+        return Err("project root is not a directory".into());
+    }
+    let root = root
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve project root: {error}"))?;
+    let content_root = root.join("Content");
+    if content_root.exists() {
+        // If Content/ already exists it must be a real directory inside the
+        // canonical project root — reject a symlinked Content that escapes.
+        let canonical_content = content_root
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve Content root: {error}"))?;
+        if !canonical_content.starts_with(&root) {
+            return Err("Content directory escapes the project root".into());
+        }
+    }
+
+    // 3. Resolve and read the source bytes. Canonicalization resolves any
+    //    symlink to its real target; we only READ the source, so a symlinked
+    //    source is acceptable as long as it names a regular file.
+    let source = std::path::PathBuf::from(&source_path)
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve source file: {error}"))?;
+    let source_meta = std::fs::metadata(&source)
+        .map_err(|error| format!("failed to inspect source file: {error}"))?;
+    if !source_meta.is_file() {
+        return Err("source is not a regular file".into());
+    }
+    let per_file_limit = content_max_file_bytes(&extension);
+    if source_meta.len() > per_file_limit {
+        return Err(format!(
+            "source exceeds the {per_file_limit}-byte per-content-file limit"
+        ));
+    }
+
+    // 4. Enforce the aggregate content FILE-COUNT limit before writing. The
+    //    aggregate BYTE limit is re-checked in step 7 against the actual bytes
+    //    read, guarding against a source that changes between this probe and
+    //    the read.
+    let (existing_count, existing_bytes) = import_content_totals(&content_root)?;
+    if existing_count + 1 > PROJECT_CONTENT_MAX_FILES {
+        return Err(format!(
+            "importing would exceed the {PROJECT_CONTENT_MAX_FILES}-file Content limit"
+        ));
+    }
+    if existing_bytes.saturating_add(source_meta.len()) > PROJECT_CONTENT_MAX_TOTAL_BYTES {
+        return Err("importing would exceed the total Content byte limit".into());
+    }
+
+    // 5. Build the confined destination path by joining validated segments one
+    //    at a time onto the canonical Content root, creating parent directories
+    //    as needed, and rejecting any symlink that resolves outside Content.
+    let segments: Vec<&str> = relative.split('/').collect();
+    let (dir_segments, file_segment) = segments
+        .split_last()
+        .map(|(last, rest)| (rest, *last))
+        .ok_or("destination must name a file")?;
+
+    std::fs::create_dir_all(&content_root)
+        .map_err(|error| format!("failed to create Content directory: {error}"))?;
+    let mut dir = content_root
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve Content root: {error}"))?;
+    let canonical_content = dir.clone();
+    for segment in dir_segments {
+        dir.push(segment);
+        std::fs::create_dir_all(&dir)
+            .map_err(|error| format!("failed to create Content subdirectory: {error}"))?;
+        dir = dir
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve Content subdirectory: {error}"))?;
+        if !dir.starts_with(&canonical_content) {
+            return Err("destination escapes the Content directory".into());
+        }
+    }
+    let destination_path = dir.join(file_segment);
+    // Defence in depth: the resolved destination must still be inside Content.
+    if !destination_path.starts_with(&canonical_content) {
+        return Err("destination escapes the Content directory".into());
+    }
+
+    // 6. No overwrite: reject an existing destination (file, dir, or symlink)
+    //    with a structured conflict result rather than an error.
+    if std::fs::symlink_metadata(&destination_path).is_ok() {
+        return Ok(serde_json::json!({
+            "status": "conflict",
+            "relativePath": relative,
+        }));
+    }
+
+    // 7. Read source bytes, hash, and write atomically: a hidden temp file in
+    //    the destination directory (skipped by discovery), then rename over the
+    //    target. A failure leaves no partial destination.
+    let bytes =
+        std::fs::read(&source).map_err(|error| format!("failed to read source file: {error}"))?;
+    // Re-check the per-type size after reading, guarding against a source that
+    // grew between the metadata probe and the read.
+    if bytes.len() as u64 > per_file_limit {
+        return Err("source exceeds the per-content-file limit".into());
+    }
+    // Re-check the aggregate byte budget against the ACTUAL bytes read (not the
+    // earlier metadata probe) before committing, so a source that grew after
+    // the probe cannot push Content past its total budget.
+    if existing_bytes.saturating_add(bytes.len() as u64) > PROJECT_CONTENT_MAX_TOTAL_BYTES {
+        return Err("importing would exceed the total Content byte limit".into());
+    }
+    let digest = sha256_hex(&bytes);
+    let unique = IMPORT_TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    let tmp_path = dir.join(format!(
+        ".import-{}-{unique}-{nanos}.tmp",
+        std::process::id()
+    ));
+    if let Err(error) = std::fs::write(&tmp_path, &bytes) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("failed to write temporary file: {error}"));
+    }
+    // Final conflict re-check just before commit (best-effort TOCTOU guard for a
+    // single-user desktop app). rename() would silently overwrite on Unix, so
+    // check first and clean up the temp file if a race created the target.
+    if std::fs::symlink_metadata(&destination_path).is_ok() {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Ok(serde_json::json!({
+            "status": "conflict",
+            "relativePath": relative,
+        }));
+    }
+    if let Err(error) = std::fs::rename(&tmp_path, &destination_path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(format!("failed to commit imported asset: {error}"));
+    }
+
+    Ok(serde_json::json!({
+        "status": "imported",
+        "relativePath": relative,
+        "extension": extension,
+        "byteLength": bytes.len(),
+        "sha256": digest,
+    }))
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(all(target_os = "macos", feature = "proof-harness"))]
@@ -425,10 +942,13 @@ mod tests {
     use super::{
         FIRST_RUN_MAX_ENTRIES, FIRST_RUN_MAX_IDENTITY_BYTES, FIRST_RUN_SCHEMA_VERSION,
         MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_TOTAL_BYTES, PREVIEW_ASSET_INVENTORY,
-        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, base64_encode, chrono_free_iso8601,
-        first_run_read_store, first_run_validate_notice_version, first_run_write_store_atomic,
-        navigation_allowed, preview_asset, preview_content_type, preview_protocol_response,
-        project_discover_content,
+        PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, PROJECT_CONTENT_MAX_AUDIO_BYTES,
+        PROJECT_CONTENT_MAX_TOTAL_BYTES, base64_encode, chrono_free_iso8601,
+        content_max_file_bytes, first_run_read_store, first_run_validate_notice_version,
+        first_run_write_store_atomic, import_content_totals, import_segment_is_windows_safe,
+        import_validate_destination, import_validate_source_extension, navigation_allowed,
+        preview_asset, preview_content_type, preview_protocol_response, project_discover_content,
+        project_import_asset, sha256_hex,
     };
     #[cfg(feature = "proof-harness")]
     use super::{
@@ -578,6 +1098,514 @@ mod tests {
         std::fs::write(content.join("huge.png"), &big).unwrap();
         let result = project_discover_content(&content);
         assert!(result.is_err(), "oversized content file must be rejected");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- Issue 065: bounded binary asset import ---
+
+    /// Minimal executor: `project_import_asset` is `async` for the Tauri command
+    /// signature but its body never `.await`s, so a single poll drives it to
+    /// completion. This lets the unit tests exercise the real command body
+    /// without pulling in an async runtime dependency.
+    fn block_on<F: std::future::Future>(future: F) -> F::Output {
+        use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+        fn noop(_: *const ()) {}
+        fn clone(_: *const ()) -> RawWaker {
+            RawWaker::new(std::ptr::null(), &VTABLE)
+        }
+        static VTABLE: RawWakerVTable = RawWakerVTable::new(clone, noop, noop, noop);
+        let waker = unsafe { Waker::from_raw(RawWaker::new(std::ptr::null(), &VTABLE)) };
+        let mut context = Context::from_waker(&waker);
+        let mut pinned = Box::pin(future);
+        match pinned.as_mut().poll(&mut context) {
+            Poll::Ready(output) => output,
+            Poll::Pending => panic!("project_import_asset unexpectedly yielded"),
+        }
+    }
+
+    fn import_temp_dir(tag: &str) -> std::path::PathBuf {
+        let unique = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|value| value.as_nanos())
+            .unwrap_or(0);
+        let dir =
+            std::env::temp_dir().join(format!("import-{tag}-{}-{unique}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn sha256_matches_known_vectors() {
+        // FIPS 180-4 / RFC 6234 known-answer vectors, computed independently of
+        // the import path so the digest returned by an import is trustworthy.
+        assert_eq!(
+            sha256_hex(b""),
+            "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+        );
+        assert_eq!(
+            sha256_hex(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(
+            sha256_hex(b"The quick brown fox jumps over the lazy dog"),
+            "d7a8fbb307d7809469ca9abcb0082e4f8d5651e46d3cdb762d02d0bf37c9e592"
+        );
+        // A multi-block message (> 55 bytes forces a second padded block).
+        assert_eq!(
+            sha256_hex(&[0x61u8; 1000]),
+            "41edece42d63e8d9bf515a9ba6932e1c20cbc9f5a5d134645adb5db1b9737ea3"
+        );
+    }
+
+    #[test]
+    fn import_destination_validation_accepts_supported_relative_paths() {
+        let (relative, extension) = import_validate_destination("textures/player.png").unwrap();
+        assert_eq!(relative, "textures/player.png");
+        assert_eq!(extension, "png");
+        // Backslashes normalize to forward slashes.
+        let (relative, extension) = import_validate_destination("audio\\blip.wav").unwrap();
+        assert_eq!(relative, "audio/blip.wav");
+        assert_eq!(extension, "wav");
+        // Every supported extension is accepted.
+        for name in ["a.xnb", "b.png", "c.jpg", "d.jpeg", "e.bmp", "f.wav"] {
+            assert!(import_validate_destination(name).is_ok(), "{name}");
+        }
+    }
+
+    #[test]
+    fn import_destination_validation_rejects_unsafe_paths() {
+        for bad in [
+            "",                   // empty
+            "/etc/passwd.png",    // absolute
+            "\\windows\\a.png",   // backslash-absolute
+            "C:/Windows/a.png",   // drive-letter absolute
+            "../escape.png",      // parent traversal
+            "a/../../escape.png", // nested traversal
+            "./local.png",        // dot segment
+            "a//b.png",           // empty segment
+            ".hidden.png",        // hidden file
+            "sub/.hidden/x.png",  // hidden directory
+            "textures/notes.txt", // unsupported extension
+            "model.fbx",          // unsupported extension
+            "noextension",        // no extension
+            "weird*name.png",     // disallowed character
+        ] {
+            assert!(
+                import_validate_destination(bad).is_err(),
+                "must reject {bad:?}"
+            );
+        }
+        // Oversized destination string.
+        let long = format!("{}.png", "a".repeat(super::IMPORT_MAX_DEST_BYTES));
+        assert!(import_validate_destination(&long).is_err());
+    }
+
+    #[test]
+    fn import_content_totals_counts_only_supported_visible_files() {
+        let dir = import_temp_dir("totals");
+        let content = dir.join("Content");
+        let nested = content.join("textures");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(content.join("a.png"), vec![0u8; 100]).unwrap();
+        std::fs::write(nested.join("b.wav"), vec![0u8; 200]).unwrap();
+        std::fs::write(content.join("notes.txt"), vec![0u8; 999]).unwrap(); // unsupported
+        std::fs::write(content.join(".hidden.png"), vec![0u8; 999]).unwrap(); // hidden
+        let (count, bytes) = import_content_totals(&content).unwrap();
+        assert_eq!(count, 2);
+        assert_eq!(bytes, 300);
+        // A missing Content root contributes nothing.
+        let (count, bytes) = import_content_totals(&dir.join("Nope")).unwrap();
+        assert_eq!((count, bytes), (0, 0));
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_copies_supported_file_byte_identically() {
+        let dir = import_temp_dir("copy");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let source = dir.join("player.png");
+        let payload: Vec<u8> = (0..=255u8).cycle().take(4096).collect();
+        std::fs::write(&source, &payload).unwrap();
+
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "textures/player.png".to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["status"], "imported");
+        assert_eq!(result["relativePath"], "textures/player.png");
+        assert_eq!(result["extension"], "png");
+        assert_eq!(result["byteLength"].as_u64().unwrap(), 4096);
+        assert_eq!(result["sha256"].as_str().unwrap(), sha256_hex(&payload));
+
+        // The destination bytes are byte-identical to the source.
+        let written = std::fs::read(project.join("Content/textures/player.png")).unwrap();
+        assert_eq!(written, payload);
+        // No temp files leaked into the destination directory.
+        let leftovers: Vec<_> = std::fs::read_dir(project.join("Content/textures"))
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".import-"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp file leaked: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_rejects_duplicate_with_conflict_and_no_partial() {
+        let dir = import_temp_dir("dup");
+        let project = dir.join("proj");
+        let content = project.join("Content");
+        std::fs::create_dir_all(&content).unwrap();
+        std::fs::write(content.join("tile.xnb"), b"ORIGINAL").unwrap();
+        let source = dir.join("tile.xnb");
+        std::fs::write(&source, b"REPLACEMENT").unwrap();
+
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "tile.xnb".to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["status"], "conflict");
+        assert_eq!(result["relativePath"], "tile.xnb");
+        // The existing file is untouched (no overwrite), and no temp file leaked.
+        assert_eq!(
+            std::fs::read(content.join("tile.xnb")).unwrap(),
+            b"ORIGINAL"
+        );
+        let leftovers: Vec<_> = std::fs::read_dir(&content)
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.file_name().to_string_lossy().starts_with(".import-"))
+            .collect();
+        assert!(leftovers.is_empty(), "temp file leaked: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_rejects_traversal_and_unsupported_and_missing_source() {
+        let dir = import_temp_dir("reject");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let source = dir.join("ok.png");
+        std::fs::write(&source, b"PNGDATA").unwrap();
+        let root = project.to_string_lossy().into_owned();
+        let src = source.to_string_lossy().into_owned();
+
+        // Traversal destination.
+        assert!(
+            block_on(project_import_asset(
+                root.clone(),
+                src.clone(),
+                "../escape.png".to_string(),
+            ))
+            .is_err()
+        );
+        // Unsupported extension.
+        assert!(
+            block_on(project_import_asset(
+                root.clone(),
+                src.clone(),
+                "notes.txt".to_string(),
+            ))
+            .is_err()
+        );
+        // Absolute destination.
+        assert!(
+            block_on(project_import_asset(
+                root.clone(),
+                src.clone(),
+                "/tmp/escape.png".to_string(),
+            ))
+            .is_err()
+        );
+        // Missing source file.
+        assert!(
+            block_on(project_import_asset(
+                root.clone(),
+                dir.join("does-not-exist.png")
+                    .to_string_lossy()
+                    .into_owned(),
+                "player.png".to_string(),
+            ))
+            .is_err()
+        );
+        // Nothing was written to Content on any rejection.
+        assert!(!project.join("Content").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_rejects_oversize_source_without_partial() {
+        let dir = import_temp_dir("oversize");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let source = dir.join("huge.png");
+        let big = vec![0u8; (super::PROJECT_CONTENT_MAX_FILE_BYTES + 1) as usize];
+        std::fs::write(&source, &big).unwrap();
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "huge.png".to_string(),
+        ));
+        assert!(result.is_err(), "oversize source must be rejected");
+        assert!(!project.join("Content/huge.png").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_rejects_aggregate_byte_limit() {
+        let dir = import_temp_dir("aggregate");
+        let project = dir.join("proj");
+        let content = project.join("Content");
+        std::fs::create_dir_all(&content).unwrap();
+        // Existing content fills most of the aggregate budget.
+        let existing = vec![0u8; PROJECT_CONTENT_MAX_TOTAL_BYTES as usize - 1024];
+        std::fs::write(content.join("existing.xnb"), &existing).unwrap();
+        // A source larger than the remaining budget must be rejected.
+        let source = dir.join("more.png");
+        std::fs::write(&source, vec![0u8; 8192]).unwrap();
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "more.png".to_string(),
+        ));
+        assert!(result.is_err(), "aggregate byte limit must be enforced");
+        assert!(!content.join("more.png").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_rejects_symlinked_content_escape() {
+        use std::os::unix::fs::symlink;
+        let dir = import_temp_dir("symlink");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        // An attacker-controlled directory OUTSIDE the project.
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        // Content/ is a symlink pointing outside the project root.
+        symlink(&outside, project.join("Content")).unwrap();
+        let source = dir.join("evil.png");
+        std::fs::write(&source, b"EVIL").unwrap();
+
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "planted.png".to_string(),
+        ));
+        assert!(result.is_err(), "symlinked Content escape must be rejected");
+        // Nothing was written into the escape target.
+        assert!(!outside.join("planted.png").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn import_rejects_symlinked_subdirectory_escape() {
+        use std::os::unix::fs::symlink;
+        let dir = import_temp_dir("symlink-sub");
+        let project = dir.join("proj");
+        let content = project.join("Content");
+        std::fs::create_dir_all(&content).unwrap();
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&outside).unwrap();
+        // A subdirectory of Content/ is a symlink escaping the project.
+        symlink(&outside, content.join("linked")).unwrap();
+        let source = dir.join("evil.png");
+        std::fs::write(&source, b"EVIL").unwrap();
+
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "linked/planted.png".to_string(),
+        ));
+        assert!(
+            result.is_err(),
+            "symlinked Content subdirectory escape must be rejected"
+        );
+        assert!(!outside.join("planted.png").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn content_max_file_bytes_is_per_type() {
+        // Raw audio is bounded to 8 MiB; every other supported type to 16 MiB.
+        assert_eq!(
+            content_max_file_bytes("wav"),
+            PROJECT_CONTENT_MAX_AUDIO_BYTES
+        );
+        assert_eq!(content_max_file_bytes("wav"), 8 * 1024 * 1024);
+        for ext in ["xnb", "png", "jpg", "jpeg", "bmp"] {
+            assert_eq!(
+                content_max_file_bytes(ext),
+                super::PROJECT_CONTENT_MAX_FILE_BYTES,
+                "{ext}"
+            );
+            assert_eq!(content_max_file_bytes(ext), 16 * 1024 * 1024, "{ext}");
+        }
+    }
+
+    #[test]
+    fn import_windows_safe_segment_rejects_reserved_and_trailing() {
+        // Reserved device-name stems (case-insensitive, with or without an
+        // extension) are rejected in any segment.
+        for bad in [
+            "CON", "con", "Con.png", "PRN", "aux", "NUL", "nul.wav", "COM1", "com9", "LPT1",
+            "lpt9.xnb",
+        ] {
+            assert!(
+                import_segment_is_windows_safe(bad).is_err(),
+                "must reject reserved {bad:?}"
+            );
+        }
+        // Leading/trailing spaces and trailing dots are rejected.
+        for bad in [
+            " leading.png",
+            "trailing.png ",
+            "trailingdot.",
+            "name. ",
+            " ",
+        ] {
+            assert!(
+                import_segment_is_windows_safe(bad).is_err(),
+                "must reject {bad:?}"
+            );
+        }
+        // COM0/LPT0 are NOT reserved; ordinary names pass.
+        for ok in ["com0.png", "lpt0.png", "console.png", "player.png", "a.wav"] {
+            assert!(
+                import_segment_is_windows_safe(ok).is_ok(),
+                "must accept {ok:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn import_destination_validation_rejects_windows_hostile_paths() {
+        for bad in [
+            "CON.png",          // reserved device name
+            "nul.wav",          // reserved device name
+            "com1.png",         // reserved COM port
+            "lpt9.xnb",         // reserved LPT port
+            "textures/CON.png", // reserved in a nested segment
+            "CON/player.png",   // reserved as a directory segment
+            "trailingdot.png.", // trailing dot
+            "name /player.png", // trailing space in a directory segment
+            " leading.png",     // leading space
+        ] {
+            assert!(
+                import_validate_destination(bad).is_err(),
+                "must reject windows-hostile {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn import_source_extension_validation() {
+        // Matching types pass (both slash styles for the source path).
+        assert!(import_validate_source_extension("/tmp/player.png", "png").is_ok());
+        assert!(import_validate_source_extension("C:\\assets\\blip.wav", "wav").is_ok());
+        assert!(import_validate_source_extension("photo.PNG", "png").is_ok());
+        // jpg/jpeg equivalence is the only accepted cross-extension pairing.
+        assert!(import_validate_source_extension("photo.jpg", "jpeg").is_ok());
+        assert!(import_validate_source_extension("photo.jpeg", "jpg").is_ok());
+        // Unsupported source extensions are rejected.
+        assert!(import_validate_source_extension("model.fbx", "png").is_err());
+        assert!(import_validate_source_extension("notes.txt", "png").is_err());
+        assert!(import_validate_source_extension("noextension", "png").is_err());
+        // Supported but incompatible pairings are rejected (fail closed).
+        assert!(import_validate_source_extension("sound.wav", "png").is_err());
+        assert!(import_validate_source_extension("image.png", "wav").is_err());
+        assert!(import_validate_source_extension("image.bmp", "png").is_err());
+    }
+
+    #[test]
+    fn import_rejects_extension_mismatch_without_partial() {
+        let dir = import_temp_dir("mismatch");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        // A `.wav` source written to a `.png` destination must be rejected even
+        // though both extensions are individually supported (fail closed).
+        let source = dir.join("sound.wav");
+        std::fs::write(&source, b"RIFF....WAVE").unwrap();
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "player.png".to_string(),
+        ));
+        assert!(result.is_err(), "extension mismatch must be rejected");
+        assert!(!project.join("Content").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_accepts_jpg_jpeg_equivalence() {
+        let dir = import_temp_dir("jpgjpeg");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let source = dir.join("photo.jpg");
+        std::fs::write(&source, b"\xFF\xD8\xFF\xE0JFIF").unwrap();
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "art/photo.jpeg".to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["status"], "imported");
+        assert_eq!(result["extension"], "jpeg");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn import_rejects_wav_over_audio_limit_without_partial() {
+        let dir = import_temp_dir("wav-oversize");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        // A `.wav` just over the 8 MiB audio bound is rejected, even though it
+        // is well under the 16 MiB general/image bound.
+        let source = dir.join("blip.wav");
+        let big = vec![0u8; (PROJECT_CONTENT_MAX_AUDIO_BYTES + 1) as usize];
+        std::fs::write(&source, &big).unwrap();
+        let result = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            source.to_string_lossy().into_owned(),
+            "blip.wav".to_string(),
+        ));
+        assert!(result.is_err(), "oversize wav must be rejected");
+        assert!(!project.join("Content/blip.wav").exists());
+        // A same-sized `.png` (under the 16 MiB image bound) imports fine,
+        // proving the bound is per-type rather than global.
+        let png_source = dir.join("ok.png");
+        std::fs::write(&png_source, &big).unwrap();
+        let ok = block_on(project_import_asset(
+            project.to_string_lossy().into_owned(),
+            png_source.to_string_lossy().into_owned(),
+            "ok.png".to_string(),
+        ))
+        .unwrap();
+        assert_eq!(ok["status"], "imported");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn content_discovery_enforces_per_audio_limit() {
+        let dir = import_temp_dir("wav-discovery");
+        let content = dir.join("Content");
+        std::fs::create_dir_all(&content).unwrap();
+        // A `.wav` over the 8 MiB audio bound is rejected by discovery even
+        // though it is under the 16 MiB general bound.
+        let big = vec![0u8; (PROJECT_CONTENT_MAX_AUDIO_BYTES + 1) as usize];
+        std::fs::write(content.join("blip.wav"), &big).unwrap();
+        assert!(
+            project_discover_content(&content).is_err(),
+            "oversized wav must be rejected by discovery"
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -1150,7 +2178,7 @@ mod tests {
         entries
     }
 
-    const PRODUCT_HANDLER_COMMANDS: [&str; 8] = [
+    const PRODUCT_HANDLER_COMMANDS: [&str; 9] = [
         "first_run_check_acknowledgement",
         "first_run_write_acknowledgement",
         "workspace_write_file",
@@ -1159,10 +2187,11 @@ mod tests {
         "workspace_set_dirty",
         "project_pick_folder",
         "project_read",
+        "project_import_asset",
     ];
 
     #[test]
-    fn handler_registers_exactly_eight_ungated_product_commands() {
+    fn handler_registers_exactly_nine_ungated_product_commands() {
         let entries = handler_entries();
         let product: Vec<&str> = entries
             .iter()
@@ -1171,7 +2200,7 @@ mod tests {
             .collect();
         assert_eq!(
             product, PRODUCT_HANDLER_COMMANDS,
-            "the default build must register exactly the eight product commands, ungated"
+            "the default build must register exactly the nine product commands, ungated"
         );
     }
 
@@ -1196,13 +2225,13 @@ mod tests {
                 "product command {name} must never be gated"
             );
         }
-        // Total handler surface is 67 = 8 product + 59 proof.
-        assert_eq!(entries.len(), 67);
+        // Total handler surface is 68 = 9 product + 59 proof.
+        assert_eq!(entries.len(), 68);
     }
 
     #[test]
     fn product_commands_are_present_in_both_profiles_unconditionally() {
-        // The eight product command fns compile with and without the feature
+        // The nine product command fns compile with and without the feature
         // (referencing them here binds the assertion to real symbols, not
         // strings). If any were feature-gated, this test module — which builds
         // in the default profile — would fail to compile.
@@ -1238,7 +2267,7 @@ mod tests {
     #[test]
     fn feature_build_exposes_full_sixty_seven_command_surface() {
         let entries = handler_entries();
-        assert_eq!(entries.len(), 67);
+        assert_eq!(entries.len(), 68);
         // Proof symbols must be reachable when the feature compiles them in.
         let _: fn(&str) -> Option<super::Issue040Input> = super::issue040_input_kind;
         // The proof store overlay is present only under the feature.
@@ -1902,7 +2931,8 @@ pub fn run() {
             workspace_open_dialog,
             workspace_set_dirty,
             project_pick_folder,
-            project_read
+            project_read,
+            project_import_asset
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoGame Playground")

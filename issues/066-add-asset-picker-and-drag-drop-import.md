@@ -1,7 +1,7 @@
 # Add asset picker and drag-and-drop import workflows
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [065-add-secure-binary-asset-import-command.md](065-add-secure-binary-asset-import-command.md)
 **Feature area:** Assets
 **Triage:** feature-backlog

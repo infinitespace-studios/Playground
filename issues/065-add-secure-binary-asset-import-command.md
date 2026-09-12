@@ -1,7 +1,7 @@
 # Add a secure native command for importing project assets
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [064-render-project-assets-in-file-rail.md](064-render-project-assets-in-file-rail.md)
 **Feature area:** Assets, native filesystem boundary
 **Triage:** feature-backlog security-sensitive
@@ -28,10 +28,10 @@ The shell can read bounded files under an opened project's `Content/` directory 
 
 ## Acceptance criteria
 
-- [ ] A supported file is copied byte-identically under `Content/`.
-- [ ] Traversal, symlink escape, oversize, unsupported extension, and duplicate destination are rejected without partial files.
-- [ ] Only the trusted main Workbench frame has command authority.
-- [ ] PRODUCT/PROOF command inventories and capability checks pass.
+- [x] A supported file is copied byte-identically under `Content/`.
+- [x] Traversal, symlink escape, oversize, unsupported extension, and duplicate destination are rejected without partial files.
+- [x] Only the trusted main Workbench frame has command authority.
+- [x] PRODUCT/PROOF command inventories and capability checks pass.
 
 ## Verification
 
@@ -39,10 +39,34 @@ Run Rust unit tests plus product/proof inventory checks. In a temporary project,
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent `reviewer` subagent plus canonical packaged security runner
+- **Date:** 2026-09-11
+- **Evidence:**
+  - Security-focused source review confirmed canonical confinement beneath
+    `Content/`, destination/source extension compatibility, traversal and
+    symlink-escape rejection, Windows reserved/trailing-dot/space rejection,
+    no-overwrite conflict behavior, hidden-temp atomic commit/cleanup, and no
+    new dependency.
+  - Import unit tests copied a supported file byte-identically, verified the
+    returned SHA-256 against known-answer-tested hashing, and covered conflicts,
+    missing/unsupported sources, traversal, oversize, aggregate limits, and
+    Content-root/subdirectory symlink escapes.
+  - Raw WAV imports are limited to 8 MiB; other supported assets are limited to
+    16 MiB; aggregate Content is limited to 24 MiB and 256 files. Actual bytes
+    are rechecked after reading before commit.
+  - Rust formatting and clippy passed in PRODUCT and PROOF profiles. Rust tests
+    passed 43/43 PRODUCT and 57/57 PROOF; frontend typecheck and 104/104 protocol
+    tests passed; the command-inventory self-test passed 11/11.
+  - The canonical packaged PROOF preview-security scenario passed sub-proofs
+    033, 033-no-wasm-eval, 034, 035, and 036 with zero orphan processes and a
+    clean invoke-key scan, confirming the opaque preview cannot acquire main
+    command authority.
+  - Fresh packaged binary inventory checks passed for both profiles: PRODUCT
+    contains exactly 9 commands and zero proof surface; PROOF contains all 68
+    commands and exactly eight proof scenarios. The command is granted only by
+    the local trusted `main` capability.
+  - No browser was launched and the packaged proof performed no network access.
 
 ## Commit gate
 

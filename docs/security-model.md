@@ -106,14 +106,14 @@ transport directly.
 
 Custom application commands are opted into Tauri's runtime authority through
 `AppManifest::commands`. The command surface is split by build profile.
-The product (default) build registers **only the eight responsibility-named
+The product (default) build registers **only the nine responsibility-named
 product commands** through the sole local capability `capabilities/main.json`
 (identifier `main`, `local: true`, window `main`, permission `main-commands`); it
 has no remote URL grant. The explicit `--features proof-harness` proof build
 additionally compiles the fifty-nine proof commands and adds the `proof` capability
 (`capabilities/proof.json` → `proof-commands`). The canonical inventories are
-maintained once in `build.rs` (`PRODUCT_COMMANDS` 8, `PROOF_COMMANDS` 59,
-`HANDLER_ORDER` 67) and cross-checked against `permissions/main.toml` (product 8),
+maintained once in `build.rs` (`PRODUCT_COMMANDS` 9, `PROOF_COMMANDS` 59,
+`HANDLER_ORDER` 68) and cross-checked against `permissions/main.toml` (product 9),
 `permissions/proof.toml` (proof 59), `generate_handler!` (per-line
 `#[cfg(feature = "proof-harness")]` gates), and the packaged proof inventory.
 The fifty-nine proof commands are the issue 021–037 proof enable/checkpoint/report
@@ -122,19 +122,50 @@ issue 039–041 content/audio/benchmark commands. **Stage 5 removed the fifteen
 issue-038 isolated-window commands** and **Stage 7 removed the eleven obsolete
 top-level-canvas issue-009/010/011/020 commands** (ADR 0003 makes the embedded
 opaque-origin iframe the product preview; the top-level `#canvas` demo those
-proofs targeted no longer exists). The effective ACL is therefore **10 entries in
+proofs targeted no longer exists). The effective ACL is therefore **11 entries in
 the product build** (one capability, one composite `main-commands` permission,
-eight generated per-command permissions) and **71 in the proof build** (two
-capabilities, two composite permissions, sixty-seven generated per-command
+nine generated per-command permissions) and **72 in the proof build** (two
+capabilities, two composite permissions, sixty-eight generated per-command
 permissions). No filesystem, shell, process, opener, dialog, clipboard, arbitrary
 read, or arbitrary command-forwarding command is registered.
+
+The ninth product command, `project_import_asset` (issue 065), is the only
+project-mutating asset command. It copies bytes from a user-selected local
+source into a destination under the currently opened project's `Content/`
+directory. Its authorization is defence-in-depth: (1) the ACL restricts it to
+the trusted `main` window — the opaque preview iframe has no Tauri IPC and can
+never invoke it, so although the command takes a `project_root` argument only
+the trusted main frame can supply one; (2) it never trusts `project_root` as a
+write surface — it canonicalizes the root, derives `Content/` beneath it,
+canonicalizes that, joins the validated destination one segment at a time, and
+confines every written byte to the canonical Content root, rejecting any symlink
+that resolves outside it. The destination string is validated (no absolute
+paths, no `..`/`.` traversal, no empty or hidden segments, no Windows-hostile
+segments — reserved device-name stems (`CON`, `PRN`, `AUX`, `NUL`, `COM1`–`COM9`,
+`LPT1`–`LPT9`), leading/trailing spaces, or trailing dots — in any segment,
+bounded characters, supported extension only); the user-selected source filename
+must also be a supported extension that is compatible with the destination
+extension (the only cross-extension pairing allowed is `jpg`↔`jpeg`, the same
+JPEG container), failing closed so a mislabelled byte-identical copy cannot
+smuggle a mis-typed asset past the allowlist. Per-type and aggregate content
+limits (per-file 16 MiB general/image, 8 MiB for a raw `.wav` matching the
+preview mount gate's block-aligned PCM cap, aggregate 24 MiB, 256 files) are
+enforced before writing, and the aggregate byte budget is re-checked against the
+actual bytes read before the temp file is committed; the copy is
+atomic (a hidden temp file in the destination directory, then rename), so a
+failure leaves no partial destination; and existing destinations are never
+overwritten — a structured `{ status: "conflict" }` result is returned. The
+returned success result carries a SHA-256 digest so a byte-identical import can
+be proven. Format/magic validation is not performed here — the source bytes are
+copied byte-identically and format validation remains the preview mount gate. It
+has no UI and performs no content compilation.
 
 **Compiled-artifact enforcement (Stage 6 slice 6).**
 `scripts/check-binary-command-inventory.mjs` scans the packaged executable and
 staged frontend after a build to prove the profile boundary holds in the shipped
-artifact: the product bundle exposes exactly the eight product commands and
+artifact: the product bundle exposes exactly the nine product commands and
 **zero** proof commands, proof env/report markers, proof Rust relay strings,
-proof C# export references, or proof JS globals; the proof bundle retains all 67
+proof C# export references, or proof JS globals; the proof bundle retains all 68
 commands, the proof symbols, and exactly eight scenarios. It derives its
 inventories from `build.rs` (no duplicate list), verifies bundle identity by
 `CFBundleIdentifier` so a stale/wrong-profile artifact is refused, and ships with
@@ -155,7 +186,7 @@ second handler macros, extra runtime/build/plugin dependencies, and dependency
 feature drift. Protocol tests cover second/remote/wildcard capabilities,
 `webviews`, `local: false`, and extra permissions. It also validates all
 generated files. The effective per-command ACL scope is one capability, one
-composite `main-commands` permission, and eight Tauri-generated per-command
+composite `main-commands` permission, and nine Tauri-generated per-command
 allow/deny permission files in the product build (and, in the proof build, the
 added `proof` capability, `proof-commands` composite, and fifty-nine more generated
 files). The generated directory is intentionally ignored

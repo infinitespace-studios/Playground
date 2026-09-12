@@ -10,4 +10,5 @@ commands.allow = [
   "workspace_set_dirty",
   "project_pick_folder",
   "project_read",
+  "project_import_asset",
 ]

@@ -105,6 +105,7 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "workspace_set_dirty",
   "project_pick_folder",
   "project_read",
+  "project_import_asset",
 ] as const;
 
 const issue034Source = `

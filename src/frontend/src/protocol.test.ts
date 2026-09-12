@@ -2548,11 +2548,11 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofInventoryCommands = commandNames(proofInventoryBlock).sort();
-  // Product surface is exactly 8; proof surface exactly 59; union is the full 67
-  // handler order (and the frontend proof inventory, which ships all 67).
-  assert.equal(productCommands.length, 8);
+  // Product surface is exactly 9; proof surface exactly 59; union is the full 68
+  // handler order (and the frontend proof inventory, which ships all 68).
+  assert.equal(productCommands.length, 9);
   assert.equal(proofBuildCommands.length, 59);
-  assert.equal(handlerOrderCommands.length, 67);
+  assert.equal(handlerOrderCommands.length, 68);
   assert.deepEqual(mainPermissionCommands, productCommands);
   assert.deepEqual(proofPermissionCommands, proofBuildCommands);
   assert.deepEqual(handlerCommands, handlerOrderCommands);
