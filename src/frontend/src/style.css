@@ -104,6 +104,16 @@ body[data-theme="light"] .tab:focus-visible {
   .runtime-state-light {
     outline: 2px solid Highlight;
   }
+
+  /* Issue 063: the safety-notice Details region relies on a border + focus
+     ring; keep both perceivable when authored colours collapse. */
+  .first-run-details {
+    border: 1px solid CanvasText;
+  }
+
+  .first-run-summary:focus-visible {
+    outline: 3px solid Highlight;
+  }
 }
 
 body {
@@ -985,18 +995,45 @@ body[data-theme="light"] .theme-switch span::after {
 }
 
 .first-run-desc {
-  margin: 0 0 10px;
+  margin: 0 0 14px;
   color: var(--text);
   font-size: var(--fs-body);
   line-height: 1.55;
 }
 
-.first-run-note {
+/* Issue 063: expandable Details region holding the full defence-in-depth /
+   non-yielding explanation. Collapsed by default so the concise summary is the
+   first thing users read. */
+.first-run-details {
   margin: 0 0 20px;
+  border: 1px solid var(--line);
+  background: var(--panel2);
+}
+
+.first-run-summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  color: var(--text);
+  font-size: var(--fs-control);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  list-style-position: inside;
+}
+
+.first-run-summary:focus-visible {
+  outline: 3px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.first-run-details-body {
+  padding: 0 12px 10px;
+}
+
+.first-run-details-body p {
+  margin: 8px 0 0;
   color: var(--muted);
-  font-family: "SFMono-Regular", monospace;
   font-size: var(--fs-caption);
-  letter-spacing: 0.04em;
+  line-height: 1.55;
 }
 
 .first-run-actions {

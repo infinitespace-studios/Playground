@@ -8,14 +8,14 @@
 
 import { preparePackagedProofRuntime, compileLoadStartIssue23 } from "./scenario-toolkit";
 import {
-  SCRATCH_PROJECT_IDENTITY,
+  SAFETY_NOTICE_VERSION,
   gateFirstRun,
   isAcknowledged,
 } from "./first-run-warning";
 import { runScenario, type SubProof } from "./scenario-runner";
 
-// Re-export the production gate/identity for historical import paths.
-export { SCRATCH_PROJECT_IDENTITY, gateFirstRun } from "./first-run-warning";
+// Re-export the production gate/notice version for historical import paths.
+export { SAFETY_NOTICE_VERSION, gateFirstRun } from "./first-run-warning";
 
 //
 // Phase 1 (MONOGAME_ISSUE037_PROOF_PHASE=1):
@@ -91,7 +91,7 @@ function waitForModalDismissed(timeoutMs = 3000): Promise<void> {
 
 async function runPhase1(invoke: NonNullable<typeof window.__TAURI_INTERNALS__>["invoke"]): Promise<Record<string, unknown>> {
   const readiness = await preparePackagedProofRuntime();
-  const identity = SCRATCH_PROJECT_IDENTITY;
+  const identity = SAFETY_NOTICE_VERSION;
 
   // Step 1: Clear proof-namespace store
   await invoke("issue037_clear_store");
@@ -186,7 +186,7 @@ type u32 = number;
 
 async function runPhase2(invoke: NonNullable<typeof window.__TAURI_INTERNALS__>["invoke"]): Promise<Record<string, unknown>> {
   const readiness = await preparePackagedProofRuntime();
-  const identity = SCRATCH_PROJECT_IDENTITY;
+  const identity = SAFETY_NOTICE_VERSION;
 
   // Step 1: Verify store still has acknowledgement (survived process restart)
   const storeOnRestart = JSON.parse(await invoke<string>("issue037_read_store_snapshot"));
@@ -235,10 +235,10 @@ async function runPhase2(invoke: NonNullable<typeof window.__TAURI_INTERNALS__>[
   const afterClear = await isAcknowledged(identity);
   if (afterClear) throw new Error("Issue 037 phase 2: identity still acknowledged after clear.");
 
-  // Verify alt identity also not acknowledged
-  const altIdentity = "builtin-scratch-v2-proof";
+  // Verify alt notice version also not acknowledged
+  const altIdentity = "safety-notice-v2-proof";
   const altCheck = await isAcknowledged(altIdentity);
-  if (altCheck) throw new Error("Issue 037 phase 2: alt identity unexpectedly acknowledged.");
+  if (altCheck) throw new Error("Issue 037 phase 2: alt notice version unexpectedly acknowledged.");
 
   await invoke("issue037_emit_checkpoint", { checkpoint: JSON.stringify({ phase: 2, step: "store-cleared-verified" }) });
 

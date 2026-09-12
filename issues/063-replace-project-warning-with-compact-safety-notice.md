@@ -1,7 +1,7 @@
 # Replace the per-project warning wall with a compact safety notice
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [061-establish-readable-ui-type-scale.md](061-establish-readable-ui-type-scale.md), [037-warn-before-first-run-of-new-project.md](037-warn-before-first-run-of-new-project.md)
 **Feature area:** Run UX, accessibility
 **Triage:** feature-backlog
@@ -29,11 +29,11 @@ The current first-run alert is a large paragraph and acknowledgement is keyed pe
 
 ## Acceptance criteria
 
-- [ ] The notice appears once per application notice version, not once per project.
-- [ ] The default view is concise and the full explanation remains available.
-- [ ] Run cannot proceed before explicit confirmation on first display.
-- [ ] Confirmation persists; Cancel/Escape do not acknowledge.
-- [ ] The notice is accessible in both themes and at maximum UI scale.
+- [x] The notice appears once per application notice version, not once per project.
+- [x] The default view is concise and the full explanation remains available.
+- [x] Run cannot proceed before explicit confirmation on first display.
+- [x] Confirmation persists; Cancel/Escape do not acknowledge.
+- [x] The notice is accessible in both themes and at maximum UI scale.
 
 ## Verification
 
@@ -41,10 +41,30 @@ With a clean acknowledgement store, exercise Confirm, Cancel, Escape, concurrent
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Product owner (manual PRODUCT acceptance) and independent `reviewer` subagent (source/build/tests)
+- **Date:** 2026-09-11
+- **Evidence:**
+  - The product owner exercised the compact notice in the running application,
+    confirmed all required interactions work, and authorized the commit.
+  - The default view contains a short heading and exactly three concise
+    sentences. The native expandable Details region retains the complete,
+    truthful defence-in-depth and non-yielding-code explanation.
+  - Manual acceptance covered first display, Details, Cancel, Escape, explicit
+    confirmation before Run, app-level behavior across projects, and persisted
+    behavior after relaunch in both themes/at the configured UI scale.
+  - Source review confirmed confirmation writes are awaited before Run proceeds,
+    Cancel/Escape do not acknowledge, concurrent calls coalesce through one gate
+    promise, and the focus trap includes Details, Cancel, and Confirm.
+  - Store schema v2 keys acknowledgement by `safety-notice-v1`; v1 per-project
+    stores migrate to an empty v2 store, discarding legacy identity keys. The
+    stored shape contains only schema version, notice version, and timestamp.
+  - Frontend tests passed (104/104 protocol plus all focused suites); Rust tests
+    passed 24/24 PRODUCT and 38/38 PROOF. PRODUCT/PROOF builds, profile checks,
+    staged-asset checks, and the preserved eight-product-command inventory
+    passed.
+  - Automated verification used local source/build tools only and launched no
+    browser, Tauri, or other GUI process and performed no network access.
 
 ## Commit gate
 

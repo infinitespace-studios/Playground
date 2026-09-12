@@ -368,17 +368,24 @@ Browsers cannot synthesize arbitrary `event.source` or `event.origin` on
 `installPrivatePortBootstrap` with simulated event properties, not by live
 browser proof. This distinction is documented honestly in the test suite.
 
-## First-run warning and acknowledgement persistence (issue 037)
+## First-run safety notice and acknowledgement persistence (issue 037 → issue 063)
 
-Before any user-triggered compile+Run proceeds for a project identity that has
-not been previously acknowledged, a blocking modal warns that this application
-is intended primarily for running the user's own local code, provides
-defence-in-depth protections against accidental or opportunistic desktop
-privilege access, but does not provide a complete sandbox against deliberately
-malicious code. The modal also warns that synchronous code which never yields
-can freeze the preview and editor and require an application relaunch. The user
-must explicitly confirm before the first compilation begins. Cancel or Escape
-dismisses the modal without side effects.
+Before the first user-triggered compile+Run for the current application-level
+safety-notice version, a blocking modal warns that this application is intended
+primarily for running the user's own local code, provides defence-in-depth
+protections against accidental or opportunistic desktop privilege access, but
+does not provide a complete sandbox against deliberately malicious code. The
+modal also warns that synchronous code which never yields can freeze the
+preview and editor and require an application relaunch. The user must explicitly
+confirm before the first compilation begins. Cancel or Escape dismisses the
+modal without side effects.
+
+Issue 063 replaced the original per-project warning wall with a concise,
+application-level notice. The default view is a short heading plus three brief
+sentences; the full defence-in-depth / non-yielding explanation lives in an
+expandable `Details` region (a native `<details>`/`<summary>` element inside the
+focus trap). The notice is shown once per notice *version* rather than once per
+project, so opening a new folder project no longer re-prompts.
 
 ### Storage ownership and isolation
 
@@ -390,29 +397,40 @@ Tauri IPC transport, no filesystem access, and no `localStorage` (opaque
 origin).  Writes use atomic rename (`write` to `.tmp`, then `rename`) so a
 crash mid-write never corrupts the store.
 
-### Schema
+### Schema (v2, application-level notice version)
 
 ```json
 {
-  "schemaVersion": 1,
+  "schemaVersion": 2,
   "acknowledged": {
-    "<identity>": { "acknowledgedAt": "2026-08-28T19:30:00Z" }
+    "safety-notice-v1": { "acknowledgedAt": "2026-09-12T19:30:00Z" }
   }
 }
 ```
 
-Identity strings are bounded to 256 bytes of printable alphanumeric plus
-hyphen/underscore.  The entry limit is 1024.
+The acknowledgement is keyed by the notice-version string
+(`SAFETY_NOTICE_VERSION`, currently `"safety-notice-v1"`), not by any project
+identity. Notice-version strings are bounded to 256 bytes of printable
+alphanumeric plus hyphen/underscore.  The entry limit is 1024.
 
-### Identity and invalidation
+### Migration from the legacy per-project format (schema v1)
 
-The built-in scratch project uses the fixed identity `"builtin-scratch-v1"`.
-An opened folder project uses `folder-sha256-<digest>`, where the digest is
-SHA-256 over the shell-canonicalized project root (with Windows separators and
-drive-path casing normalized). The raw project path is never written to the
-acknowledgement store. Identity is not keyed on mutable source content, so
-editing code does not reprompt; opening a different folder does. Clearing or
-deleting the store file also causes the warning to reappear.
+The original issue 037 store used schema version 1 and keyed acknowledgements by
+per-project identity (`builtin-scratch-v1` for the scratch buffer,
+`folder-sha256-<digest>` for folder projects). On read, a v1 store is migrated
+to an **empty** v2 store: the legacy per-project entries are discarded, never
+carried forward or re-exposed. Those entries never held raw filesystem paths
+(folder identities were SHA-256 digests), and dropping them entirely means no
+stored project identity survives the upgrade. The application-level notice is
+then shown once after upgrade. Any schema version other than 1 or 2 fails closed
+with an error (the store is treated as unreadable rather than silently reset).
+
+### Versioned re-prompt
+
+Bumping `SAFETY_NOTICE_VERSION` (frontend) means the new key is absent from the
+store, so the notice is shown once again to every user. The Rust store requires
+no change for a notice-copy revision; only a store *schema* change bumps
+`FIRST_RUN_SCHEMA_VERSION`.
 
 ### Proof namespace isolation
 
@@ -437,12 +455,12 @@ genuinely separate OS processes.
 ### Limitations
 
 The acknowledgement is advisory: it does not enforce OS-level isolation.
-A user who has acknowledged the warning may still run code that attempts to
+A user who has acknowledged the notice may still run code that attempts to
 access desktop privileges; the defence-in-depth layers (sandbox, CSP, shell
-hooks, IPC boundary) are the actual mitigation. The warning is not a consent
-gate for data collection or telemetry — no data leaves the device. Standalone
-scratch-file opens currently retain the built-in scratch identity; folder
-projects receive distinct identities.
+hooks, IPC boundary) are the actual mitigation. The notice is not a consent
+gate for data collection or telemetry — no data leaves the device. Because the
+notice is now application-level, a single acknowledgement of the current notice
+version covers every project and the built-in scratch buffer alike.
 
 ### Commands
 
@@ -450,8 +468,8 @@ The first-run acknowledgement surface is split by profile:
 
 | Command | Purpose | Capability |
 |---|---|---|
-| `first_run_check_acknowledgement` | Check if an identity is acknowledged | PRODUCT `main-commands` |
-| `first_run_write_acknowledgement` | Persist acknowledgement for an identity | PRODUCT `main-commands` |
+| `first_run_check_acknowledgement` | Check if a notice version is acknowledged | PRODUCT `main-commands` |
+| `first_run_write_acknowledgement` | Persist acknowledgement for a notice version | PRODUCT `main-commands` |
 | `issue037_is_proof_enabled` | Check proof env gate | PROOF `proof-commands` |
 | `issue037_emit_report` | Emit packaged proof report | PROOF `proof-commands` |
 | `issue037_read_store_snapshot` | Read store contents (bounded, no paths) | PROOF `proof-commands` |
@@ -459,11 +477,14 @@ The first-run acknowledgement surface is split by profile:
 | `issue037_proof_phase` | Return current multi-process proof phase | PROOF `proof-commands` |
 | `issue037_emit_checkpoint` | Emit proof phase checkpoint line | PROOF `proof-commands` |
 
-All eight are registered in the proof build's `generate_handler!` and
-`build.rs::effective_commands()` inventories. The two PRODUCT commands are
-listed in `permissions/main.toml`; the six proof commands are listed in
-`permissions/proof.toml` and are compiled out of normal PRODUCT binaries. All
-remain inaccessible from the opaque preview under the ACL/invoke-key boundary.
+The two PRODUCT command names are unchanged (issue 063 preserved the product
+command surface); only their argument changed from a project `identity` to a
+`noticeVersion`. All eight are registered in the proof build's
+`generate_handler!` and `build.rs::effective_commands()` inventories. The two
+PRODUCT commands are listed in `permissions/main.toml`; the six proof commands
+are listed in `permissions/proof.toml` and are compiled out of normal PRODUCT
+binaries. All remain inaccessible from the opaque preview under the
+ACL/invoke-key boundary.
 
 ## Production preview execution and non-yielding code
 

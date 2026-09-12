@@ -422,7 +422,7 @@ mod tests {
         FIRST_RUN_MAX_ENTRIES, FIRST_RUN_MAX_IDENTITY_BYTES, FIRST_RUN_SCHEMA_VERSION,
         MAX_PREVIEW_ASSET_BYTES, MAX_PREVIEW_TOTAL_BYTES, PREVIEW_ASSET_INVENTORY,
         PREVIEW_ASSET_TOTAL_BYTES, PREVIEW_CSP, base64_encode, chrono_free_iso8601,
-        first_run_read_store, first_run_validate_identity, first_run_write_store_atomic,
+        first_run_read_store, first_run_validate_notice_version, first_run_write_store_atomic,
         navigation_allowed, preview_asset, preview_content_type, preview_protocol_response,
         project_discover_content,
     };
@@ -797,25 +797,28 @@ mod tests {
     // --- Issue 037 unit tests ---
 
     #[test]
-    fn first_run_identity_validation_accepts_valid_identities() {
-        assert!(first_run_validate_identity("builtin-scratch-v1").is_ok());
-        assert!(first_run_validate_identity("a").is_ok());
-        assert!(first_run_validate_identity("project_123-test").is_ok());
-        assert!(first_run_validate_identity(&"a".repeat(FIRST_RUN_MAX_IDENTITY_BYTES)).is_ok());
+    fn first_run_notice_version_validation_accepts_valid_versions() {
+        assert!(first_run_validate_notice_version("safety-notice-v1").is_ok());
+        assert!(first_run_validate_notice_version("a").is_ok());
+        assert!(first_run_validate_notice_version("notice_123-test").is_ok());
+        assert!(
+            first_run_validate_notice_version(&"a".repeat(FIRST_RUN_MAX_IDENTITY_BYTES)).is_ok()
+        );
     }
 
     #[test]
-    fn first_run_identity_validation_rejects_invalid_identities() {
-        assert!(first_run_validate_identity("").is_err());
+    fn first_run_notice_version_validation_rejects_invalid_versions() {
+        assert!(first_run_validate_notice_version("").is_err());
         assert!(
-            first_run_validate_identity(&"a".repeat(FIRST_RUN_MAX_IDENTITY_BYTES + 1)).is_err()
+            first_run_validate_notice_version(&"a".repeat(FIRST_RUN_MAX_IDENTITY_BYTES + 1))
+                .is_err()
         );
-        assert!(first_run_validate_identity("has spaces").is_err());
-        assert!(first_run_validate_identity("has.dots").is_err());
-        assert!(first_run_validate_identity("path/injection").is_err());
-        assert!(first_run_validate_identity("path\\injection").is_err());
-        assert!(first_run_validate_identity("emoji😀").is_err());
-        assert!(first_run_validate_identity("null\0byte").is_err());
+        assert!(first_run_validate_notice_version("has spaces").is_err());
+        assert!(first_run_validate_notice_version("has.dots").is_err());
+        assert!(first_run_validate_notice_version("path/injection").is_err());
+        assert!(first_run_validate_notice_version("path\\injection").is_err());
+        assert!(first_run_validate_notice_version("emoji😀").is_err());
+        assert!(first_run_validate_notice_version("null\0byte").is_err());
     }
 
     #[test]
@@ -832,12 +835,12 @@ mod tests {
 
         // Write and re-read
         let mut store = store;
-        store["acknowledged"]["builtin-scratch-v1"] =
+        store["acknowledged"]["safety-notice-v1"] =
             serde_json::json!({ "acknowledgedAt": "2026-01-01T00:00:00Z" });
         first_run_write_store_atomic(&path, &store).unwrap();
         let reloaded = first_run_read_store(&path).unwrap();
         assert!(
-            reloaded["acknowledged"]["builtin-scratch-v1"]["acknowledgedAt"]
+            reloaded["acknowledged"]["safety-notice-v1"]["acknowledgedAt"]
                 .as_str()
                 .unwrap()
                 .starts_with("2026")
@@ -868,6 +871,30 @@ mod tests {
         let path = dir.join("wrong-version.json");
         std::fs::write(&path, r#"{"schemaVersion":99,"acknowledged":{}}"#).unwrap();
         assert!(first_run_read_store(&path).is_err());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn first_run_store_migrates_legacy_per_project_v1_to_empty_v2() {
+        // A legacy schemaVersion 1 store keyed acknowledgements by per-project
+        // identity. Issue 063 migrates it to an empty v2 store: the legacy
+        // per-project entries are discarded (never carried forward or
+        // re-exposed) so the application-level notice is shown once after
+        // upgrade.
+        let dir = std::env::temp_dir().join(format!("first-run-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("legacy-v1.json");
+        std::fs::write(
+            &path,
+            r#"{"schemaVersion":1,"acknowledged":{"builtin-scratch-v1":{"acknowledgedAt":"2026-01-01T00:00:00Z"},"folder-sha256-abc":{"acknowledgedAt":"2026-01-02T00:00:00Z"}}}"#,
+        )
+        .unwrap();
+        let migrated = first_run_read_store(&path).unwrap();
+        assert_eq!(migrated["schemaVersion"], FIRST_RUN_SCHEMA_VERSION);
+        assert_eq!(migrated["acknowledged"].as_object().unwrap().len(), 0);
+        assert!(migrated["acknowledged"].get("builtin-scratch-v1").is_none());
+        assert!(migrated["acknowledged"].get("folder-sha256-abc").is_none());
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -1229,17 +1256,25 @@ mod tests {
     }
 }
 
-// --- Issue 037: first-run warning acknowledgement store ---
+// --- First-run safety-notice acknowledgement store (issue 037 → issue 063) ---
 //
 // Persistence lives in a JSON file inside Tauri's app-data directory, which is
 // inaccessible to the opaque preview iframe (no Tauri IPC, no filesystem).
-// The store schema is: { "schemaVersion": 1, "acknowledged": { "<identity>": { "acknowledgedAt": "<ISO-8601>" } } }
-// The built-in scratch project uses "builtin-scratch-v1". Folder projects use
-// a frontend-derived "folder-sha256-<digest>" identity based on the canonical
-// root, so the persisted store never contains the user's filesystem path.
+// The store schema is: { "schemaVersion": 2, "acknowledged": { "<noticeVersion>": { "acknowledgedAt": "<ISO-8601>" } } }
+//
+// Issue 063 made the safety notice application-level and versioned rather than
+// per-project. The acknowledgement is now keyed by a notice-version string
+// (e.g. "safety-notice-v1"); a single acknowledgement suppresses the notice for
+// every project until the notice version changes. The old schemaVersion 1
+// format keyed acknowledgements by per-project identity
+// ("builtin-scratch-v1", "folder-sha256-<digest>", …). On read, a v1 store is
+// migrated to an empty v2 store: the legacy per-project entries are discarded
+// (they never held raw paths, but they are not carried forward), so the
+// application-level notice is shown once after upgrade and no stale project
+// identity is retained or re-exposed.
 //
 // Atomic write: write to a `.tmp` sibling, then rename, so a crash mid-write
-// never corrupts the store.  Identity strings are bounded to 256 bytes of
+// never corrupts the store.  Notice-version strings are bounded to 256 bytes of
 // printable ASCII to prevent path injection or unbounded growth.
 //
 // When proof mode is active (`MONOGAME_ISSUE037_PROOF=1`), a separate proof-
@@ -1248,7 +1283,10 @@ mod tests {
 const FIRST_RUN_STORE_FILENAME: &str = "first-run-acknowledgements.json";
 #[cfg(feature = "proof-harness")]
 const ISSUE037_PROOF_STORE_FILENAME: &str = "first-run-acknowledgements-proof.json";
-const FIRST_RUN_SCHEMA_VERSION: u64 = 1;
+// Current on-disk schema. v1 (per-project identity keys) is migrated to an
+// empty v2 store on read; any other version fails closed.
+const FIRST_RUN_SCHEMA_VERSION: u64 = 2;
+const FIRST_RUN_LEGACY_SCHEMA_VERSION: u64 = 1;
 const FIRST_RUN_MAX_IDENTITY_BYTES: usize = 256;
 const FIRST_RUN_MAX_ENTRIES: usize = 1024;
 
@@ -1279,15 +1317,15 @@ fn first_run_store_path(app: &tauri::AppHandle) -> Result<std::path::PathBuf, St
     Ok(dir.join(first_run_store_filename()))
 }
 
-fn first_run_validate_identity(identity: &str) -> Result<(), String> {
-    if identity.is_empty() || identity.len() > FIRST_RUN_MAX_IDENTITY_BYTES {
-        return Err("identity must be 1–256 bytes".into());
+fn first_run_validate_notice_version(notice_version: &str) -> Result<(), String> {
+    if notice_version.is_empty() || notice_version.len() > FIRST_RUN_MAX_IDENTITY_BYTES {
+        return Err("notice version must be 1–256 bytes".into());
     }
-    if !identity
+    if !notice_version
         .bytes()
         .all(|byte| byte.is_ascii_alphanumeric() || b"-_".contains(&byte))
     {
-        return Err("identity must contain only alphanumeric, hyphen, or underscore".into());
+        return Err("notice version must contain only alphanumeric, hyphen, or underscore".into());
     }
     Ok(())
 }
@@ -1301,12 +1339,22 @@ fn first_run_read_store(path: &std::path::Path) -> Result<serde_json::Value, Str
                 .get("schemaVersion")
                 .and_then(|version| version.as_u64())
                 .ok_or("acknowledgement store missing schemaVersion")?;
-            if version != FIRST_RUN_SCHEMA_VERSION {
-                return Err(format!(
-                    "unsupported acknowledgement store schema version {version}"
-                ));
+            if version == FIRST_RUN_SCHEMA_VERSION {
+                return Ok(value);
             }
-            Ok(value)
+            // Migrate the legacy per-project (v1) format to an empty v2 store.
+            // The old identity-keyed acknowledgements are intentionally
+            // discarded, never carried forward or re-exposed. The next Run then
+            // shows the application-level notice once after upgrade.
+            if version == FIRST_RUN_LEGACY_SCHEMA_VERSION {
+                return Ok(serde_json::json!({
+                    "schemaVersion": FIRST_RUN_SCHEMA_VERSION,
+                    "acknowledged": {}
+                }));
+            }
+            Err(format!(
+                "unsupported acknowledgement store schema version {version}"
+            ))
         }
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({
             "schemaVersion": FIRST_RUN_SCHEMA_VERSION,
@@ -1337,31 +1385,34 @@ fn first_run_write_store_atomic(
 #[tauri::command]
 fn first_run_check_acknowledgement(
     app: tauri::AppHandle,
-    identity: String,
+    notice_version: String,
 ) -> Result<bool, String> {
-    first_run_validate_identity(&identity)?;
+    first_run_validate_notice_version(&notice_version)?;
     let path = first_run_store_path(&app)?;
     let store = first_run_read_store(&path)?;
     Ok(store
         .get("acknowledged")
-        .and_then(|acknowledged| acknowledged.get(&identity))
+        .and_then(|acknowledged| acknowledged.get(&notice_version))
         .is_some())
 }
 
 #[tauri::command]
-fn first_run_write_acknowledgement(app: tauri::AppHandle, identity: String) -> Result<(), String> {
-    first_run_validate_identity(&identity)?;
+fn first_run_write_acknowledgement(
+    app: tauri::AppHandle,
+    notice_version: String,
+) -> Result<(), String> {
+    first_run_validate_notice_version(&notice_version)?;
     let path = first_run_store_path(&app)?;
     let mut store = first_run_read_store(&path)?;
     let acknowledged = store
         .get_mut("acknowledged")
         .and_then(|value| value.as_object_mut())
         .ok_or("acknowledgement store has invalid shape")?;
-    if acknowledged.len() >= FIRST_RUN_MAX_ENTRIES && !acknowledged.contains_key(&identity) {
+    if acknowledged.len() >= FIRST_RUN_MAX_ENTRIES && !acknowledged.contains_key(&notice_version) {
         return Err("acknowledgement store entry limit reached".into());
     }
     acknowledged.insert(
-        identity,
+        notice_version,
         serde_json::json!({
             "acknowledgedAt": chrono_free_iso8601()
         }),
