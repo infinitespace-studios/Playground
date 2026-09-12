@@ -106,6 +106,7 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "project_pick_folder",
   "project_read",
   "project_import_asset",
+  "project_pick_import_files",
 ] as const;
 
 const issue034Source = `

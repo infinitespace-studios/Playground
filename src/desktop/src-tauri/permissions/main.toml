@@ -11,4 +11,5 @@ commands.allow = [
   "project_pick_folder",
   "project_read",
   "project_import_asset",
+  "project_pick_import_files",
 ]

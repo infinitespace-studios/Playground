@@ -254,6 +254,30 @@ export interface ProjectManagerApi {
    * error is surfaced to the user.
    */
   refreshContent: () => Promise<void>;
+  /**
+   * Issue 066: import one binary asset into the open project's `Content/` root
+   * through the bounded native `project_import_asset` command (issue 065). The
+   * project root is supplied from module state (never by the caller), so the
+   * write surface is always the currently-authorized project. Returns the
+   * command's structured JSON result (`{ status: "imported", … }` or
+   * `{ status: "conflict", … }`); a native rejection throws. It does NOT refresh
+   * the rail — the caller batches imports and calls `refreshContent()` once at
+   * the end. Rejects when no folder project is open (scratch mode has no
+   * `Content/` write target).
+   */
+  importAsset: (sourcePath: string, destination: string) => Promise<{
+    status?: string;
+    relativePath?: string;
+    byteLength?: number;
+    sha256?: string;
+  }>;
+  /**
+   * Issue 066: show the native multi-file picker (via `project_pick_import_files`,
+   * a Rust dialog-plugin wrapper) and return the chosen absolute source paths,
+   * or null when cancelled. No copy happens here — the caller classifies the
+   * paths, confirms destinations, and imports each via `importAsset`.
+   */
+  pickImportFiles: () => Promise<string[] | null>;
 }
 
 export function installProjectManager(hooks: ProjectManagerHooks): ProjectManagerApi {
@@ -384,6 +408,20 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       contentFiles = project.contentFiles ?? [];
       contentRootExists = project.contentRootExists ?? contentFiles.length > 0;
       emitContentChanged();
+    },
+    importAsset: async (sourcePath, destination) => {
+      if (projectRoot === null) {
+        throw new Error("Open a folder project before importing assets.");
+      }
+      return invoke("project_import_asset", {
+        projectRoot,
+        sourcePath,
+        destination,
+      });
+    },
+    pickImportFiles: async () => {
+      const picked = await invoke<string[] | null>("project_pick_import_files");
+      return picked ?? null;
     },
     syncActiveBuffer,
     switchTo,

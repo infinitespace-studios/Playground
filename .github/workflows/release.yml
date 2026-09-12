@@ -355,7 +355,7 @@ jobs:
       # PACKAGED product executable. This CI leg builds the PRODUCT profile only
       # (default features, default config), so the freshly compiled shell binary
       # at target/<triple>/release is the product artifact. The checker proves it
-      # carries exactly the eight responsibility-named product commands + product
+      # carries exactly the ten responsibility-named product commands + product
       # runtime floors and ZERO proof commands/env markers/relay symbols/C#
       # exports/JS globals, and that the staged product frontend dist carries no
       # proof extension assets. Any leak (or a stale/wrong-profile scan) fails the

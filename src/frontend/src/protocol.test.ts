@@ -2476,7 +2476,7 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const capability = JSON.parse(capabilityText);
   const proofCapability = JSON.parse(proofCapabilityText);
   // Stage 6 binary separation: the product build selects only the `main`
-  // capability (8 commands); the proof build additionally selects `proof` (59
+  // capability (10 commands); the proof build additionally selects `proof` (59
   // commands). Validate the shape of both, and that the product config never
   // pulls in the proof capability.
   const validateCapability = (
@@ -2548,11 +2548,11 @@ test("issue 034 commands are scoped to the local main webview", async () => {
   const proofInventoryBlock =
     issue034Source.match(/ISSUE034_APPROVED_COMMANDS = \[(.*?)\] as const/s)?.[1] ?? "";
   const proofInventoryCommands = commandNames(proofInventoryBlock).sort();
-  // Product surface is exactly 9; proof surface exactly 59; union is the full 68
-  // handler order (and the frontend proof inventory, which ships all 68).
-  assert.equal(productCommands.length, 9);
+  // Product surface is exactly 10; proof surface exactly 59; union is the full
+  // 69 handler order (and the frontend proof inventory, which ships all 69).
+  assert.equal(productCommands.length, 10);
   assert.equal(proofBuildCommands.length, 59);
-  assert.equal(handlerOrderCommands.length, 68);
+  assert.equal(handlerOrderCommands.length, 69);
   assert.deepEqual(mainPermissionCommands, productCommands);
   assert.deepEqual(proofPermissionCommands, proofBuildCommands);
   assert.deepEqual(handlerCommands, handlerOrderCommands);

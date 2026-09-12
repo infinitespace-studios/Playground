@@ -106,14 +106,14 @@ transport directly.
 
 Custom application commands are opted into Tauri's runtime authority through
 `AppManifest::commands`. The command surface is split by build profile.
-The product (default) build registers **only the nine responsibility-named
+The product (default) build registers **only the ten responsibility-named
 product commands** through the sole local capability `capabilities/main.json`
 (identifier `main`, `local: true`, window `main`, permission `main-commands`); it
 has no remote URL grant. The explicit `--features proof-harness` proof build
 additionally compiles the fifty-nine proof commands and adds the `proof` capability
 (`capabilities/proof.json` → `proof-commands`). The canonical inventories are
-maintained once in `build.rs` (`PRODUCT_COMMANDS` 9, `PROOF_COMMANDS` 59,
-`HANDLER_ORDER` 68) and cross-checked against `permissions/main.toml` (product 9),
+maintained once in `build.rs` (`PRODUCT_COMMANDS` 10, `PROOF_COMMANDS` 59,
+`HANDLER_ORDER` 69) and cross-checked against `permissions/main.toml` (product 10),
 `permissions/proof.toml` (proof 59), `generate_handler!` (per-line
 `#[cfg(feature = "proof-harness")]` gates), and the packaged proof inventory.
 The fifty-nine proof commands are the issue 021–037 proof enable/checkpoint/report
@@ -125,7 +125,7 @@ opaque-origin iframe the product preview; the top-level `#canvas` demo those
 proofs targeted no longer exists). The effective ACL is therefore **11 entries in
 the product build** (one capability, one composite `main-commands` permission,
 nine generated per-command permissions) and **72 in the proof build** (two
-capabilities, two composite permissions, sixty-eight generated per-command
+capabilities, two composite permissions, sixty-nine generated per-command
 permissions). No filesystem, shell, process, opener, dialog, clipboard, arbitrary
 read, or arbitrary command-forwarding command is registered.
 
@@ -160,12 +160,33 @@ be proven. Format/magic validation is not performed here — the source bytes ar
 copied byte-identically and format validation remains the preview mount gate. It
 has no UI and performs no content compilation.
 
+The tenth product command, `project_pick_import_files` (issue 066), is a native
+multi-file picker: it wraps the dialog plugin's `blocking_pick_files` Rust API
+(pre-filtered to the supported Content extensions) so the trusted main webview
+selects import sources through an approved application command rather than the
+raw `plugin:dialog` surface, preserving the plugin boundary. It performs **no**
+copy — it returns only the selected absolute source paths, which the frontend
+feeds one at a time to `project_import_asset` (the singular, re-validating write
+primitive above). Desktop drag/drop imports use the same write primitive but a
+different, command-free source: OS file drops are intercepted natively by Tauri
+(`dragDropEnabled` default) and delivered to the Rust `on_window_event` handler
+as `WindowEvent::DragDrop` on the trusted `main` window — they are never
+delivered to the webview as HTML DOM drag events, so the opaque-origin sandboxed
+preview iframe can neither see nor forge a drop. The Rust handler forwards each
+drag phase to **only** the trusted main webview's top frame via `eval` (a
+top-frame-only push through a fixed JSON-escaped global hook, never an
+all-frames initialization script), and the frontend hit-tests the drop against
+the asset rail and shows a keyboard-accessible confirmation before any bytes are
+copied. Because `eval` runs only in the main document and the preview iframe
+(`sandbox="allow-scripts"`, no `allow-same-origin`) cannot reach the parent
+window, preview content can neither observe nor inject a drop payload.
+
 **Compiled-artifact enforcement (Stage 6 slice 6).**
 `scripts/check-binary-command-inventory.mjs` scans the packaged executable and
 staged frontend after a build to prove the profile boundary holds in the shipped
-artifact: the product bundle exposes exactly the nine product commands and
+artifact: the product bundle exposes exactly the ten product commands and
 **zero** proof commands, proof env/report markers, proof Rust relay strings,
-proof C# export references, or proof JS globals; the proof bundle retains all 68
+proof C# export references, or proof JS globals; the proof bundle retains all 69
 commands, the proof symbols, and exactly eight scenarios. It derives its
 inventories from `build.rs` (no duplicate list), verifies bundle identity by
 `CFBundleIdentifier` so a stale/wrong-profile artifact is refused, and ships with

@@ -133,7 +133,7 @@ Copilot-Session: 1428e10b-3d66-414a-b04c-5944666db423
 | 063 | [Replace project warning with compact safety notice](063-replace-project-warning-with-compact-safety-notice.md) | AFK | Done | 037, 061 | Feature 9 |
 | 064 | [Render project assets in file rail](064-render-project-assets-in-file-rail.md) | AFK | Done | 052, 059 | Feature 1 |
 | 065 | [Add secure binary asset import command](065-add-secure-binary-asset-import-command.md) | AFK | Done | 064 | Feature 1 |
-| 066 | [Add asset picker and drag-drop import](066-add-asset-picker-and-drag-drop-import.md) | AFK | Ready | 065 | Feature 1 |
+| 066 | [Add asset picker and drag-drop import](066-add-asset-picker-and-drag-drop-import.md) | AFK | Done | 065 | Feature 1 |
 | 067 | [Create source files in folder projects](067-create-source-files-in-folder-projects.md) | AFK | Ready | 051 | Feature 4 |
 | 068 | [Rename and delete source files](068-rename-and-delete-source-files.md) | AFK | Blocked | 067 | Feature 4 |
 | 069 | [Use persistent Monaco models for project files](069-use-persistent-monaco-models-for-project-files.md) | AFK | Blocked | 048, 068 | Feature 4 |

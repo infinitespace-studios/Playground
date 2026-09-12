@@ -18,9 +18,9 @@
 //
 //   MODES
 //     product  — the default/release build. Non-vacuous:
-//                  * all 9 responsibility-named PRODUCT commands present
+//                  * all 10 responsibility-named PRODUCT commands present
 //                  * known product runtime exports/assets present (floor)
-//                  * source capability/permission grants exactly the 9 product commands
+//                  * source capability/permission grants exactly the 10 product commands
 //                  * ZERO of the 8 old issue-numbered product command names
 //                  * ZERO of the 59 proof command strings; ZERO issueNN command tokens
 //                  * ZERO proof env/report markers (MONOGAME_ISSUE*_PROOF, PROOF relays,
@@ -31,7 +31,7 @@
 //                    installIssue040AudioProbe, compilerProof, initializeCompilerProofMode, …)
 //     proof    — the explicit `--features proof-harness` build. Proves the harness
 //                is actually compiled in:
-//                  * all 68 commands present (9 product + 59 proof)
+//                  * all 69 commands present (10 product + 59 proof)
 //                  * representative + full proof symbols/env markers/JS globals present
 //                  * proof extension assets staged
 //                  * EXACTLY eight scenario suites retained (dist-proof manifest)
@@ -115,11 +115,11 @@ function deriveInventories() {
 
   const errs = [];
   // Canonical counts (anti-vacuity floors + exact drift anchors).
-  if (product.length !== 9)
-    errs.push(`PRODUCT_COMMANDS count ${product.length} != 9`);
+  if (product.length !== 10)
+    errs.push(`PRODUCT_COMMANDS count ${product.length} != 10`);
   if (proof.length !== 59) errs.push(`PROOF_COMMANDS count ${proof.length} != 59`);
-  if (handler.length !== 68)
-    errs.push(`HANDLER_ORDER count ${handler.length} != 68`);
+  if (handler.length !== 69)
+    errs.push(`HANDLER_ORDER count ${handler.length} != 69`);
 
   const productSet = new Set(product);
   const proofSet = new Set(proof);
@@ -494,7 +494,7 @@ function checkProduct(inv, opts, fail, note) {
     );
   const bin = scanArtifact(res.binaryPath);
 
-  // Positive floor (non-vacuous): the 9 product commands + runtime floors present.
+  // Positive floor (non-vacuous): the 10 product commands + runtime floors present.
   const missingProduct = inv.product.filter((c) => !bin.has(c));
   if (missingProduct.length)
     fail(
@@ -611,11 +611,11 @@ function checkProof(inv, opts, fail, note) {
   note(`  identity: ${res.identity} (${res.expectedId})`);
   const bin = scanArtifact(res.binaryPath);
 
-  // Positive: all 68 commands present (proves the feature compiled the harness in).
+  // Positive: all 69 commands present (proves the feature compiled the harness in).
   const missingAll = inv.handler.filter((c) => !bin.has(c));
   if (missingAll.length)
     fail(
-      `PROOF binary missing ${missingAll.length}/68 commands (harness not compiled?): ` +
+      `PROOF binary missing ${missingAll.length}/69 commands (harness not compiled?): ` +
         missingAll.slice(0, 10).join(", ") +
         (missingAll.length > 10 ? ", …" : ""),
     );

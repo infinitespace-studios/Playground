@@ -9,6 +9,7 @@ import { installPreviewPanel } from "./preview-panel";
 import { installStatusBar, type FileStatus } from "./status-bar";
 import { prepareProjectContent } from "./project-content";
 import { installAssetBrowser } from "./asset-browser";
+import { installAssetImport } from "./asset-import-controller";
 import { installAppScaleControls } from "./scaling-controller";
 
 // Workbench application controller wiring
@@ -140,6 +141,21 @@ const project = installProjectManager({
 
 // Issue 064: paint the initial rail state (scratch: no folder open yet).
 assetBrowser.render(project.contentSnapshot());
+
+// Issue 066: asset import via an unobtrusive "Import assets…" action (native
+// multi-file picker) and the asset rail as an accessible OS-file drop target.
+// Both flows confirm/edit Content-relative destinations before any write, import
+// sequentially through the bounded native command (issue 065), never overwrite,
+// and refresh the rail from disk afterward. Editor state is preserved. The
+// drag/drop bridge is Rust→top-frame only, so the sandboxed preview cannot
+// inject drops.
+installAssetImport({
+  hasProject: () => project.hasProject(),
+  pickImportFiles: () => project.pickImportFiles(),
+  importAsset: (sourcePath, destination) => project.importAsset(sourcePath, destination),
+  refreshContent: () => project.refreshContent(),
+  showError: showModalError,
+});
 
 function renderScratchExplorer(fileName: string): void {
   if (!fileExplorer) return;

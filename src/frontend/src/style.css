@@ -338,6 +338,108 @@ body[data-running="true"] .lamp {
   white-space: nowrap;
 }
 
+/* Issue 066: unobtrusive "Import assets…" action in the Assets header and the
+   rail drop affordance. The action is a small text button that does NOT add any
+   per-file metadata to the clean file-explorer rail. The drop highlight is
+   conveyed by a border + background change (not color alone) when a compatible
+   drag is over the rail. */
+.asset-import-action {
+  display: inline-block;
+  margin-top: 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: none;
+  color: var(--muted);
+  padding: 4px 8px;
+  font: var(--fs-caption) ui-monospace, monospace;
+  cursor: pointer;
+}
+
+/* The Assets header holds the heading and the "Import assets…" button as
+   SIBLINGS (the button is never nested inside the h2). An unobtrusive inline row
+   keeps the clean rail layout: heading on the left, action trailing. */
+.asset-browser-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.asset-browser-header .asset-import-action {
+  margin-top: 0;
+}
+
+.asset-import-action:hover {
+  color: var(--text);
+  background: var(--panel2);
+}
+
+.asset-import-action:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
+/* The drop highlight is attached to the asset-browser section itself
+   (`#asset-browser`), which is exactly the element the controller flags with
+   `data-drop-active="true"`. Keeping the selector and the target element the
+   same guarantees the dashed outline/background is actually applied (a prior
+   selector scoped to the parent rail element never matched). */
+#asset-browser[data-drop-active="true"] {
+  outline: 2px dashed var(--amber);
+  outline-offset: -4px;
+  background: var(--panel2);
+}
+
+/* Issue 066: import confirmation dialog (reuses the .confirmation-dialog look).
+   Editable per-file destinations with inline validation errors. */
+.asset-import-list,
+.asset-import-rejected {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 0;
+}
+
+.asset-import-row {
+  margin-bottom: 8px;
+}
+
+.asset-import-label {
+  display: block;
+  font: var(--fs-caption) ui-monospace, monospace;
+  color: var(--muted);
+}
+
+.asset-import-dest {
+  display: block;
+  width: 100%;
+  margin-top: 2px;
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--panel2);
+  color: var(--text);
+  font: var(--fs-body) ui-monospace, monospace;
+}
+
+.asset-import-error {
+  display: block;
+  margin-top: 2px;
+  color: var(--red, #d9534f);
+  font: var(--fs-caption) ui-monospace, monospace;
+}
+
+.asset-import-rejected-heading {
+  margin: 0 0 4px;
+  font: var(--fs-caption) ui-monospace, monospace;
+  color: var(--muted);
+}
+
+.asset-import-rejected li {
+  color: var(--muted);
+  font: var(--fs-caption) ui-monospace, monospace;
+}
+
+
 /* Editor */
 .editor {
   min-width: 0;

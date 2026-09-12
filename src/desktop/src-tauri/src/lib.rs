@@ -4,7 +4,7 @@
 // shipping PRODUCT build never links this module. Re-exported with a glob so
 // the `tauri::generate_handler!` command identifiers stay bare (as `build.rs`
 // requires) and the crate-root test module can reach the proof helpers via
-// `super::`. The nine PRODUCT commands plus the workspace/project/first-run/
+// `super::`. The ten PRODUCT commands plus the workspace/project/first-run/
 // preview protocol responsibilities remain in this file.
 #[cfg(feature = "proof-harness")]
 mod proof_harness;
@@ -313,6 +313,44 @@ async fn project_pick_folder(app: tauri::AppHandle) -> Result<Option<String>, St
                 .into_path()
                 .map_err(|error| format!("failed to resolve folder path: {error}"))?;
             Ok(Some(path_buf.to_string_lossy().into_owned()))
+        }
+        None => Ok(None),
+    }
+}
+
+/// Issue 066: Show the native multi-file picker for asset import and return the
+/// chosen file paths. Wraps the dialog plugin's Rust API (`blocking_pick_files`)
+/// so the trusted main webview goes through an approved application command
+/// rather than invoking the `plugin:dialog` surface directly (issue 034 keeps
+/// the trusted frontend off raw plugin IPC). The picker is pre-filtered to the
+/// supported Content extensions (`PROJECT_CONTENT_EXTENSIONS`) so the user can
+/// only select importable types, but this command performs NO copy: it returns
+/// only the selected absolute source paths. The actual bounded, confined copy
+/// into the project `Content/` root is done — one file at a time — by
+/// `project_import_asset` (issue 065), which re-validates every source. This
+/// preserves the plugin boundary and keeps the write primitive singular.
+///
+/// Returns Ok(Some(paths)) when one or more files are chosen, Ok(None) when the
+/// dialog is cancelled.
+#[tauri::command]
+async fn project_pick_import_files(app: tauri::AppHandle) -> Result<Option<Vec<String>>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let chosen = app
+        .dialog()
+        .file()
+        .add_filter("Supported assets", PROJECT_CONTENT_EXTENSIONS)
+        .blocking_pick_files();
+    match chosen {
+        Some(paths) => {
+            let mut resolved = Vec::with_capacity(paths.len());
+            for path in paths {
+                let path_buf = path
+                    .into_path()
+                    .map_err(|error| format!("failed to resolve selected file path: {error}"))?;
+                resolved.push(path_buf.to_string_lossy().into_owned());
+            }
+            Ok(Some(resolved))
         }
         None => Ok(None),
     }
@@ -935,6 +973,79 @@ async fn project_import_asset(
     }))
 }
 
+// --- Issue 066: secure Rust → main-webview drag/drop asset-import bridge ---
+//
+// The JS hook names the trusted main-webview asset-import controller installs.
+// A native OS drag/drop over the main window is delivered to Rust (never to the
+// webview as a DOM event, because Tauri intercepts it), and we forward each
+// phase to ONLY the trusted main webview's top frame via `eval`. The controller
+// hit-tests the drop position against the asset rail and shows a
+// keyboard-accessible confirmation before any copy. Distinct hooks per phase
+// keep the affordance (enter/over highlight, leave clear, drop import) simple.
+const DRAG_DROP_HOOK: &str = "window.__playgroundAssetDrop__";
+
+/// JSON-encode a string as a JavaScript string literal safe to embed inside an
+/// `eval`'d script. `serde_json` handles quotes, backslashes, and control
+/// characters; we additionally escape U+2028/U+2029 (valid in JSON strings but
+/// line terminators in JS source) so a crafted path cannot break out of the
+/// literal. Pure — directly unit-testable.
+fn js_string_literal(value: &str) -> String {
+    let encoded = serde_json::Value::String(value.to_owned()).to_string();
+    encoded
+        .replace('\u{2028}', "\\u2028")
+        .replace('\u{2029}', "\\u2029")
+}
+
+/// Build the top-frame `eval` script that forwards one drag/drop phase to the
+/// trusted main webview's asset-import controller. Returns `None` for phases we
+/// do not forward. The payload is a JSON object the hook parses; paths are only
+/// present for `enter`/`drop`. Physical cursor coordinates are forwarded so the
+/// frontend can hit-test the drop against the asset rail (the security boundary
+/// is the sandboxed preview iframe, which can never receive a native drop; the
+/// rail hit-test is an additional affordance gate). Pure — unit-testable.
+fn drag_drop_push_script(event: &tauri::DragDropEvent) -> Option<String> {
+    let payload = match event {
+        tauri::DragDropEvent::Enter { paths, position } => {
+            let list = paths
+                .iter()
+                .map(|path| js_string_literal(&path.to_string_lossy()))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "{{\"phase\":\"enter\",\"x\":{},\"y\":{},\"paths\":[{list}]}}",
+                position.x, position.y
+            )
+        }
+        tauri::DragDropEvent::Over { position } => {
+            format!(
+                "{{\"phase\":\"over\",\"x\":{},\"y\":{}}}",
+                position.x, position.y
+            )
+        }
+        tauri::DragDropEvent::Drop { paths, position } => {
+            let list = paths
+                .iter()
+                .map(|path| js_string_literal(&path.to_string_lossy()))
+                .collect::<Vec<_>>()
+                .join(",");
+            format!(
+                "{{\"phase\":\"drop\",\"x\":{},\"y\":{},\"paths\":[{list}]}}",
+                position.x, position.y
+            )
+        }
+        tauri::DragDropEvent::Leave => "{\"phase\":\"leave\"}".to_string(),
+        // `DragDropEvent` is `#[non_exhaustive]`; ignore any future variant.
+        _ => return None,
+    };
+    // The payload is a JSON string; hand it to the hook as a JS string literal
+    // and let the hook `JSON.parse` it. The optional-chaining guard makes the
+    // push a no-op until the controller installs the hook.
+    Some(format!(
+        "{DRAG_DROP_HOOK}?.({});",
+        js_string_literal(&payload)
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     #[cfg(all(target_os = "macos", feature = "proof-harness"))]
@@ -946,9 +1057,9 @@ mod tests {
         PROJECT_CONTENT_MAX_TOTAL_BYTES, base64_encode, chrono_free_iso8601,
         content_max_file_bytes, first_run_read_store, first_run_validate_notice_version,
         first_run_write_store_atomic, import_content_totals, import_segment_is_windows_safe,
-        import_validate_destination, import_validate_source_extension, navigation_allowed,
-        preview_asset, preview_content_type, preview_protocol_response, project_discover_content,
-        project_import_asset, sha256_hex,
+        import_validate_destination, import_validate_source_extension, js_string_literal,
+        navigation_allowed, preview_asset, preview_content_type, preview_protocol_response,
+        project_discover_content, project_import_asset, sha256_hex,
     };
     #[cfg(feature = "proof-harness")]
     use super::{
@@ -1560,6 +1671,33 @@ mod tests {
         assert_eq!(result["status"], "imported");
         assert_eq!(result["extension"], "jpeg");
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- Issue 066: drag/drop bridge JS-literal escaping ---
+
+    #[test]
+    fn js_string_literal_escapes_dangerous_characters() {
+        // Ordinary strings round-trip as a quoted JS literal.
+        assert_eq!(js_string_literal("player.png"), "\"player.png\"");
+        // Quotes and backslashes are escaped so a crafted path cannot break out
+        // of the literal (the Windows-style path keeps its separators, escaped).
+        assert_eq!(
+            js_string_literal("C:\\Art\\\"x\".png"),
+            "\"C:\\\\Art\\\\\\\"x\\\".png\""
+        );
+        // Newlines/control characters are escaped by serde_json.
+        assert_eq!(js_string_literal("a\nb"), "\"a\\nb\"");
+        // U+2028 / U+2029 are valid in JSON strings but are JS source line
+        // terminators; they must be escaped so an eval'd literal stays intact.
+        let literal = js_string_literal("a\u{2028}b\u{2029}c");
+        assert!(literal.contains("\\u2028"));
+        assert!(literal.contains("\\u2029"));
+        assert!(!literal.contains('\u{2028}'));
+        assert!(!literal.contains('\u{2029}'));
+        // A `</script>`-style path is inert here (we eval a string literal, not
+        // HTML) but the closing quote/backslash handling is what matters; assert
+        // the angle brackets survive intact inside the quoted literal.
+        assert_eq!(js_string_literal("</script>.png"), "\"</script>.png\"");
     }
 
     #[test]
@@ -2178,7 +2316,7 @@ mod tests {
         entries
     }
 
-    const PRODUCT_HANDLER_COMMANDS: [&str; 9] = [
+    const PRODUCT_HANDLER_COMMANDS: [&str; 10] = [
         "first_run_check_acknowledgement",
         "first_run_write_acknowledgement",
         "workspace_write_file",
@@ -2188,10 +2326,11 @@ mod tests {
         "project_pick_folder",
         "project_read",
         "project_import_asset",
+        "project_pick_import_files",
     ];
 
     #[test]
-    fn handler_registers_exactly_nine_ungated_product_commands() {
+    fn handler_registers_exactly_ten_ungated_product_commands() {
         let entries = handler_entries();
         let product: Vec<&str> = entries
             .iter()
@@ -2200,7 +2339,7 @@ mod tests {
             .collect();
         assert_eq!(
             product, PRODUCT_HANDLER_COMMANDS,
-            "the default build must register exactly the nine product commands, ungated"
+            "the default build must register exactly the ten product commands, ungated"
         );
     }
 
@@ -2225,13 +2364,13 @@ mod tests {
                 "product command {name} must never be gated"
             );
         }
-        // Total handler surface is 68 = 9 product + 59 proof.
-        assert_eq!(entries.len(), 68);
+        // Total handler surface is 69 = 10 product + 59 proof.
+        assert_eq!(entries.len(), 69);
     }
 
     #[test]
     fn product_commands_are_present_in_both_profiles_unconditionally() {
-        // The nine product command fns compile with and without the feature
+        // The ten product command fns compile with and without the feature
         // (referencing them here binds the assertion to real symbols, not
         // strings). If any were feature-gated, this test module — which builds
         // in the default profile — would fail to compile.
@@ -2265,9 +2404,9 @@ mod tests {
 
     #[cfg(feature = "proof-harness")]
     #[test]
-    fn feature_build_exposes_full_sixty_seven_command_surface() {
+    fn feature_build_exposes_full_sixty_nine_command_surface() {
         let entries = handler_entries();
-        assert_eq!(entries.len(), 68);
+        assert_eq!(entries.len(), 69);
         // Proof symbols must be reachable when the feature compiles them in.
         let _: fn(&str) -> Option<super::Issue040Input> = super::issue040_input_kind;
         // The proof store overlay is present only under the feature.
@@ -2744,6 +2883,30 @@ pub fn run() {
                         }
                     });
             }
+            // Issue 066: desktop drag/drop asset import. OS file drops are
+            // intercepted natively by Tauri (dragDropEnabled defaults to true)
+            // and delivered here as `WindowEvent::DragDrop` on the trusted main
+            // window — they never reach the webview as HTML DOM drag events, so
+            // the opaque-origin sandboxed preview iframe (issue 033/034) can
+            // never see or forge a drop. We forward each phase to the trusted
+            // main webview's top frame via `eval` (a top-frame-only push, not
+            // an all-frames initialization script), which invokes a fixed
+            // global hook the asset-import controller installs. The frontend
+            // hit-tests the drop against the asset rail's bounds and shows a
+            // keyboard-accessible confirmation before any bytes are copied via
+            // `project_import_asset`. `eval` runs only in the main document, and
+            // the preview iframe (sandbox="allow-scripts", no allow-same-origin)
+            // cannot reach the parent window, so a drop cannot be injected from
+            // preview content.
+            if let tauri::WindowEvent::DragDrop(drag) = event
+                && let Some(script) = drag_drop_push_script(drag)
+            {
+                // A WebviewWindow has exactly one webview; push to its top
+                // frame. `webviews()` returns the window's webview(s).
+                if let Some(webview) = window.webviews().into_iter().next() {
+                    let _ = webview.eval(&script);
+                }
+            }
         })
         .register_uri_scheme_protocol("playground-preview", |_context, request| {
             let uri_string = request.uri().to_string();
@@ -2932,7 +3095,8 @@ pub fn run() {
             workspace_set_dirty,
             project_pick_folder,
             project_read,
-            project_import_asset
+            project_import_asset,
+            project_pick_import_files
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoGame Playground")
