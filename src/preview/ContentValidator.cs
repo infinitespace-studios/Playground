@@ -40,12 +40,38 @@ internal static class ContentValidator
     private const int MaxSoundDataBytes = 8 * 1024 * 1024;
     private const int SoundDurationToleranceMilliseconds = 50;
     private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
+    // The pinned MonoGame content pipeline (MonoGame.Framework.Content.Pipeline
+    // BuiltInContentWriter<T>.GetRuntimeReader) writes the SHORT, unqualified reader
+    // name for built-in types (e.g. "Microsoft.Xna.Framework.Content.Texture2DReader")
+    // — it deliberately omits assembly qualification. See the pinned MGCB source in
+    // external/MonoGame. The runtime (ContentTypeReaderManager) matches these short
+    // names directly against its registered type creators. Older/hand-authored XNBs
+    // may still carry the fully assembly-qualified name pinned to MonoGame.Framework
+    // 3.8.5.1, so both exact forms are accepted. No prefix/suffix matching is used, so
+    // spoofed names like "...Texture2DReaderSuffix" or an unexpected assembly identity
+    // are still rejected.
+    private const string Texture2DReaderShortType =
+        "Microsoft.Xna.Framework.Content.Texture2DReader";
     private const string Texture2DReaderType =
-        "Microsoft.Xna.Framework.Content.Texture2DReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
+        Texture2DReaderShortType + ", MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
+    private const string SoundEffectReaderShortType =
+        "Microsoft.Xna.Framework.Content.SoundEffectReader";
     private const string SoundEffectReaderType =
-        "Microsoft.Xna.Framework.Content.SoundEffectReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
+        SoundEffectReaderShortType + ", MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
     private const string UnsupportedReaderType =
         "Microsoft.Xna.Framework.Content.SpriteFontReader, MonoGame.Framework, Version=3.8.5.1, Culture=neutral, PublicKeyToken=null";
+
+    /// <summary>
+    /// Returns true only when <paramref name="readerType"/> is exactly one of the two
+    /// accepted spellings for the given built-in reader: the short unqualified name the
+    /// pinned MGCB emits, or the fully assembly-qualified pinned 3.8.5.1 name. Uses
+    /// ordinal equality (no StartsWith/Contains) so suffixed or mismatched-assembly
+    /// reader strings are rejected.
+    /// </summary>
+    private static bool MatchesReader(string readerType, string shortType, string fullType)
+        => string.Equals(readerType, shortType, StringComparison.Ordinal)
+           || string.Equals(readerType, fullType, StringComparison.Ordinal);
 
     // Known platform identifiers from MonoGame ContentWriter.TargetPlatformIdentifiers
     private static readonly Dictionary<byte, string> KnownPlatforms = new()
@@ -224,8 +250,8 @@ internal static class ContentValidator
         if (!TryReadInt32(ref remaining, out var readerVersion))
             return FailureShort("PG0205_CONTENT_MALFORMED_READERS", assetPath);
 
-        var isTexture = readerType == Texture2DReaderType;
-        var isSoundEffect = readerType == SoundEffectReaderType;
+        var isTexture = MatchesReader(readerType, Texture2DReaderShortType, Texture2DReaderType);
+        var isSoundEffect = MatchesReader(readerType, SoundEffectReaderShortType, SoundEffectReaderType);
         if ((!isTexture && !isSoundEffect) || readerVersion != 0)
         {
             return Failure("PG0206_CONTENT_UNSUPPORTED_TYPE",
@@ -586,6 +612,10 @@ internal static class ContentValidator
         return new Dictionary<string, SelfTestCaseResult>(StringComparer.Ordinal)
         {
             ["good-fixture"] = ToSelfTestCaseResult(Validate(good, assetPath)),
+            ["good-short-reader"] = ToSelfTestCaseResult(Validate(
+                BuildTexture2DContent(readerType: Texture2DReaderShortType), assetPath)),
+            ["short-suffixed-reader"] = ToSelfTestCaseResult(Validate(
+                BuildTexture2DContent(readerType: Texture2DReaderShortType + "Suffix"), assetPath)),
             ["wrong-platform"] = ToSelfTestCaseResult(Validate(
                 BuildTexture2DContent(platformByte: (byte)'d'), assetPath)),
             ["compressed"] = ToSelfTestCaseResult(Validate(
@@ -628,6 +658,10 @@ internal static class ContentValidator
                 }), assetPath)),
             ["sound-good-fixture"] = ToSelfTestCaseResult(Validate(
                 BuildSoundEffectContent(), soundPath)),
+            ["sound-good-short-reader"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(readerType: SoundEffectReaderShortType), soundPath)),
+            ["sound-short-suffixed-reader"] = ToSelfTestCaseResult(Validate(
+                BuildSoundEffectContent(readerType: SoundEffectReaderShortType + "Suffix"), soundPath)),
             ["sound-good-stereo-8bit"] = ToSelfTestCaseResult(Validate(
                 BuildSoundEffectContent(channels: 2, bitsPerSample: 8, sampleCount: 400), soundPath)),
             ["sound-wrong-platform"] = ToSelfTestCaseResult(Validate(

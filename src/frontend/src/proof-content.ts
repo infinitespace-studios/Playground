@@ -205,6 +205,8 @@ export async function runIssue039ContentProof(): Promise<void> {
     const validatorSelfTest = await ctx.bridge.request<any>("snapshot", { name: "issue039-validator-test" });
     const EXPECTED_VALIDATOR = {
       "good-fixture": [true, null],
+      "good-short-reader": [true, null],
+      "short-suffixed-reader": [false, "PG0206_CONTENT_UNSUPPORTED_TYPE"],
       "wrong-platform": [false, "PG0010_CONTENT_PLATFORM_MISMATCH"],
       compressed: [false, "PG0203_CONTENT_COMPRESSED"],
       truncated: [false, "PG0205_CONTENT_MALFORMED_READERS"],
@@ -226,6 +228,8 @@ export async function runIssue039ContentProof(): Promise<void> {
       "overlong-7bit": [false, "PG0205_CONTENT_MALFORMED_READERS"],
       "dimension-impossible-mips": [false, "PG0205_CONTENT_MALFORMED_READERS"],
       "sound-good-fixture": [true, null],
+      "sound-good-short-reader": [true, null],
+      "sound-short-suffixed-reader": [false, "PG0206_CONTENT_UNSUPPORTED_TYPE"],
       "sound-good-stereo-8bit": [true, null],
       "sound-wrong-platform": [false, "PG0010_CONTENT_PLATFORM_MISMATCH"],
       "sound-compressed-flag": [false, "PG0203_CONTENT_COMPRESSED"],
