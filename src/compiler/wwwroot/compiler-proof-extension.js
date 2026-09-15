@@ -21,6 +21,7 @@ globalThis.__playgroundCompilerExtension = controls => {
   const compileButton = document.querySelector("#compile");
   const diagnosticsButton = document.querySelector("#diagnostics");
   const languageServicesButton = document.querySelector("#language-services");
+  const directCompletionButton = document.querySelector("#direct-completion");
   const results = document.querySelector("#results");
   const proofOutput = document.querySelector("#proof-state");
   // The issue-070 static page is intentionally loaded without the Workbench
@@ -124,6 +125,7 @@ globalThis.__playgroundCompilerExtension = controls => {
     if (compileButton) compileButton.disabled = true;
     if (diagnosticsButton) diagnosticsButton.disabled = true;
     if (languageServicesButton) languageServicesButton.disabled = true;
+    if (directCompletionButton) directCompletionButton.disabled = true;
     if (event.isTrusted) {
       proofState.trustedClickCount += 1;
     }
@@ -137,6 +139,7 @@ globalThis.__playgroundCompilerExtension = controls => {
       if (compileButton) compileButton.disabled = Boolean(proofState.referenceProof);
       if (diagnosticsButton) diagnosticsButton.disabled = Boolean(proofState.diagnosticProof);
       if (languageServicesButton) languageServicesButton.disabled = Boolean(proofState.languageServiceSpike);
+      if (directCompletionButton) directCompletionButton.disabled = false;
     }
     renderState();
   }
@@ -420,6 +423,24 @@ globalThis.__playgroundCompilerExtension = controls => {
     }
   });
 
+  directCompletionButton?.addEventListener("click", async event => {
+    if (!beginCall(event)) return;
+    if (status) status.textContent = "Running direct SemanticModel completion backend...";
+    try {
+      const exports = await controls.exportsPromise;
+      const result = JSON.parse(exports.RunDirectCompletionBackendSpike());
+      appendResult(
+        `Direct completion success=${result.success}; expected=${result.expectedItem}; ` +
+        `found=${result.items?.some(item => item.name === result.expectedItem)}; ` +
+        `elapsedMs=${result.elapsedMs}; recommendation=${result.recommendation}; trusted=${event.isTrusted}`);
+      if (status) status.textContent = "Direct completion backend proof complete.";
+    } catch (error) {
+      showError(error);
+    } finally {
+      endCall();
+    }
+  });
+
   diagnosticsButton?.addEventListener("click", async event => {
     if (!beginCall(event) || proofState.diagnosticProof) return;
     if (status) status.textContent = "Compiling structured diagnostic proof cases in browser WebAssembly...";
@@ -454,6 +475,7 @@ globalThis.__playgroundCompilerExtension = controls => {
         if (compileButton) compileButton.disabled = false;
         if (diagnosticsButton) diagnosticsButton.disabled = false;
         if (languageServicesButton) languageServicesButton.disabled = false;
+        if (directCompletionButton) directCompletionButton.disabled = false;
         renderState();
       },
       onCompileTransfer(transfer) {

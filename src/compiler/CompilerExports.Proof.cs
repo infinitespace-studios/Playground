@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Diagnostics;
 using System.Runtime.InteropServices.JavaScript;
 using System.Text;
@@ -7,6 +8,7 @@ using System.Text.Json.Serialization;
 using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.Completion;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.CSharp.Syntax;
 using Microsoft.CodeAnalysis.Host.Mef;
 using Microsoft.CodeAnalysis.Text;
 
@@ -319,6 +321,120 @@ public static partial class CompilerExports
         }
     }
 
+    /// <summary>
+    /// A smaller backend experiment that avoids Workspaces and MEF entirely.
+    /// It proves one useful completion by compiling sources with the already
+    /// working browser CSharpCompilation path and querying a SemanticModel.
+    /// </summary>
+    [JSExport]
+    public static string RunDirectCompletionBackendSpike()
+    {
+        var stopwatch = Stopwatch.StartNew();
+        var gcBefore = GC.GetTotalMemory(forceFullCollection: false);
+        const string marker = "/*cursor*/";
+        const string sourceWithMarker =
+            "public class Game { Player player = new Player(); void M() { player./*cursor*/ } }";
+        var cursor = sourceWithMarker.IndexOf(marker, StringComparison.Ordinal);
+        var source = sourceWithMarker.Replace(marker, string.Empty, StringComparison.Ordinal);
+        try
+        {
+            var files = new[]
+            {
+                new CompilationSource("Game.cs", source),
+                new CompilationSource("Player.cs", "public class Player { public int Score; public void Jump() { } }")
+            };
+            var trees = files
+                .Select(file => CSharpSyntaxTree.ParseText(
+                    SourceText.From(file.Text),
+                    new CSharpParseOptions(LanguageVersion.CSharp13),
+                    file.Path))
+                .ToImmutableArray();
+            var compilation = CSharpCompilation.Create(
+                "DirectCompletionSpike",
+                trees,
+                BrowserMetadataReferences.Allowlisted,
+                new CSharpCompilationOptions(
+                    OutputKind.DynamicallyLinkedLibrary,
+                    allowUnsafe: false,
+                    concurrentBuild: false,
+                    deterministic: true));
+            var compilerDiagnostics = compilation.GetDiagnostics()
+                .Where(diagnostic => diagnostic.Severity == DiagnosticSeverity.Error)
+                .Select(diagnostic => $"{diagnostic.Id}: {diagnostic.GetMessage()}")
+                .ToArray();
+            var compilerErrors = compilerDiagnostics.Length;
+            var gameTree = trees[0];
+            var model = compilation.GetSemanticModel(gameTree);
+            var token = gameTree.GetRoot().FindToken(cursor - 1);
+            var access = token.Parent?
+                .AncestorsAndSelf()
+                .OfType<MemberAccessExpressionSyntax>()
+                .FirstOrDefault();
+            var receiverType = access is null ? null : model.GetTypeInfo(access.Expression).Type;
+            var items = receiverType?.GetMembers()
+                .Where(symbol => !symbol.IsImplicitlyDeclared && !string.IsNullOrEmpty(symbol.Name))
+                .Select(symbol => new DirectCompletionItem(symbol.Name, symbol.Kind.ToString()))
+                .DistinctBy(item => item.Name)
+                .OrderBy(item => item.Name, StringComparer.Ordinal)
+                .Take(100)
+                .ToArray() ?? Array.Empty<DirectCompletionItem>();
+            var found = items.Any(item => item.Name == "Score");
+            var gcAfter = GC.GetTotalMemory(forceFullCollection: false);
+            var result = new DirectCompletionBackendReport(
+                found,
+                "direct-semantic-model",
+                compilerErrors,
+                compilerDiagnostics,
+                "Game.cs",
+                cursor,
+                "Score",
+                items,
+                stopwatch.Elapsed.TotalMilliseconds,
+                gcBefore,
+                gcAfter,
+                false,
+                found ? "go" : "no-go",
+                null);
+            return JsonSerializer.Serialize(result, CompilerProofJsonContext.Default.DirectCompletionBackendReport);
+        }
+        catch (Exception exception)
+        {
+            var result = new DirectCompletionBackendReport(
+                false,
+                "direct-semantic-model",
+                -1,
+                Array.Empty<string>(),
+                "Game.cs",
+                cursor,
+                "Score",
+                Array.Empty<DirectCompletionItem>(),
+                stopwatch.Elapsed.TotalMilliseconds,
+                gcBefore,
+                GC.GetTotalMemory(false),
+                false,
+                "no-go",
+                $"{exception.GetType().Name}: {exception.Message}");
+            return JsonSerializer.Serialize(result, CompilerProofJsonContext.Default.DirectCompletionBackendReport);
+        }
+    }
+
+    internal sealed record DirectCompletionItem(string Name, string Kind);
+    internal sealed record DirectCompletionBackendReport(
+        bool Success,
+        string Backend,
+        int CompilerErrorCount,
+        IReadOnlyList<string> CompilerDiagnostics,
+        string File,
+        int CursorOffset,
+        string ExpectedItem,
+        IReadOnlyList<DirectCompletionItem> Items,
+        double ElapsedMs,
+        long GcBytesBefore,
+        long GcBytesAfter,
+        bool RssMeasured,
+        string Recommendation,
+        string? Error);
+
     private static double Percentile(IReadOnlyList<double> values, double percentile)
     {
         if (values.Count == 0) return 0;
@@ -460,4 +576,6 @@ public static partial class CompilerExports
 [JsonSerializable(typeof(CompilerExports.LanguageServiceMeasurements))]
 [JsonSerializable(typeof(CompilerExports.LanguageServiceResponsiveness))]
 [JsonSerializable(typeof(CompilerExports.CompletionSpikeCase))]
+[JsonSerializable(typeof(CompilerExports.DirectCompletionBackendReport))]
+[JsonSerializable(typeof(CompilerExports.DirectCompletionItem))]
 internal sealed partial class CompilerProofJsonContext : JsonSerializerContext;

@@ -202,13 +202,37 @@ security boundary.
 - The PRODUCT compiler remains on the existing retained-binary path and does
   not link the language-service spike.
 
+## Direct SemanticModel backend result (070A)
+
+A follow-up proof bypassed Workspaces and MEF entirely. It used the existing
+browser-safe `CSharpCompilation` path and queried a `SemanticModel` for a
+cross-file member completion. The human verifier ran the staged browser page
+and observed:
+
+```text
+Direct completion success=true
+expected=Score
+found=true
+elapsedMs=81.6
+recommendation=go
+trusted=true
+```
+
+The fixture contains `Game.cs` referencing a `Player` declared in `Player.cs`.
+The returned items include `Jump` and `Score`. The source intentionally ends at
+`player.` because completion requests occur at incomplete syntax; compiler
+syntax diagnostics in that fixture are expected and do not prevent semantic
+member discovery.
+
 ## Decision
 
-The core Roslyn completion APIs work in the desktop fallback and the five
-fixtures are correct there, but the current browser-WASM MEF composition is not
-viable. Do **not** proceed directly to a language-service protocol or add these
-dependencies to PRODUCT. A future spike must first resolve the contract identity
-failure (likely assembly rooting/composition compatibility), then repeat the
-browser measurements before reconsidering a protocol. Any later design must
-still include lazy loading, cancellation, generation checks, and a product-size
-budget.
+The full Roslyn Workspaces/Features architecture remains **NO-GO** in browser
+WASM because its MEF composition fails. A constrained direct `CSharpCompilation`
++ `SemanticModel` backend is **GO for a follow-up protocol prototype**. Issue
+071 may proceed, but its contracts must remain backend-neutral and its first
+implementation should target bounded semantic-model completion rather than
+assume an `AdhocWorkspace`/MEF service.
+
+Do **not** add Workspaces/Features to PRODUCT. Any later design must still
+include lazy/debounced requests, cancellation, document-generation checks,
+deterministic ordering, and a product-size budget.

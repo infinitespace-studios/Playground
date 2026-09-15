@@ -1,6 +1,6 @@
 # MonoGame Desktop Playground — Issue backlog
 
-This directory is a strictly ordered, locally-tracked execution backlog. Issues 001–056 were derived from [`PRD-MonoGame-Desktop-Playground_Version2.md`](../PRD-MonoGame-Desktop-Playground_Version2.md); their release-hardening tail (054–056) is currently parked by the product owner. Issues 057–058 are completed product follow-ups, and issues 059–088 are the post-proof feature backlog approved by the product owner. It contains 88 issue files (`001-...md` through `088-...md`) plus this README. Every issue file is self-contained: it can be picked up by an agent or contributor with **no prior conversation context**, using only the issue file itself, its linked blockers (if any), and the repository documentation it names.
+This directory is a strictly ordered, locally-tracked execution backlog. Issues 001–056 were derived from [`PRD-MonoGame-Desktop-Playground_Version2.md`](../PRD-MonoGame-Desktop-Playground_Version2.md); their release-hardening tail (054–056) is currently parked by the product owner. Issues 057–058 are completed product follow-ups, and issues 059–088 are the post-proof feature backlog approved by the product owner. It contains 89 issue files (`001-...md` through `088-...md`, plus the 070A follow-up) plus this README. Every issue file is self-contained: it can be picked up by an agent or contributor with **no prior conversation context**, using only the issue file itself, its linked blockers (if any), and the repository documentation it names.
 
 ## Execution contract
 
@@ -137,8 +137,9 @@ Copilot-Session: 1428e10b-3d66-414a-b04c-5944666db423
 | 067 | [Create source files in folder projects](067-create-source-files-in-folder-projects.md) | AFK | Ready | 051 | Feature 4 |
 | 068 | [Rename and delete source files](068-rename-and-delete-source-files.md) | AFK | Blocked | 067 | Feature 4 |
 | 069 | [Use persistent Monaco models for project files](069-use-persistent-monaco-models-for-project-files.md) | AFK | Blocked | 048, 068 | Feature 4 |
-| 070 | [Spike Roslyn language services in browser WASM](070-spike-roslyn-language-services-in-browser-wasm.md) | AFK | Ready | 016, 019, 031 | Feature 2 |
-| 071 | [Define language-service protocol and document sync](071-define-language-service-protocol-and-document-sync.md) | AFK | Blocked | 015, 036, 070 | Feature 2 |
+| 070 | [Spike Roslyn language services in browser WASM](070-spike-roslyn-language-services-in-browser-wasm.md) | AFK | Done | 016, 019, 031 | Feature 2 |
+| 070A | [Prove one working browser completion backend](070a-prove-one-working-browser-completion-backend.md) | AFK | Done | 070 | Feature 2 |
+| 071 | [Define language-service protocol and document sync](071-define-language-service-protocol-and-document-sync.md) | AFK | Ready | 015, 036, 070A | Feature 2 |
 | 072 | [Implement persistent Roslyn completion workspace](072-implement-persistent-roslyn-completion-workspace.md) | AFK | Blocked | 070, 071 | Feature 2 |
 | 073 | [Connect Monaco to context-aware completions](073-connect-monaco-to-context-aware-completions.md) | AFK | Blocked | 069, 072 | Feature 2 |
 | 074 | [Add hover, signature help, and definition navigation](074-add-hover-signature-help-and-definition-navigation.md) | AFK | Blocked | 073 | Feature 2 |
