@@ -12,4 +12,5 @@ commands.allow = [
   "project_read",
   "project_import_asset",
   "project_pick_import_files",
+  "project_create_source_file",
 ]

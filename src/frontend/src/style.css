@@ -1255,6 +1255,25 @@ body[data-theme="light"] .theme-switch span::after {
   line-height: 1.4;
 }
 
+.confirmation-dialog label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: var(--fs-body);
+  font-weight: 600;
+}
+
+.confirmation-dialog input {
+  box-sizing: border-box;
+  width: 100%;
+  margin-bottom: 18px;
+  padding: 8px 10px;
+  border: 1px solid var(--muted);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+}
+
 .dialog-buttons {
   display: flex;
   gap: 8px;

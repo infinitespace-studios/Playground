@@ -1,7 +1,7 @@
 # Rename and delete source files safely
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [067-create-source-files-in-folder-projects.md](067-create-source-files-in-folder-projects.md)
 **Feature area:** Multi-file authoring
 **Triage:** feature-backlog security-sensitive

@@ -23,6 +23,58 @@
 
 import type { ProjectContentSnapshot } from "./asset-inventory";
 
+/** Minimal valid source shown when a new project file is created. */
+export const NEW_SOURCE_FILE_TEMPLATE = "public class NewFile\n{\n}\n";
+
+const SOURCE_PATH_MAX_BYTES = 1024;
+const WINDOWS_RESERVED_SOURCE_STEMS = new Set([
+  "con", "prn", "aux", "nul",
+  "com1", "com2", "com3", "com4", "com5", "com6", "com7", "com8", "com9",
+  "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
+]);
+
+/**
+ * Validate and canonicalize a project-relative C# source path before invoking
+ * the shell. Rust repeats this validation at the native boundary so forged
+ * calls cannot widen the project write surface.
+ */
+export function validateProjectSourcePath(path: string): string {
+  const byteLength = new TextEncoder().encode(path).length;
+  if (byteLength === 0 || byteLength > SOURCE_PATH_MAX_BYTES) {
+    throw new Error("source path must be between 1 and 1024 bytes");
+  }
+  if (path.startsWith("/") || path.startsWith("\\") || path.includes(":")) {
+    throw new Error("source path must be project-relative");
+  }
+
+  const normalized = path.replaceAll("\\", "/");
+  const segments = normalized.split("/");
+  for (const segment of segments) {
+    if (segment.length === 0 || segment === "." || segment === "..") {
+      throw new Error("source path must not contain empty, '.' or '..' segments");
+    }
+    if (segment.startsWith(".")) {
+      throw new Error("source path must not contain hidden names");
+    }
+    if (segment.startsWith(" ") || segment.endsWith(" ") || segment.endsWith(".")) {
+      throw new Error("source path segments must not have leading/trailing spaces or dots");
+    }
+    if ([...segment].some(char => char < " " || '<>:"|?*'.includes(char))) {
+      throw new Error("source path contains an unsupported character");
+    }
+    const stem = segment.split(".", 1)[0].toLowerCase();
+    if (WINDOWS_RESERVED_SOURCE_STEMS.has(stem)) {
+      throw new Error(`source path uses a reserved device name: ${segment}`);
+    }
+  }
+
+  const fileName = segments.at(-1) ?? "";
+  if (!fileName.endsWith(".cs")) {
+    throw new Error("new source files must use the .cs extension");
+  }
+  return normalized;
+}
+
 function normalizeProjectPath(path: string): string {
   let normalized = path.replaceAll("\\", "/");
   // Windows canonical paths may use the extended `//?/` prefix. It identifies
@@ -199,6 +251,8 @@ export interface ProjectManagerHooks {
 export interface ProjectManagerApi {
   /** Native folder picker → read project → populate explorer + editor. */
   openFolder: () => Promise<boolean>;
+  /** Create, register, and activate a new project-relative C# source file. */
+  createSourceFile: (relativePath: string) => Promise<boolean>;
   /** Switch the editor to a file by relative path (persists the current buffer first). */
   switchTo: (relativePath: string) => void;
   /** Persist the visible file's live buffer into module state + recompute dirty. */
@@ -425,6 +479,60 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
     },
     syncActiveBuffer,
     switchTo,
+    createSourceFile: async (requestedPath: string) => {
+      if (projectRoot === null) {
+        hooks.showError("Could not create file", "Open a folder project before creating a C# file.");
+        return false;
+      }
+
+      let relativePath: string;
+      try {
+        relativePath = validateProjectSourcePath(requestedPath);
+      } catch (error) {
+        hooks.showError("Invalid C# file path", error instanceof Error ? error.message : String(error));
+        return false;
+      }
+
+      // Treat paths case-insensitively here even on a case-sensitive host. A
+      // project created on Linux must not later collide when opened on Windows.
+      const canonicalPath = relativePath.toLowerCase();
+      if (files.some(file => file.relativePath.toLowerCase() === canonicalPath)) {
+        hooks.showError("File already exists", `A source file named ${relativePath} already exists.`);
+        return false;
+      }
+
+      syncActiveBuffer();
+      try {
+        const created = await invoke<{ relativePath: string; absolutePath: string }>(
+          "project_create_source_file",
+          {
+            projectRoot,
+            relativePath,
+            content: NEW_SOURCE_FILE_TEMPLATE,
+          },
+        );
+        const createdPath = validateProjectSourcePath(created.relativePath);
+        if (createdPath.toLowerCase() !== canonicalPath) {
+          throw new Error("the shell returned a different source path");
+        }
+        files.push({
+          relativePath: createdPath,
+          absolutePath: created.absolutePath,
+          savedContent: NEW_SOURCE_FILE_TEMPLATE,
+          currentContent: NEW_SOURCE_FILE_TEMPLATE,
+          dirty: false,
+        });
+        files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+        activePath = createdPath;
+        hooks.setEditorContent(NEW_SOURCE_FILE_TEMPLATE);
+        hooks.setDirtyIndicator(anyDirty());
+        renderExplorer();
+        return true;
+      } catch (error) {
+        hooks.showError("Could not create file", error instanceof Error ? error.message : String(error));
+        return false;
+      }
+    },
     openFolder: async () => {
       const picked = await invoke<string | null>("project_pick_folder");
       if (!picked) return false;

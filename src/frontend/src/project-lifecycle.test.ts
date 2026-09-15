@@ -39,8 +39,15 @@ interface MockShellOptions {
   writeThrowsForPath?: string;
 }
 
+interface CreatedFile {
+  projectRoot: string;
+  relativePath: string;
+  content: string;
+}
+
 interface MockShell {
   written: WrittenFile[];
+  created: CreatedFile[];
   setCancelPicker: (cancel: boolean) => void;
   setWriteFailure: (path: string | null) => void;
   /** Issue 064: change the `project_read` result returned by later invocations. */
@@ -74,6 +81,7 @@ function defaultProject() {
 function installMockShell(options: MockShellOptions = {}): MockShell {
   const originalWindow = (globalThis as { window?: unknown }).window;
   const written: WrittenFile[] = [];
+  const created: CreatedFile[] = [];
   let cancelPicker = options.cancelPicker ?? false;
   let writeFailurePath = options.writeThrowsForPath ?? null;
   let readProject = options.readProject;
@@ -98,6 +106,16 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
               written.push({ path, content: String(args?.content) });
               return null;
             }
+            case "project_create_source_file": {
+              const projectRoot = String(args?.projectRoot);
+              const relativePath = String(args?.relativePath);
+              const content = String(args?.content);
+              created.push({ projectRoot, relativePath, content });
+              return {
+                relativePath,
+                absolutePath: `${projectRoot}/${relativePath}`,
+              };
+            }
             default:
               throw new Error(`unexpected command: ${command}`);
           }
@@ -108,6 +126,7 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
 
   return {
     written,
+    created,
     setCancelPicker: cancel => { cancelPicker = cancel; },
     setWriteFailure: path => { writeFailurePath = path; },
     setReadProject: project => { readProject = project; },
@@ -250,6 +269,47 @@ test("closing a project clears identity, sources, dirty-state, and explorer", as
     assert.deepEqual(h.project.getSources(), []);
     assert.deepEqual(h.explorer(), []);
     assert.equal(h.dirtyStates.at(-1), false);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("creating a nested C# file writes, registers, and activates it", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell();
+  try {
+    const h = installHarness();
+    assert.equal(await h.project.openFolder(), true);
+    assert.equal(await h.project.createSourceFile("Helpers\\PlayerHelper.cs"), true);
+    assert.equal(shell.created.length, 1);
+    assert.deepEqual(shell.created[0], {
+      projectRoot: "/tmp/playground-project",
+      relativePath: "Helpers/PlayerHelper.cs",
+      content: "public class NewFile\n{\n}\n",
+    });
+    assert.equal(h.editorContent(), "public class NewFile\n{\n}\n");
+    assert.equal(h.explorer().find(entry => entry.relativePath === "Helpers/PlayerHelper.cs")?.active, true);
+    assert.equal(h.project.getSources().some(source => source.path === "Helpers/PlayerHelper.cs"), true);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("new C# file rejects unsafe paths and collisions before native writes", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell();
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    for (const bad of ["../Escape.cs", "/tmp/Escape.cs", "CON.cs", "Notes.txt", "Helpers//Bad.cs"]) {
+      assert.equal(await h.project.createSourceFile(bad), false, bad);
+    }
+    assert.equal(await h.project.createSourceFile("Player.cs"), false);
+    assert.equal(shell.created.length, 0);
+    assert.equal(h.project.getSources().some(source => source.path.includes("Escape")), false);
+    assert.equal(h.errors.length, 6);
   } finally {
     shell.restore();
     __resetProjectManagerState();

@@ -973,6 +973,176 @@ async fn project_import_asset(
     }))
 }
 
+// --- Project source-file creation ------------------------------------------
+//
+// This is the only native operation used by the Workbench's "New C# file"
+// action. It accepts a project root only as an authorization anchor, resolves
+// it canonically, validates a project-relative `.cs` path, refuses collisions,
+// and writes a new file through a same-directory temporary followed by an
+// atomic no-overwrite link.
+// The command is registered only on the trusted main window; the preview iframe
+// has neither Tauri IPC nor this ACL grant.
+const SOURCE_PATH_MAX_BYTES: usize = 1024;
+const SOURCE_MAX_FILE_BYTES: u64 = PROJECT_MAX_FILE_BYTES;
+static SOURCE_CREATE_TEMP_COUNTER: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+fn source_validate_relative_path(path: &str) -> Result<String, String> {
+    if path.is_empty() || path.len() > SOURCE_PATH_MAX_BYTES {
+        return Err("source path must be between 1 and 1024 bytes".into());
+    }
+    if path.starts_with('/') || path.starts_with('\\') || path.contains(':') {
+        return Err("source path must be project-relative".into());
+    }
+    let normalized = path.replace('\\', "/");
+    let segments: Vec<&str> = normalized.split('/').collect();
+    for segment in &segments {
+        if segment.is_empty() || *segment == "." || *segment == ".." {
+            return Err("source path must not contain empty, '.' or '..' segments".into());
+        }
+        if segment.starts_with('.') {
+            return Err("source path must not contain hidden names".into());
+        }
+        if segment.starts_with(' ') || segment.ends_with(' ') || segment.ends_with('.') {
+            return Err(
+                "source path segments must not have leading/trailing spaces or dots".into(),
+            );
+        }
+        if segment
+            .bytes()
+            .any(|byte| byte.is_ascii_control() || b"<>:\"|?*".contains(&byte))
+        {
+            return Err("source path contains an unsupported character".into());
+        }
+        import_segment_is_windows_safe(segment)?;
+    }
+    let file_name = segments.last().ok_or("source path must name a file")?;
+    if std::path::Path::new(file_name)
+        .extension()
+        .and_then(|extension| extension.to_str())
+        != Some("cs")
+    {
+        return Err("new source files must use the .cs extension".into());
+    }
+    Ok(normalized)
+}
+
+/// Find an existing child without relying on host case-sensitivity. This keeps
+/// a project portable: `Helpers/Player.cs` and `helpers/player.cs` cannot become
+/// distinct source files on a case-sensitive host and collide after transfer to
+/// Windows or a case-insensitive macOS volume.
+fn source_find_case_insensitive_child(
+    parent: &std::path::Path,
+    wanted: &str,
+) -> Result<Option<std::path::PathBuf>, String> {
+    let entries = std::fs::read_dir(parent)
+        .map_err(|error| format!("failed to inspect project directory: {error}"))?;
+    for entry in entries {
+        let entry =
+            entry.map_err(|error| format!("failed to inspect project directory: {error}"))?;
+        if entry
+            .file_name()
+            .to_string_lossy()
+            .eq_ignore_ascii_case(wanted)
+        {
+            return Ok(Some(entry.path()));
+        }
+    }
+    Ok(None)
+}
+
+#[tauri::command]
+async fn project_create_source_file(
+    project_root: String,
+    relative_path: String,
+    content: String,
+) -> Result<serde_json::Value, String> {
+    let relative = source_validate_relative_path(&relative_path)?;
+    if content.len() as u64 > SOURCE_MAX_FILE_BYTES {
+        return Err(format!(
+            "source file exceeds the {SOURCE_MAX_FILE_BYTES}-byte limit"
+        ));
+    }
+
+    let root_path = std::path::PathBuf::from(&project_root);
+    if !root_path.is_dir() {
+        return Err("project root is not a directory".into());
+    }
+    let root = root_path
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve project root: {error}"))?;
+
+    let segments: Vec<&str> = relative.split('/').collect();
+    let (directory_segments, file_name) = segments
+        .split_last()
+        .map(|(file, directories)| (directories, *file))
+        .ok_or("source path must name a file")?;
+
+    // Resolve or create each directory one segment at a time. Existing
+    // symlinks are canonicalized and must remain inside the project root.
+    let mut parent = root.clone();
+    for segment in directory_segments {
+        if let Some(existing) = source_find_case_insensitive_child(&parent, segment)? {
+            if !existing.is_dir() {
+                return Err(format!("source path segment is not a directory: {segment}"));
+            }
+            parent = existing
+                .canonicalize()
+                .map_err(|error| format!("failed to resolve source directory: {error}"))?;
+        } else {
+            let next = parent.join(segment);
+            std::fs::create_dir(&next)
+                .map_err(|error| format!("failed to create source directory: {error}"))?;
+            parent = next
+                .canonicalize()
+                .map_err(|error| format!("failed to resolve source directory: {error}"))?;
+        }
+        if !parent.starts_with(&root) {
+            return Err("source path escapes the project root".into());
+        }
+    }
+
+    if source_find_case_insensitive_child(&parent, file_name)?.is_some() {
+        return Err(format!("source file already exists: {relative}"));
+    }
+    let destination = parent.join(file_name);
+    let unique = SOURCE_CREATE_TEMP_COUNTER.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|value| value.as_nanos())
+        .unwrap_or(0);
+    let temporary = parent.join(format!(
+        ".playground-new-{}-{unique}-{nanos}.tmp",
+        std::process::id()
+    ));
+    if let Err(error) = std::fs::write(&temporary, content) {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("failed to write temporary source file: {error}"));
+    }
+    // A second check gives a clear conflict error for a normal concurrent
+    // desktop action. The atomic link below is the final no-overwrite guard.
+    if source_find_case_insensitive_child(&parent, file_name)?.is_some() {
+        let _ = std::fs::remove_file(&temporary);
+        return Err(format!("source file already exists: {relative}"));
+    }
+    // Linking the fully-written temporary is atomic and fails if another
+    // process created the destination after the final check; unlike rename, it
+    // can never overwrite a concurrently-created source file.
+    if let Err(error) = std::fs::hard_link(&temporary, &destination) {
+        let _ = std::fs::remove_file(&temporary);
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Err(format!("source file already exists: {relative}"));
+        }
+        return Err(format!("failed to commit source file: {error}"));
+    }
+    let _ = std::fs::remove_file(&temporary);
+
+    Ok(serde_json::json!({
+        "relativePath": relative,
+        "absolutePath": destination.to_string_lossy(),
+    }))
+}
+
 // --- Issue 066: secure Rust → main-webview drag/drop asset-import bridge ---
 //
 // The JS hook names the trusted main-webview asset-import controller installs.
@@ -1059,7 +1229,8 @@ mod tests {
         first_run_write_store_atomic, import_content_totals, import_segment_is_windows_safe,
         import_validate_destination, import_validate_source_extension, js_string_literal,
         navigation_allowed, preview_asset, preview_content_type, preview_protocol_response,
-        project_discover_content, project_import_asset, sha256_hex,
+        project_create_source_file, project_discover_content, project_import_asset, sha256_hex,
+        source_validate_relative_path,
     };
     #[cfg(feature = "proof-harness")]
     use super::{
@@ -1310,6 +1481,90 @@ mod tests {
         // Oversized destination string.
         let long = format!("{}.png", "a".repeat(super::IMPORT_MAX_DEST_BYTES));
         assert!(import_validate_destination(&long).is_err());
+    }
+
+    #[test]
+    fn source_path_validation_accepts_nested_cs_and_rejects_unsafe_names() {
+        assert_eq!(
+            source_validate_relative_path("Helpers\\Player.cs").unwrap(),
+            "Helpers/Player.cs"
+        );
+        for bad in [
+            "",
+            "/tmp/Escape.cs",
+            "\\\\server\\Escape.cs",
+            "C:/Escape.cs",
+            "../Escape.cs",
+            "Helpers/../Escape.cs",
+            "Helpers//Player.cs",
+            ".hidden.cs",
+            "CON.cs",
+            "Helpers/nul.cs",
+            "Notes.txt",
+            "Player?.cs",
+            "Player.cs ",
+        ] {
+            assert!(
+                source_validate_relative_path(bad).is_err(),
+                "must reject {bad:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn source_creation_is_nested_atomic_and_collision_safe() {
+        let dir = import_temp_dir("source-create");
+        let project = dir.join("proj");
+        std::fs::create_dir_all(&project).unwrap();
+        let root = project.to_string_lossy().into_owned();
+
+        let result = block_on(project_create_source_file(
+            root.clone(),
+            "Helpers\\Player.cs".to_string(),
+            "public class Player {}\n".to_string(),
+        ))
+        .unwrap();
+        assert_eq!(result["relativePath"], "Helpers/Player.cs");
+        assert_eq!(
+            std::fs::read_to_string(project.join("Helpers/Player.cs")).unwrap(),
+            "public class Player {}\n"
+        );
+
+        // Case-insensitive duplicate detection protects portability even on a
+        // case-sensitive test host, and never changes the original bytes.
+        let duplicate = block_on(project_create_source_file(
+            root.clone(),
+            "helpers/player.cs".to_string(),
+            "REPLACEMENT".to_string(),
+        ));
+        assert!(duplicate.is_err());
+        assert_eq!(
+            std::fs::read_to_string(project.join("Helpers/Player.cs")).unwrap(),
+            "public class Player {}\n"
+        );
+
+        // Rejected traversal is validated before any directory is created.
+        assert!(
+            block_on(project_create_source_file(
+                root,
+                "../Escape.cs".to_string(),
+                "escape".to_string(),
+            ))
+            .is_err()
+        );
+        assert!(!dir.join("Escape.cs").exists());
+        let leftovers: Vec<_> = std::fs::read_dir(project.join("Helpers"))
+            .unwrap()
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .starts_with(".playground-new-")
+            })
+            .collect();
+        assert!(leftovers.is_empty(), "temp file leaked: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).ok();
     }
 
     #[test]
@@ -2316,7 +2571,7 @@ mod tests {
         entries
     }
 
-    const PRODUCT_HANDLER_COMMANDS: [&str; 10] = [
+    const PRODUCT_HANDLER_COMMANDS: [&str; 11] = [
         "first_run_check_acknowledgement",
         "first_run_write_acknowledgement",
         "workspace_write_file",
@@ -2327,10 +2582,11 @@ mod tests {
         "project_read",
         "project_import_asset",
         "project_pick_import_files",
+        "project_create_source_file",
     ];
 
     #[test]
-    fn handler_registers_exactly_ten_ungated_product_commands() {
+    fn handler_registers_exactly_eleven_ungated_product_commands() {
         let entries = handler_entries();
         let product: Vec<&str> = entries
             .iter()
@@ -2339,7 +2595,7 @@ mod tests {
             .collect();
         assert_eq!(
             product, PRODUCT_HANDLER_COMMANDS,
-            "the default build must register exactly the ten product commands, ungated"
+            "the default build must register exactly the eleven product commands, ungated"
         );
     }
 
@@ -2364,13 +2620,13 @@ mod tests {
                 "product command {name} must never be gated"
             );
         }
-        // Total handler surface is 69 = 10 product + 59 proof.
-        assert_eq!(entries.len(), 69);
+        // Total handler surface is 70 = 11 product + 59 proof.
+        assert_eq!(entries.len(), 70);
     }
 
     #[test]
     fn product_commands_are_present_in_both_profiles_unconditionally() {
-        // The ten product command fns compile with and without the feature
+        // The eleven product command fns compile with and without the feature
         // (referencing them here binds the assertion to real symbols, not
         // strings). If any were feature-gated, this test module — which builds
         // in the default profile — would fail to compile.
@@ -2404,9 +2660,9 @@ mod tests {
 
     #[cfg(feature = "proof-harness")]
     #[test]
-    fn feature_build_exposes_full_sixty_nine_command_surface() {
+    fn feature_build_exposes_full_seventy_command_surface() {
         let entries = handler_entries();
-        assert_eq!(entries.len(), 69);
+        assert_eq!(entries.len(), 70);
         // Proof symbols must be reachable when the feature compiles them in.
         let _: fn(&str) -> Option<super::Issue040Input> = super::issue040_input_kind;
         // The proof store overlay is present only under the feature.
@@ -3096,7 +3352,8 @@ pub fn run() {
             project_pick_folder,
             project_read,
             project_import_asset,
-            project_pick_import_files
+            project_pick_import_files,
+            project_create_source_file
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoGame Playground")

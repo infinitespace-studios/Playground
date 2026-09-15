@@ -79,6 +79,7 @@ const fileExplorer = document.getElementById("file-explorer");
 const projectLabel = document.getElementById("project-label");
 const saveButton = document.getElementById("save-button");
 const saveAllButton = document.getElementById("save-all-button");
+const newCsharpButton = document.getElementById("new-csharp-button");
 
 function showModalError(title: string, message: string): void {
   const dialog = document.createElement("dialog");
@@ -169,6 +170,7 @@ function renderScratchExplorer(fileName: string): void {
 function showScratchWorkspace(fileName: string): void {
   if (saveButton) saveButton.hidden = false;
   if (saveAllButton) saveAllButton.hidden = true;
+  if (newCsharpButton) newCsharpButton.hidden = true;
   if (projectLabel) projectLabel.textContent = "Project / scratch";
   // Issue 060: reflect the active scratch file in the status bar. The dirty
   // cue is refreshed separately by the content-change handler / baseline load.
@@ -179,6 +181,7 @@ function showScratchWorkspace(fileName: string): void {
 function showFolderWorkspace(): void {
   if (saveButton) saveButton.hidden = true;
   if (saveAllButton) saveAllButton.hidden = false;
+  if (newCsharpButton) newCsharpButton.hidden = false;
   if (projectLabel) projectLabel.textContent = "Project (folder)";
 }
 
@@ -226,6 +229,97 @@ if (openFolderButton) {
     // manifest validation all succeed. Cancellation therefore leaves the
     // current scratch/folder workspace untouched.
     if (await project.openFolder()) showFolderWorkspace();
+  });
+}
+
+// Tauri WebViews do not reliably expose a working window.prompt(). Use the
+// same application-owned dialog pattern as the other Workbench interactions so
+// clicking New C# file always produces a visible, keyboard-accessible editor.
+function promptForSourcePath(): Promise<string | null> {
+  return new Promise(resolve => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "confirmation-dialog";
+    dialog.setAttribute("aria-labelledby", "new-source-title");
+
+    const content = document.createElement("div");
+    content.className = "dialog-content";
+    const title = document.createElement("h3");
+    title.id = "new-source-title";
+    title.textContent = "New C# file";
+    const description = document.createElement("p");
+    description.textContent = "Enter a project-relative path, for example Helpers/Player.cs.";
+
+    const label = document.createElement("label");
+    label.htmlFor = "new-source-path";
+    label.textContent = "File path";
+    const input = document.createElement("input");
+    input.id = "new-source-path";
+    input.type = "text";
+    input.value = "NewFile.cs";
+    input.autocomplete = "off";
+    input.spellcheck = false;
+    input.required = true;
+
+    const buttons = document.createElement("div");
+    buttons.className = "dialog-buttons";
+    const cancel = document.createElement("button");
+    cancel.className = "btn-cancel";
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    const create = document.createElement("button");
+    create.className = "btn-confirm";
+    create.type = "button";
+    create.textContent = "Create";
+    buttons.append(cancel, create);
+    content.append(title, description, label, input, buttons);
+    dialog.append(content);
+
+    let settled = false;
+    const finish = (value: string | null): void => {
+      if (settled) return;
+      settled = true;
+      dialog.close();
+      dialog.remove();
+      resolve(value);
+    };
+    cancel.addEventListener("click", () => finish(null));
+    create.addEventListener("click", () => {
+      if (input.value.length > 0) finish(input.value);
+      else input.focus();
+    });
+    input.addEventListener("keydown", event => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        if (input.value.length > 0) finish(input.value);
+      } else if (event.key === "Escape") {
+        event.preventDefault();
+        finish(null);
+      }
+    });
+    dialog.addEventListener("cancel", event => {
+      event.preventDefault();
+      finish(null);
+    });
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) finish(null);
+    });
+
+    document.body.append(dialog);
+    dialog.showModal();
+    input.focus();
+    input.select();
+  });
+}
+
+// Wire New C# file (folder-project mode). Validation is repeated in the
+// project manager and at the native boundary before any directory or file is
+// created.
+if (newCsharpButton) {
+  newCsharpButton.addEventListener("click", async () => {
+    if (!project.hasProject()) return;
+    const requestedPath = await promptForSourcePath();
+    if (requestedPath === null) return;
+    await project.createSourceFile(requestedPath);
   });
 }
 

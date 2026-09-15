@@ -1,7 +1,7 @@
 # Create C# source files in folder projects
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [051-open-folder-edit-multiple-files-persist-manifest.md](051-open-folder-edit-multiple-files-persist-manifest.md)
 **Feature area:** Multi-file authoring
 **Triage:** feature-backlog
@@ -37,10 +37,10 @@ Create `Helpers/Player.cs`, reference it from `Game1.cs`, Save All, Run, reopen,
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Human project owner/user, with automated verification by the implementation session
+- **Date:** 2026-09-15
+- **Evidence:** The human verifier completed the prescribed real-project workflow on a separate folder project: created a nested C# source file, edited and referenced it from the game, ran the cross-file project, used Save All, closed and reopened the project, and confirmed the new file and manifest persisted. The verifier also exercised the invalid/traversal/absolute/reserved-name/extension/collision rejection cases and confirmed the project remained unchanged on rejection, including the newer-schema manifest rejection. Automated evidence from this implementation: frontend typecheck passed; project lifecycle tests 23/23 passed; protocol tests 104/104 passed; Vite build passed; PRODUCT Rust tests 46/46 passed; PROOF Rust tests 60/60 passed; Cargo build and format checks passed; command-inventory self-test passed with 11 product, 59 proof, and 70 total commands.
 
 ## Commit gate
 
