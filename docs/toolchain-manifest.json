@@ -3,7 +3,7 @@
   "monogame": {
     "repository": "https://github.com/infinitespace-studios/MonoGame.git",
     "branch": "feature/openglnative",
-    "commitSha": "8372206266d2c09626d83b4ad9702fa072ec0aaa",
+    "commitSha": "c34a941bd07fb0f5f4b84c058d6d19f7a990e969",
     "protectedRef": "feature/openglnative"
   },
   "dotnet": {

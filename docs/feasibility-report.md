@@ -31,7 +31,7 @@ All mandatory acceptance criteria in the PRD section 20.2 version reviewed at th
 ### 2.3 "The build records and uses the exact pinned MonoGame commit."
 
 **Verdict: PASS**
-**Evidence:** At gate time, issue 005 pinned MonoGame commit `ecf06ee240dcc5524e82b656b4682e22b4c91175` on `feature/openglnative`, and issue 019 verified the reference identities derived from that framework build. Later release-build work advanced the live submodule/toolchain pin to `8372206266d2c09626d83b4ad9702fa072ec0aaa`; `docs/toolchain-manifest.json` is the current source of truth.
+**Evidence:** At gate time, issue 005 pinned MonoGame commit `ecf06ee240dcc5524e82b656b4682e22b4c91175` on `feature/openglnative`, and issue 019 verified the reference identities derived from that framework build. Later release-build work advanced the live submodule/toolchain pin to `c34a941bd07fb0f5f4b84c058d6d19f7a990e969`; `docs/toolchain-manifest.json` is the current source of truth.
 
 ### 2.4 "The existing web example renders successfully."
 
