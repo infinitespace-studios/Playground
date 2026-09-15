@@ -55,8 +55,8 @@ public class Game1 : Game
     {
         _spriteBatch = new SpriteBatch(GraphicsDevice);
         // Precompiled .xnb texture (left) and RAW .png texture (right).
-        _playerTexture = Content.Load<Texture2D>("textures/player");
-        _spriteTexture = Content.Load<Texture2D>("textures/sprite");
+        _playerTexture = Content.Load<Texture2D>("precompiled/playerraw");
+        _spriteTexture = Content.Load<Texture2D>("textures/playerraw");
         // RAW .wav, transcoded to an XNB SoundEffect at mount time.
         _sound = Content.Load<SoundEffect>("audio/tone");
     }
@@ -102,15 +102,25 @@ public class Game1 : Game
                 _spriteBatch.Draw(
                     _playerTexture,
                     new Rectangle(10, 10, 160, 160),
-                    Color.White);
+                    sourceRectangle: null,                                                                            
+                    color: Color.White,                                                                               
+                    rotation: 0f,                                                                                     
+                    origin: Vector2.Zero,                                                                             
+                    effects: SpriteEffects.None,                                                            
+                    layerDepth: 0f); 
             }
             // RAW .png texture, drawn beside it to prove the no-MGCB path renders.
             if (_spriteTexture is not null)
             {
-                _spriteBatch.Draw(
-                    _spriteTexture,
-                    new Rectangle(190, 10, 160, 160),
-                    Color.White);
+                _spriteBatch.Draw(                                                                                    
+                    _spriteTexture,                                                                                   
+                    new Rectangle(190, 10, 160, 160),                                                                 
+                    sourceRectangle: null,                                                                            
+                    color: Color.White,                                                                               
+                    rotation: 0f,                                                                                     
+                    origin: Vector2.Zero,                                                                             
+                    effects: SpriteEffects.None,                                                            
+                    layerDepth: 0f); 
             }
             _spriteBatch.End();
         }
