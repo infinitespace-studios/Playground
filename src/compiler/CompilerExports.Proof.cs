@@ -1,8 +1,14 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices.JavaScript;
 using System.Text;
+using System.Threading;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Microsoft.CodeAnalysis;
+using Microsoft.CodeAnalysis.Completion;
 using Microsoft.CodeAnalysis.CSharp;
+using Microsoft.CodeAnalysis.Host.Mef;
+using Microsoft.CodeAnalysis.Text;
 
 namespace Playground.Compiler;
 
@@ -159,6 +165,175 @@ public static partial class CompilerExports
         return JsonSerializer.Serialize(response, CompilerProofJsonContext.Default.CompileResponse);
     }
 
+    /// <summary>
+    /// PROOF-only Roslyn Workspaces/Features feasibility spike. This deliberately
+    /// returns measurements and correctness evidence instead of mutating the
+    /// PRODUCT compiler or protocol surface.
+    /// </summary>
+    [JSExport]
+    public static async Task<string> RunLanguageServiceSpike()
+    {
+        var wall = Stopwatch.StartNew();
+        var gcBefore = GC.GetTotalMemory(forceFullCollection: false);
+        try
+        {
+            var hostStart = Stopwatch.StartNew();
+            var mefAssemblies = MefHostServices.DefaultAssemblies
+                .Concat(new[]
+                {
+                    typeof(CSharpSyntaxTree).Assembly,
+                    typeof(CompletionService).Assembly,
+                    typeof(AdhocWorkspace).Assembly,
+                    System.Reflection.Assembly.Load("Microsoft.CodeAnalysis.CSharp.Workspaces"),
+                })
+                .Distinct();
+            using var workspace = new AdhocWorkspace(MefHostServices.Create(mefAssemblies));
+            var hostInitializationMs = hostStart.Elapsed.TotalMilliseconds;
+
+            var projectInfo = ProjectInfo.Create(
+                ProjectId.CreateNewId(),
+                VersionStamp.Create(),
+                "IntelliSenseSpike",
+                "IntelliSenseSpike",
+                LanguageNames.CSharp,
+                parseOptions: new CSharpParseOptions(LanguageVersion.CSharp13),
+                compilationOptions: new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary)
+                    .WithConcurrentBuild(false),
+                metadataReferences: BrowserMetadataReferences.Allowlisted);
+            var project = workspace.AddProject(projectInfo);
+            var gameId = DocumentId.CreateNewId(project.Id, "Game1.cs");
+            var playerId = DocumentId.CreateNewId(project.Id, "Player.cs");
+            workspace.TryApplyChanges(workspace.CurrentSolution
+                .AddDocument(gameId, "Game1.cs", SourceText.From("public class Game1 { }"))
+                .AddDocument(playerId, "Player.cs", SourceText.From("public class Player { public int Score; public void Jump() { } }")));
+
+            var gameDocument = workspace.CurrentSolution.GetDocument(gameId)
+                ?? throw new InvalidOperationException("Game1.cs document was not created.");
+            _ = workspace.CurrentSolution.GetDocument(playerId)
+                ?? throw new InvalidOperationException("Player.cs document was not created.");
+            var completionService = CompletionService.GetService(gameDocument)
+                ?? throw new InvalidOperationException("Roslyn returned no CompletionService for the C# document.");
+
+            var scenarios = new[]
+            {
+                new CompletionSpikeScenario("after-dot", "using System; class Sample { void M() { var value = \"x\"; value./*cursor*/ } }", "ToString"),
+                new CompletionSpikeScenario("statement-context", "using System; class Sample { void M() { Con/*cursor*/ } }", "Console"),
+                new CompletionSpikeScenario("generic-type", "using System; using System.Collections.Generic; class Sample { List<Str/*cursor*/> values; }", "String"),
+                new CompletionSpikeScenario("incomplete-syntax", "class Sample { void M() { var value = 1; value./*cursor*/ }", "ToString"),
+                new CompletionSpikeScenario("cross-file-symbol", "class Sample { Player value = new Player(); void M() { value./*cursor*/ } }", "Score"),
+            };
+            var correctness = new List<CompletionSpikeCase>();
+            var completionMeasurements = new List<double>();
+            var documentUpdateMeasurements = new List<double>();
+            double firstCompletionMs = 0;
+
+            for (var index = 0; index < 30; index++)
+            {
+                var scenario = scenarios[index % scenarios.Length];
+                var marker = "/*cursor*/";
+                var source = scenario.Source;
+                var cursor = source.IndexOf(marker, StringComparison.Ordinal);
+                if (cursor < 0) throw new InvalidOperationException($"Scenario {scenario.Name} has no cursor marker.");
+                var withoutMarker = source.Replace(marker, string.Empty, StringComparison.Ordinal);
+                var prefix = withoutMarker[..cursor];
+                var line = prefix.Count(character => character == '\n') + 1;
+                var lastNewline = prefix.LastIndexOf('\n');
+                var column = cursor - lastNewline;
+                var position = cursor;
+
+                var updateStart = Stopwatch.StartNew();
+                var updatedGame = gameDocument.WithText(SourceText.From(withoutMarker));
+                workspace.TryApplyChanges(updatedGame.Project.Solution);
+                gameDocument = workspace.CurrentSolution.GetDocument(gameId)!;
+                documentUpdateMeasurements.Add(updateStart.Elapsed.TotalMilliseconds);
+
+                var activeDocument = gameDocument;
+
+                var completionStart = Stopwatch.StartNew();
+                var list = await completionService.GetCompletionsAsync(activeDocument, position);
+                var elapsed = completionStart.Elapsed.TotalMilliseconds;
+                completionMeasurements.Add(elapsed);
+                if (index == 0) firstCompletionMs = elapsed;
+                if (index < scenarios.Length)
+                {
+                    var items = list?.ItemsList.Select(item => item.DisplayText).ToArray() ?? Array.Empty<string>();
+                    correctness.Add(new CompletionSpikeCase(
+                        scenario.Name,
+                        scenario.ExpectedItem,
+                        items.Contains(scenario.ExpectedItem, StringComparer.Ordinal),
+                        items.Take(20).ToArray(),
+                        line,
+                        column));
+                }
+            }
+
+            var cancellation = new CancellationTokenSource();
+            cancellation.Cancel();
+            var cancellationObserved = false;
+            try
+            {
+                await completionService.GetCompletionsAsync(gameDocument, 1, cancellationToken: cancellation.Token);
+            }
+            catch (OperationCanceledException)
+            {
+                cancellationObserved = true;
+            }
+
+            var gcAfter = GC.GetTotalMemory(forceFullCollection: false);
+            var report = new LanguageServiceSpikeReport(
+                true,
+                "go",
+                null,
+                new LanguageServiceEnvironment(
+                    "4.12.0",
+                    "net9.0/browser-wasm",
+                    BrowserMetadataReferences.Allowlisted.Count,
+                    workspace.CurrentSolution.GetProject(project.Id)?.Documents.Count() ?? 0),
+                correctness,
+                new LanguageServiceMeasurements(
+                    hostInitializationMs,
+                    firstCompletionMs,
+                    Percentile(documentUpdateMeasurements, 0.50),
+                    Percentile(completionMeasurements, 0.50),
+                    Percentile(completionMeasurements, 0.95),
+                    completionMeasurements.Count,
+                    gcBefore,
+                    gcAfter,
+                    false),
+                new LanguageServiceResponsiveness(cancellationObserved, true),
+                wall.Elapsed.TotalMilliseconds);
+            return JsonSerializer.Serialize(report, CompilerProofJsonContext.Default.LanguageServiceSpikeReport);
+        }
+        catch (Exception exception)
+        {
+            var report = new LanguageServiceSpikeReport(
+                false,
+                "no-go",
+                $"{exception.GetType().Name}: {exception.Message}",
+                new LanguageServiceEnvironment("4.12.0", "net9.0/browser-wasm", 0, 0),
+                Array.Empty<CompletionSpikeCase>(),
+                new LanguageServiceMeasurements(0, 0, 0, 0, 0, 0, gcBefore, GC.GetTotalMemory(false), false),
+                new LanguageServiceResponsiveness(false, false),
+                wall.Elapsed.TotalMilliseconds);
+            return JsonSerializer.Serialize(report, CompilerProofJsonContext.Default.LanguageServiceSpikeReport);
+        }
+    }
+
+    private static double Percentile(IReadOnlyList<double> values, double percentile)
+    {
+        if (values.Count == 0) return 0;
+        var ordered = values.OrderBy(value => value).ToArray();
+        var index = Math.Clamp((int)Math.Ceiling(ordered.Length * percentile) - 1, 0, ordered.Length - 1);
+        return ordered[index];
+    }
+
+    private sealed record CompletionSpikeScenario(string Name, string Source, string ExpectedItem);
+    internal sealed record CompletionSpikeCase(string Name, string ExpectedItem, bool Found, IReadOnlyList<string> SampleItems, int Line, int Column);
+    internal sealed record LanguageServiceEnvironment(string RoslynPackageVersion, string Target, int ReferenceCount, int DocumentCount);
+    internal sealed record LanguageServiceMeasurements(double HostInitializationMs, double FirstCompletionMs, double DocumentUpdateP50Ms, double CompletionP50Ms, double CompletionP95Ms, int CompletionRequestCount, long GcBytesBefore, long GcBytesAfter, bool RssMeasured);
+    internal sealed record LanguageServiceResponsiveness(bool CancellationObserved, bool StaleResultSuppressionRequired);
+    internal sealed record LanguageServiceSpikeReport(bool Success, string Recommendation, string? Error, LanguageServiceEnvironment Environment, IReadOnlyList<CompletionSpikeCase> Correctness, LanguageServiceMeasurements Measurements, LanguageServiceResponsiveness Responsiveness, double TotalElapsedMs);
+
     [JSExport]
     public static bool AuthorizeRetentionProof()
     {
@@ -280,4 +455,9 @@ public static partial class CompilerExports
 [JsonSerializable(typeof(CompilerExports.CompilerContextProof))]
 [JsonSerializable(typeof(CompilerExports.CompileResponse))]
 [JsonSerializable(typeof(CompilerExports.RetentionState))]
+[JsonSerializable(typeof(CompilerExports.LanguageServiceSpikeReport))]
+[JsonSerializable(typeof(CompilerExports.LanguageServiceEnvironment))]
+[JsonSerializable(typeof(CompilerExports.LanguageServiceMeasurements))]
+[JsonSerializable(typeof(CompilerExports.LanguageServiceResponsiveness))]
+[JsonSerializable(typeof(CompilerExports.CompletionSpikeCase))]
 internal sealed partial class CompilerProofJsonContext : JsonSerializerContext;

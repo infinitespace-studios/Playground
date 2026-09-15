@@ -1,7 +1,7 @@
 # Define the language-service protocol and document synchronization
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [070-spike-roslyn-language-services-in-browser-wasm.md](070-spike-roslyn-language-services-in-browser-wasm.md), [015-define-version-protocol-envelopes-and-errors.md](015-define-version-protocol-envelopes-and-errors.md), [036-validate-forged-malformed-oversized-messages.md](036-validate-forged-malformed-oversized-messages.md)
 **Feature area:** IntelliSense
 **Triage:** feature-backlog

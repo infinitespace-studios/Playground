@@ -1,7 +1,7 @@
 # Spike Roslyn language services in browser WebAssembly
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [016-boot-persistent-roslyn-wasm-compiler-context.md](016-boot-persistent-roslyn-wasm-compiler-context.md), [019-build-runtime-reference-assembly-allowlist.md](019-build-runtime-reference-assembly-allowlist.md), [031-publish-supported-api-policy-and-analyzers.md](031-publish-supported-api-policy-and-analyzers.md)
 **Feature area:** IntelliSense feasibility
 **Triage:** feature-backlog spike
@@ -37,10 +37,10 @@ The reviewer reproduces the WASM experiment and a representative subset of at le
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS (no-go conclusion)
+- **Verifier:** Human project owner/user, with automated verification by the implementation session
+- **Date:** 2026-09-15
+- **Evidence:** The human verifier ran the staged PROOF compiler page and confirmed the runtime started successfully (`ready=true`, `successfulRuntimeStarts=1`), the Roslyn context proof reported version 4.12.0, trivial and MonoGame.Game reference compilation passed, and all five structured diagnostic cases passed. The IntelliSense spike then returned `success=false`, `recommendation=no-go`, `completionRequests=0`, with `CompositionFailedException: TypeInspector_ContractNotAssignable, IAsynchronousOperationListenerProvider, AsynchronousOperationListenerProvider` during MEF host creation. This directly satisfies the report-only PASS allowance for a technically valid no-go result. Automated evidence: PRODUCT and PROOF compiler staging checks passed; proof Release build passed; desktop fallback exercised all five completion contexts with 30 requests, cancellation, and p50/p95 measurements; `git diff --check` passed.
 
 ## Commit gate
 

@@ -37,6 +37,17 @@
   </ItemGroup>
 
   <ItemGroup Condition="'$(MonoGameCompilerProfile)' == 'proof'">
+    <!-- IntelliSense feasibility spike dependencies are PROOF-only. They must
+         never enter the shipping compiler graph until a later issue accepts a
+         measured architecture. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Workspaces" Version="4.12.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp.Features" Version="4.12.0" />
+    <PackageReference Include="Microsoft.CodeAnalysis.Features" Version="4.12.0" />
+    <!-- MEF discovers C# language-service exports by assembly metadata rather
+         than a compile-time public type reference; keep the provider assembly
+         through browser trimming for the proof experiment. -->
+    <TrimmerRootAssembly Include="Microsoft.CodeAnalysis.CSharp.Workspaces" />
+    <TrimmerRootAssembly Include="Microsoft.CodeAnalysis.CSharp.Features" />
     <!-- The proof publish drops the product index.html and keeps index.proof.html
          (published as index.proof.html); stage-compiler.mjs renames it to
          index.html for the proof staging. The proof extension ships via the

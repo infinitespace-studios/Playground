@@ -20,8 +20,14 @@ globalThis.__playgroundCompilerExtension = controls => {
   const pingButton = document.querySelector("#ping");
   const compileButton = document.querySelector("#compile");
   const diagnosticsButton = document.querySelector("#diagnostics");
+  const languageServicesButton = document.querySelector("#language-services");
   const results = document.querySelector("#results");
   const proofOutput = document.querySelector("#proof-state");
+  // The issue-070 static page is intentionally loaded without the Workbench
+  // parent iframe. Embedded proof runs still require the authenticated
+  // bootstrap handshake; only a genuinely top-level proof page self-authorizes
+  // so its diagnostic/completion controls can be exercised independently.
+  const standaloneProofPage = window.parent === window;
 
   const proofState = {
     protocolVersion: 1,
@@ -34,6 +40,7 @@ globalThis.__playgroundCompilerExtension = controls => {
     compilations: [],
     referenceProof: null,
     diagnosticProof: null,
+    languageServiceSpike: null,
     error: null,
   };
 
@@ -116,6 +123,7 @@ globalThis.__playgroundCompilerExtension = controls => {
     if (pingButton) pingButton.disabled = true;
     if (compileButton) compileButton.disabled = true;
     if (diagnosticsButton) diagnosticsButton.disabled = true;
+    if (languageServicesButton) languageServicesButton.disabled = true;
     if (event.isTrusted) {
       proofState.trustedClickCount += 1;
     }
@@ -128,6 +136,7 @@ globalThis.__playgroundCompilerExtension = controls => {
       if (pingButton) pingButton.disabled = false;
       if (compileButton) compileButton.disabled = Boolean(proofState.referenceProof);
       if (diagnosticsButton) diagnosticsButton.disabled = Boolean(proofState.diagnosticProof);
+      if (languageServicesButton) languageServicesButton.disabled = Boolean(proofState.languageServiceSpike);
     }
     renderState();
   }
@@ -391,6 +400,26 @@ globalThis.__playgroundCompilerExtension = controls => {
     }
   });
 
+  languageServicesButton?.addEventListener("click", async event => {
+    if (!beginCall(event) || proofState.languageServiceSpike) return;
+    if (status) status.textContent = "Running Roslyn Workspaces/Features completion feasibility spike...";
+    try {
+      const exports = await controls.exportsPromise;
+      proofState.languageServiceSpike = JSON.parse(await exports.RunLanguageServiceSpike());
+      proofState.languageServiceSpike.trusted = event.isTrusted;
+      appendResult(
+        `IntelliSense spike success=${proofState.languageServiceSpike.success}; ` +
+        `completionRequests=${proofState.languageServiceSpike.measurements?.completionRequestCount ?? 0}; ` +
+        `recommendation=${proofState.languageServiceSpike.recommendation}; ` +
+        `error=${proofState.languageServiceSpike.error ?? "none"}; trusted=${event.isTrusted}`);
+      if (status) status.textContent = "IntelliSense feasibility spike complete.";
+    } catch (error) {
+      showError(error);
+    } finally {
+      endCall();
+    }
+  });
+
   diagnosticsButton?.addEventListener("click", async event => {
     if (!beginCall(event) || proofState.diagnosticProof) return;
     if (status) status.textContent = "Compiling structured diagnostic proof cases in browser WebAssembly...";
@@ -424,6 +453,7 @@ globalThis.__playgroundCompilerExtension = controls => {
         if (pingButton) pingButton.disabled = false;
         if (compileButton) compileButton.disabled = false;
         if (diagnosticsButton) diagnosticsButton.disabled = false;
+        if (languageServicesButton) languageServicesButton.disabled = false;
         renderState();
       },
       onCompileTransfer(transfer) {
@@ -461,7 +491,7 @@ globalThis.__playgroundCompilerExtension = controls => {
         proofState.successfulRuntimeStarts += 1;
         globalThis.compilerIssue21Proof.runtimeStarts += 1;
         globalThis.compilerProofCompile = requestJson => JSON.parse(exports.Compile(requestJson));
-        const proofAuthorized = await proofAuthorization;
+        const proofAuthorized = standaloneProofPage ? true : await proofAuthorization;
         globalThis.compilerIssue21Proof.retention = await initializeCompilerProofMode(
           proofAuthorized,
           async () => {
