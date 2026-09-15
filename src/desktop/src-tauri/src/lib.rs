@@ -1143,6 +1143,131 @@ async fn project_create_source_file(
     }))
 }
 
+/// Resolve an existing project-relative directory without following symlinks.
+/// Every segment is matched case-insensitively for cross-platform collision
+/// behavior, then canonicalized and checked against the canonical project root.
+fn source_resolve_existing_directory(
+    root: &std::path::Path,
+    directory_segments: &[&str],
+) -> Result<std::path::PathBuf, String> {
+    let mut directory = root.to_path_buf();
+    for segment in directory_segments {
+        let child = source_find_case_insensitive_child(&directory, segment)?
+            .ok_or_else(|| format!("source directory does not exist: {segment}"))?;
+        let metadata = std::fs::symlink_metadata(&child)
+            .map_err(|error| format!("failed to inspect source directory: {error}"))?;
+        if metadata.file_type().is_symlink() {
+            return Err("source path cannot traverse a symlink".into());
+        }
+        if !metadata.is_dir() {
+            return Err(format!("source path segment is not a directory: {segment}"));
+        }
+        directory = child
+            .canonicalize()
+            .map_err(|error| format!("failed to resolve source directory: {error}"))?;
+        if !directory.starts_with(root) {
+            return Err("source path escapes the project root".into());
+        }
+    }
+    Ok(directory)
+}
+
+/// Resolve an existing regular, non-symlink source file beneath a canonical
+/// project root. This is shared by rename and delete so neither operation can
+/// be redirected through a symlink or an absolute path.
+fn source_resolve_existing_file(
+    root: &std::path::Path,
+    relative: &str,
+) -> Result<std::path::PathBuf, String> {
+    let segments: Vec<&str> = relative.split('/').collect();
+    let (directory_segments, file_name) = segments
+        .split_last()
+        .map(|(file, directories)| (directories, *file))
+        .ok_or("source path must name a file")?;
+    let directory = source_resolve_existing_directory(root, directory_segments)?;
+    let file = source_find_case_insensitive_child(&directory, file_name)?
+        .ok_or_else(|| format!("source file does not exist: {relative}"))?;
+    let metadata = std::fs::symlink_metadata(&file)
+        .map_err(|error| format!("failed to inspect source file: {error}"))?;
+    if metadata.file_type().is_symlink() {
+        return Err("source file cannot be a symlink".into());
+    }
+    if !metadata.is_file() {
+        return Err(format!("source path is not a regular file: {relative}"));
+    }
+    Ok(file)
+}
+
+#[tauri::command]
+async fn project_rename_source_file(
+    project_root: String,
+    relative_path: String,
+    next_relative_path: String,
+) -> Result<serde_json::Value, String> {
+    let relative = source_validate_relative_path(&relative_path)?;
+    let next_relative = source_validate_relative_path(&next_relative_path)?;
+    if relative.eq_ignore_ascii_case(&next_relative) {
+        return Err("source file already has that name".into());
+    }
+
+    let root_path = std::path::PathBuf::from(&project_root);
+    if !root_path.is_dir() {
+        return Err("project root is not a directory".into());
+    }
+    let root = root_path
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve project root: {error}"))?;
+    let source = source_resolve_existing_file(&root, &relative)?;
+
+    let next_segments: Vec<&str> = next_relative.split('/').collect();
+    let (directory_segments, file_name) = next_segments
+        .split_last()
+        .map(|(file, directories)| (directories, *file))
+        .ok_or("source path must name a file")?;
+    let destination_directory = source_resolve_existing_directory(&root, directory_segments)?;
+    if source_find_case_insensitive_child(&destination_directory, file_name)?.is_some() {
+        return Err(format!("source file already exists: {next_relative}"));
+    }
+    let destination = destination_directory.join(file_name);
+
+    // The source is fully validated before the move. Hard-linking first makes
+    // the destination creation atomic and non-overwriting; removing the old
+    // name completes the same-filesystem rename without a race window that can
+    // replace another source file.
+    if let Err(error) = std::fs::hard_link(&source, &destination) {
+        if error.kind() == std::io::ErrorKind::AlreadyExists {
+            return Err(format!("source file already exists: {next_relative}"));
+        }
+        return Err(format!("failed to create renamed source: {error}"));
+    }
+    if let Err(error) = std::fs::remove_file(&source) {
+        let _ = std::fs::remove_file(&destination);
+        return Err(format!("failed to remove old source name: {error}"));
+    }
+
+    Ok(serde_json::json!({
+        "relativePath": next_relative,
+        "absolutePath": destination.to_string_lossy(),
+    }))
+}
+
+#[tauri::command]
+async fn project_delete_source_file(
+    project_root: String,
+    relative_path: String,
+) -> Result<(), String> {
+    let relative = source_validate_relative_path(&relative_path)?;
+    let root_path = std::path::PathBuf::from(&project_root);
+    if !root_path.is_dir() {
+        return Err("project root is not a directory".into());
+    }
+    let root = root_path
+        .canonicalize()
+        .map_err(|error| format!("failed to resolve project root: {error}"))?;
+    let source = source_resolve_existing_file(&root, &relative)?;
+    std::fs::remove_file(&source).map_err(|error| format!("failed to delete source file: {error}"))
+}
+
 // --- Issue 066: secure Rust → main-webview drag/drop asset-import bridge ---
 //
 // The JS hook names the trusted main-webview asset-import controller installs.
@@ -1229,7 +1354,8 @@ mod tests {
         first_run_write_store_atomic, import_content_totals, import_segment_is_windows_safe,
         import_validate_destination, import_validate_source_extension, js_string_literal,
         navigation_allowed, preview_asset, preview_content_type, preview_protocol_response,
-        project_create_source_file, project_discover_content, project_import_asset, sha256_hex,
+        project_create_source_file, project_delete_source_file, project_discover_content,
+        project_import_asset, project_rename_source_file, sha256_hex,
         source_validate_relative_path,
     };
     #[cfg(feature = "proof-harness")]
@@ -1564,6 +1690,87 @@ mod tests {
             })
             .collect();
         assert!(leftovers.is_empty(), "temp file leaked: {leftovers:?}");
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn source_rename_and_delete_are_confined_and_collision_safe() {
+        let dir = import_temp_dir("source-rename-delete");
+        let project = dir.join("proj");
+        let games = project.join("Games");
+        std::fs::create_dir_all(&games).unwrap();
+        std::fs::write(project.join("Game1.cs"), b"GAME").unwrap();
+        std::fs::write(games.join("Player.cs"), b"PLAYER").unwrap();
+        let root = project.to_string_lossy().into_owned();
+
+        let renamed = block_on(project_rename_source_file(
+            root.clone(),
+            "Game1.cs".to_string(),
+            "Games/Main.cs".to_string(),
+        ))
+        .unwrap();
+        assert_eq!(renamed["relativePath"], "Games/Main.cs");
+        assert!(!project.join("Game1.cs").exists());
+        assert_eq!(
+            std::fs::read(project.join("Games/Main.cs")).unwrap(),
+            b"GAME"
+        );
+
+        // Case-insensitive conflicts never overwrite the existing dependency.
+        let duplicate = block_on(project_rename_source_file(
+            root.clone(),
+            "Games/Main.cs".to_string(),
+            "games/player.cs".to_string(),
+        ));
+        assert!(duplicate.is_err());
+        assert_eq!(
+            std::fs::read(project.join("Games/Player.cs")).unwrap(),
+            b"PLAYER"
+        );
+
+        // A valid delete removes only the selected regular source file.
+        block_on(project_delete_source_file(
+            root.clone(),
+            "Games/Player.cs".to_string(),
+        ))
+        .unwrap();
+        assert!(!project.join("Games/Player.cs").exists());
+        assert!(project.join("Games/Main.cs").exists());
+
+        // Invalid/traversal input is rejected before any outside path is touched.
+        assert!(block_on(project_delete_source_file(root, "../Main.cs".to_string())).is_err());
+        assert!(!dir.join("Main.cs").exists());
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn source_rename_and_delete_reject_symlinked_paths() {
+        let dir = import_temp_dir("source-symlink");
+        let project = dir.join("proj");
+        let outside = dir.join("outside");
+        std::fs::create_dir_all(&project).unwrap();
+        std::fs::create_dir_all(&outside).unwrap();
+        std::fs::write(outside.join("Secret.cs"), b"SECRET").unwrap();
+        std::os::unix::fs::symlink(&outside, project.join("Linked")).unwrap();
+        let root = project.to_string_lossy().into_owned();
+
+        assert!(
+            block_on(project_delete_source_file(
+                root.clone(),
+                "Linked/Secret.cs".to_string()
+            ))
+            .is_err()
+        );
+        assert!(
+            block_on(project_rename_source_file(
+                root,
+                "Linked/Secret.cs".to_string(),
+                "Moved.cs".to_string(),
+            ))
+            .is_err()
+        );
+        assert_eq!(std::fs::read(outside.join("Secret.cs")).unwrap(), b"SECRET");
         std::fs::remove_dir_all(&dir).ok();
     }
 
@@ -2571,7 +2778,7 @@ mod tests {
         entries
     }
 
-    const PRODUCT_HANDLER_COMMANDS: [&str; 11] = [
+    const PRODUCT_HANDLER_COMMANDS: [&str; 13] = [
         "first_run_check_acknowledgement",
         "first_run_write_acknowledgement",
         "workspace_write_file",
@@ -2583,10 +2790,12 @@ mod tests {
         "project_import_asset",
         "project_pick_import_files",
         "project_create_source_file",
+        "project_rename_source_file",
+        "project_delete_source_file",
     ];
 
     #[test]
-    fn handler_registers_exactly_eleven_ungated_product_commands() {
+    fn handler_registers_exactly_thirteen_ungated_product_commands() {
         let entries = handler_entries();
         let product: Vec<&str> = entries
             .iter()
@@ -2595,7 +2804,7 @@ mod tests {
             .collect();
         assert_eq!(
             product, PRODUCT_HANDLER_COMMANDS,
-            "the default build must register exactly the eleven product commands, ungated"
+            "the default build must register exactly the thirteen product commands, ungated"
         );
     }
 
@@ -2620,13 +2829,13 @@ mod tests {
                 "product command {name} must never be gated"
             );
         }
-        // Total handler surface is 70 = 11 product + 59 proof.
-        assert_eq!(entries.len(), 70);
+        // Total handler surface is 72 = 13 product + 59 proof.
+        assert_eq!(entries.len(), 72);
     }
 
     #[test]
     fn product_commands_are_present_in_both_profiles_unconditionally() {
-        // The eleven product command fns compile with and without the feature
+        // The thirteen product command fns compile with and without the feature
         // (referencing them here binds the assertion to real symbols, not
         // strings). If any were feature-gated, this test module — which builds
         // in the default profile — would fail to compile.
@@ -2660,9 +2869,9 @@ mod tests {
 
     #[cfg(feature = "proof-harness")]
     #[test]
-    fn feature_build_exposes_full_seventy_command_surface() {
+    fn feature_build_exposes_full_seventy_two_command_surface() {
         let entries = handler_entries();
-        assert_eq!(entries.len(), 70);
+        assert_eq!(entries.len(), 72);
         // Proof symbols must be reachable when the feature compiles them in.
         let _: fn(&str) -> Option<super::Issue040Input> = super::issue040_input_kind;
         // The proof store overlay is present only under the feature.
@@ -3353,7 +3562,9 @@ pub fn run() {
             project_read,
             project_import_asset,
             project_pick_import_files,
-            project_create_source_file
+            project_create_source_file,
+            project_rename_source_file,
+            project_delete_source_file
         ])
         .build(tauri::generate_context!())
         .expect("error while building MonoGame Playground")

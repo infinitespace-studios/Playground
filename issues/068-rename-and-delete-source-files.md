@@ -1,7 +1,7 @@
 # Rename and delete source files safely
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [067-create-source-files-in-folder-projects.md](067-create-source-files-in-folder-projects.md)
 **Feature area:** Multi-file authoring
 **Triage:** feature-backlog security-sensitive
@@ -39,10 +39,10 @@ Create a cross-file project, dirty both files, test cancel and confirm flows, re
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Human project owner/user, with automated verification by the implementation session
+- **Date:** 2026-09-15
+- **Evidence:** The human verifier confirmed the complete real-project rename/delete workflow works: dirty multi-file projects can be exercised through cancel and confirm flows, dependencies can be renamed and repaired before Run, source deletion is reflected in the explorer and on disk, and the project can be reopened with the renamed/deleted source set intact. The verifier also confirmed the path, conflict, symlink, and unauthorized-frame rejection behavior. Automated evidence: frontend lifecycle tests 25/25 passed; protocol tests 104/104 passed; frontend typecheck and Vite build passed; PRODUCT Rust tests 48/48 passed; PROOF Rust tests 62/62 passed; Cargo build and format checks passed; command-inventory self-test passed with 13 product, 59 proof, and 72 total commands.
 
 ## Commit gate
 

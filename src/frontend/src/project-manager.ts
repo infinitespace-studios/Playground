@@ -253,6 +253,10 @@ export interface ProjectManagerApi {
   openFolder: () => Promise<boolean>;
   /** Create, register, and activate a new project-relative C# source file. */
   createSourceFile: (relativePath: string) => Promise<boolean>;
+  /** Rename a source file while preserving its in-memory content and dirty state. */
+  renameSourceFile: (relativePath: string, nextRelativePath: string) => Promise<boolean>;
+  /** Delete a source file after the caller has obtained confirmation. */
+  deleteSourceFile: (relativePath: string) => Promise<boolean>;
   /** Switch the editor to a file by relative path (persists the current buffer first). */
   switchTo: (relativePath: string) => void;
   /** Persist the visible file's live buffer into module state + recompute dirty. */
@@ -532,6 +536,85 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         hooks.showError("Could not create file", error instanceof Error ? error.message : String(error));
         return false;
       }
+    },
+    renameSourceFile: async (relativePath: string, requestedPath: string) => {
+      if (projectRoot === null) {
+        hooks.showError("Could not rename file", "Open a folder project before renaming a C# file.");
+        return false;
+      }
+      const source = files.find(file => file.relativePath === relativePath);
+      if (!source) {
+        hooks.showError("Could not rename file", "The selected source file is no longer open.");
+        return false;
+      }
+
+      let nextRelativePath: string;
+      try {
+        nextRelativePath = validateProjectSourcePath(requestedPath);
+      } catch (error) {
+        hooks.showError("Invalid C# file path", error instanceof Error ? error.message : String(error));
+        return false;
+      }
+      const canonicalNextPath = nextRelativePath.toLowerCase();
+      if (files.some(file => file.relativePath.toLowerCase() === canonicalNextPath)) {
+        hooks.showError("File already exists", `A source file named ${nextRelativePath} already exists.`);
+        return false;
+      }
+
+      // Capture the active Monaco buffer before the native move. The file's
+      // currentContent and dirty flag then travel with the renamed entry.
+      syncActiveBuffer();
+      try {
+        const renamed = await invoke<{ relativePath: string; absolutePath: string }>(
+          "project_rename_source_file",
+          { projectRoot, relativePath, nextRelativePath },
+        );
+        const returnedPath = validateProjectSourcePath(renamed.relativePath);
+        if (returnedPath.toLowerCase() !== canonicalNextPath) {
+          throw new Error("the shell returned a different source path");
+        }
+        source.relativePath = returnedPath;
+        source.absolutePath = renamed.absolutePath;
+        if (activePath === relativePath) activePath = returnedPath;
+        files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
+        renderExplorer();
+        return true;
+      } catch (error) {
+        hooks.showError("Could not rename file", error instanceof Error ? error.message : String(error));
+        return false;
+      }
+    },
+    deleteSourceFile: async (relativePath: string) => {
+      if (projectRoot === null) {
+        hooks.showError("Could not delete file", "Open a folder project before deleting a C# file.");
+        return false;
+      }
+      const index = files.findIndex(file => file.relativePath === relativePath);
+      if (index < 0) {
+        hooks.showError("Could not delete file", "The selected source file is no longer open.");
+        return false;
+      }
+
+      // Capture edits for a non-active deletion too, so deleting one file never
+      // accidentally loses edits in the file that remains active.
+      syncActiveBuffer();
+      try {
+        await invoke("project_delete_source_file", { projectRoot, relativePath });
+      } catch (error) {
+        hooks.showError("Could not delete file", error instanceof Error ? error.message : String(error));
+        return false;
+      }
+
+      const wasActive = activePath === relativePath;
+      files.splice(index, 1);
+      if (wasActive) {
+        const next = files[Math.min(index, files.length - 1)] ?? null;
+        activePath = next?.relativePath ?? null;
+        hooks.setEditorContent(next?.currentContent ?? "");
+      }
+      hooks.setDirtyIndicator(anyDirty());
+      renderExplorer();
+      return true;
     },
     openFolder: async () => {
       const picked = await invoke<string | null>("project_pick_folder");

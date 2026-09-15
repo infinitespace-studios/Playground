@@ -45,9 +45,17 @@ interface CreatedFile {
   content: string;
 }
 
+interface RenamedFile {
+  projectRoot: string;
+  relativePath: string;
+  nextRelativePath: string;
+}
+
 interface MockShell {
   written: WrittenFile[];
   created: CreatedFile[];
+  renamed: RenamedFile[];
+  deleted: string[];
   setCancelPicker: (cancel: boolean) => void;
   setWriteFailure: (path: string | null) => void;
   /** Issue 064: change the `project_read` result returned by later invocations. */
@@ -82,6 +90,8 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
   const originalWindow = (globalThis as { window?: unknown }).window;
   const written: WrittenFile[] = [];
   const created: CreatedFile[] = [];
+  const renamed: RenamedFile[] = [];
+  const deleted: string[] = [];
   let cancelPicker = options.cancelPicker ?? false;
   let writeFailurePath = options.writeThrowsForPath ?? null;
   let readProject = options.readProject;
@@ -116,6 +126,20 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
                 absolutePath: `${projectRoot}/${relativePath}`,
               };
             }
+            case "project_rename_source_file": {
+              const projectRoot = String(args?.projectRoot);
+              const relativePath = String(args?.relativePath);
+              const nextRelativePath = String(args?.nextRelativePath);
+              renamed.push({ projectRoot, relativePath, nextRelativePath });
+              return {
+                relativePath: nextRelativePath,
+                absolutePath: `${projectRoot}/${nextRelativePath}`,
+              };
+            }
+            case "project_delete_source_file": {
+              deleted.push(String(args?.relativePath));
+              return null;
+            }
             default:
               throw new Error(`unexpected command: ${command}`);
           }
@@ -127,6 +151,8 @@ function installMockShell(options: MockShellOptions = {}): MockShell {
   return {
     written,
     created,
+    renamed,
+    deleted,
     setCancelPicker: cancel => { cancelPicker = cancel; },
     setWriteFailure: path => { writeFailurePath = path; },
     setReadProject: project => { readProject = project; },
@@ -291,6 +317,67 @@ test("creating a nested C# file writes, registers, and activates it", async () =
     assert.equal(h.editorContent(), "public class NewFile\n{\n}\n");
     assert.equal(h.explorer().find(entry => entry.relativePath === "Helpers/PlayerHelper.cs")?.active, true);
     assert.equal(h.project.getSources().some(source => source.path === "Helpers/PlayerHelper.cs"), true);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("renaming preserves the active buffer and dirty state", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell();
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    h.setEditorContent("class Game1 { int edited; }");
+    h.project.syncActiveBuffer();
+    assert.equal(await h.project.renameSourceFile("Game1.cs", "Games/Main.cs"), true);
+    assert.deepEqual(shell.renamed, [{
+      projectRoot: "/tmp/playground-project",
+      relativePath: "Game1.cs",
+      nextRelativePath: "Games/Main.cs",
+    }]);
+    assert.equal(h.project.isDirty(), true);
+    assert.equal(h.editorContent(), "class Game1 { int edited; }");
+    assert.equal(h.explorer().find(entry => entry.relativePath === "Games/Main.cs")?.active, true);
+    assert.deepEqual(h.project.getSources().find(source => source.path === "Games/Main.cs"), {
+      path: "Games/Main.cs",
+      text: "class Game1 { int edited; }",
+    });
+    assert.equal(h.project.getSources().some(source => source.path === "Game1.cs"), false);
+
+    // Invalid and colliding destinations are rejected before the native move.
+    assert.equal(await h.project.renameSourceFile("Games/Main.cs", "../Escape.cs"), false);
+    assert.equal(await h.project.renameSourceFile("Games/Main.cs", "Player.cs"), false);
+    assert.equal(shell.renamed.length, 1);
+  } finally {
+    shell.restore();
+    __resetProjectManagerState();
+  }
+});
+
+test("deleting updates active selection, sources, dirty state, and empty recovery", async () => {
+  __resetProjectManagerState();
+  const shell = installMockShell();
+  try {
+    const h = installHarness();
+    await h.project.openFolder();
+    h.project.switchTo("Player.cs");
+    h.setEditorContent("class Player { int unsaved; }");
+    h.project.syncActiveBuffer();
+    assert.equal(await h.project.deleteSourceFile("Player.cs"), true);
+    assert.deepEqual(shell.deleted, ["Player.cs"]);
+    assert.equal(h.editorContent(), "class Game1 {}");
+    assert.deepEqual(h.project.getSources(), [{ path: "Game1.cs", text: "class Game1 {}" }]);
+    assert.equal(h.project.isDirty(), false);
+
+    // The final source can be removed only through the explicit UI warning;
+    // after confirmation the empty project remains recoverable via New C# file.
+    assert.equal(await h.project.deleteSourceFile("Game1.cs"), true);
+    assert.deepEqual(shell.deleted, ["Player.cs", "Game1.cs"]);
+    assert.deepEqual(h.project.getSources(), []);
+    assert.equal(h.editorContent(), "");
+    assert.equal(h.project.primarySourcePath(), null);
   } finally {
     shell.restore();
     __resetProjectManagerState();

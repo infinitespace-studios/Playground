@@ -108,6 +108,8 @@ export const ISSUE034_APPROVED_COMMANDS = [
   "project_import_asset",
   "project_pick_import_files",
   "project_create_source_file",
+  "project_rename_source_file",
+  "project_delete_source_file",
 ] as const;
 
 const issue034Source = `

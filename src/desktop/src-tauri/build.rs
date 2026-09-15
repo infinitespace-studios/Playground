@@ -11,13 +11,13 @@ use std::{
 // either way (it reads `lib.rs` as text), so the three inventories below are the
 // build-time source of truth:
 //
-//   * `HANDLER_ORDER`   — all 70 command identifiers, in `generate_handler!`
+//   * `HANDLER_ORDER`   — all 72 command identifiers, in `generate_handler!`
 //                         order. Every proof identifier is gated by a per-line
 //                         `#[cfg(feature = "proof-harness")]`; the eleven product
 //                         identifiers are unconditional. `validate_runtime_rust`
 //                         enforces exactly that gating so neither list can drift
 //                         nor a proof command silently lose its gate.
-//   * `PRODUCT_COMMANDS` — the eleven commands compiled into every build.
+//   * `PRODUCT_COMMANDS` — the thirteen commands compiled into every build.
 //   * `PROOF_COMMANDS`   — the fifty-nine commands compiled only under the feature.
 //
 // The *effective* command set handed to `tauri_build` (and therefore the
@@ -98,6 +98,8 @@ const HANDLER_ORDER: &[&str] = &[
     "project_import_asset",
     "project_pick_import_files",
     "project_create_source_file",
+    "project_rename_source_file",
+    "project_delete_source_file",
 ];
 
 const PRODUCT_COMMANDS: &[&str] = &[
@@ -112,6 +114,8 @@ const PRODUCT_COMMANDS: &[&str] = &[
     "project_import_asset",
     "project_pick_import_files",
     "project_create_source_file",
+    "project_rename_source_file",
+    "project_delete_source_file",
 ];
 
 const PROOF_COMMANDS: &[&str] = &[
@@ -183,8 +187,8 @@ fn proof_harness_enabled() -> bool {
     env::var_os("CARGO_FEATURE_PROOF_HARNESS").is_some()
 }
 
-/// The command set actually compiled into this build: the eleven product
-/// commands by default, or all 70 under the proof-harness feature.
+/// The command set actually compiled into this build: the thirteen product
+/// commands by default, or all 72 under the proof-harness feature.
 fn effective_commands() -> &'static [&'static str] {
     if proof_harness_enabled() {
         HANDLER_ORDER
@@ -779,9 +783,9 @@ fn validate_generated_acl(root: &Path) {
         "generated permissions must contain files only"
     );
     // `tauri_build` regenerates this directory from the effective command set,
-    // so it is the profile-correct floor: 11 files by default, 70 under the
+    // so it is the profile-correct floor: 13 files by default, 72 under the
     // feature. This is the *effective grant* count (distinct from the committed
-    // permission definitions, which always describe all 70 across the two
+    // permission definitions, which always describe all 72 across the two
     // permission files).
     let effective = effective_commands();
     assert_eq!(
@@ -804,13 +808,13 @@ fn validate_generated_acl(root: &Path) {
     }
     // Effective ACL entries actually resolved into this profile's binary:
     //   product: 1 capability (main) + 1 composite permission (main-commands)
-    //            + 11 generated permissions           = 13
+    //            + 13 generated permissions           = 15
     //   proof:   2 capabilities (main + proof)
-    //            + 2 composite permissions            + 70 generated = 74
+    //            + 2 composite permissions            + 72 generated = 76
     let (capabilities, composites, expected_total) = if proof_harness_enabled() {
-        (2, 2, 74)
+        (2, 2, 76)
     } else {
-        (1, 1, 13)
+        (1, 1, 15)
     };
     assert_eq!(
         capabilities + composites + generated_files.len(),

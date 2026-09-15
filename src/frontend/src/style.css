@@ -255,6 +255,17 @@ body[data-running="true"] .lamp {
   padding-top: 8px;
 }
 
+.file-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.file-row .file {
+  flex: 1;
+  min-width: 0;
+}
+
 .file {
   display: flex;
   gap: 8px;
@@ -285,6 +296,34 @@ body[data-running="true"] .lamp {
    literal glyph in the label (non-color cue, issue 46) reinforced by weight. */
 .file[data-file] {
   justify-content: flex-start;
+}
+
+.file-actions {
+  display: flex;
+  gap: 2px;
+}
+
+.file-action {
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--muted);
+  padding: 3px 4px;
+  cursor: pointer;
+  font-size: var(--fs-caption);
+}
+
+.file-action:hover,
+.file-action:focus-visible {
+  border-color: var(--line);
+  background: var(--panel2);
+  color: var(--text);
+}
+
+.file-action.danger:hover,
+.file-action.danger:focus-visible,
+.danger-confirm {
+  color: var(--red);
 }
 
 /* Asset browser host (issue 059 host; issue 064 renders the real project

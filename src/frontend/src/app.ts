@@ -118,17 +118,52 @@ const project = installProjectManager({
     if (!fileExplorer) return;
     fileExplorer.replaceChildren();
     for (const entry of entries) {
+      const row = document.createElement("div");
+      row.className = "file-row";
       const button = document.createElement("button");
       button.className = entry.active ? "file active" : "file";
       button.dataset.file = entry.relativePath;
       button.textContent = entry.dirty ? `${entry.relativePath} \u25CF` : entry.relativePath;
       button.addEventListener("click", () => project.switchTo(entry.relativePath));
-      fileExplorer.appendChild(button);
+      row.appendChild(button);
+
+      const actions = document.createElement("span");
+      actions.className = "file-actions";
+      const rename = document.createElement("button");
+      rename.className = "file-action";
+      rename.type = "button";
+      rename.textContent = "Rename";
+      rename.setAttribute("aria-label", `Rename ${entry.relativePath}`);
+      rename.addEventListener("click", async event => {
+        event.stopPropagation();
+        const requestedPath = await promptForSourcePath(entry.relativePath, "Rename C# file", "Rename");
+        if (requestedPath !== null) await project.renameSourceFile(entry.relativePath, requestedPath);
+      });
+      const remove = document.createElement("button");
+      remove.className = "file-action danger";
+      remove.type = "button";
+      remove.textContent = "Delete";
+      remove.setAttribute("aria-label", `Delete ${entry.relativePath}`);
+      remove.addEventListener("click", async event => {
+        event.stopPropagation();
+        const lastFile = entries.length === 1;
+        const warning = entry.dirty ? " Unsaved edits will be discarded." : "";
+        const lastWarning = lastFile
+          ? " This is the last source file, so the project will not run until you create another C# file."
+          : "";
+        if (await confirmSourceDeletion(entry.relativePath, `${warning}${lastWarning}`)) {
+          await project.deleteSourceFile(entry.relativePath);
+        }
+      });
+      actions.append(rename, remove);
+      row.appendChild(actions);
+      fileExplorer.appendChild(row);
     }
     // Issue 060: mirror the active folder file + its dirty state into the
     // status bar so filename/dirty cues track file switches and edits.
     const active = entries.find(entry => entry.active);
     if (active) setStatusFile({ name: active.relativePath, dirty: active.dirty });
+    else if (project.hasProject()) setStatusFile({ name: "No source file", dirty: false });
   },
   // Publish folder dirty state through the same application-level path as the
   // scratch tracker. This keeps both the visible indicator and the native
@@ -235,27 +270,31 @@ if (openFolderButton) {
 // Tauri WebViews do not reliably expose a working window.prompt(). Use the
 // same application-owned dialog pattern as the other Workbench interactions so
 // clicking New C# file always produces a visible, keyboard-accessible editor.
-function promptForSourcePath(): Promise<string | null> {
+function promptForSourcePath(
+  initialPath = "NewFile.cs",
+  titleText = "New C# file",
+  confirmText = "Create",
+): Promise<string | null> {
   return new Promise(resolve => {
     const dialog = document.createElement("dialog");
     dialog.className = "confirmation-dialog";
-    dialog.setAttribute("aria-labelledby", "new-source-title");
+    dialog.setAttribute("aria-labelledby", "source-action-title");
 
     const content = document.createElement("div");
     content.className = "dialog-content";
     const title = document.createElement("h3");
-    title.id = "new-source-title";
-    title.textContent = "New C# file";
+    title.id = "source-action-title";
+    title.textContent = titleText;
     const description = document.createElement("p");
     description.textContent = "Enter a project-relative path, for example Helpers/Player.cs.";
 
     const label = document.createElement("label");
-    label.htmlFor = "new-source-path";
+    label.htmlFor = "source-action-path";
     label.textContent = "File path";
     const input = document.createElement("input");
-    input.id = "new-source-path";
+    input.id = "source-action-path";
     input.type = "text";
-    input.value = "NewFile.cs";
+    input.value = initialPath;
     input.autocomplete = "off";
     input.spellcheck = false;
     input.required = true;
@@ -266,11 +305,11 @@ function promptForSourcePath(): Promise<string | null> {
     cancel.className = "btn-cancel";
     cancel.type = "button";
     cancel.textContent = "Cancel";
-    const create = document.createElement("button");
-    create.className = "btn-confirm";
-    create.type = "button";
-    create.textContent = "Create";
-    buttons.append(cancel, create);
+    const confirm = document.createElement("button");
+    confirm.className = "btn-confirm";
+    confirm.type = "button";
+    confirm.textContent = confirmText;
+    buttons.append(cancel, confirm);
     content.append(title, description, label, input, buttons);
     dialog.append(content);
 
@@ -283,7 +322,7 @@ function promptForSourcePath(): Promise<string | null> {
       resolve(value);
     };
     cancel.addEventListener("click", () => finish(null));
-    create.addEventListener("click", () => {
+    confirm.addEventListener("click", () => {
       if (input.value.length > 0) finish(input.value);
       else input.focus();
     });
@@ -308,6 +347,56 @@ function promptForSourcePath(): Promise<string | null> {
     dialog.showModal();
     input.focus();
     input.select();
+  });
+}
+
+function confirmSourceDeletion(relativePath: string, warning: string): Promise<boolean> {
+  return new Promise(resolve => {
+    const dialog = document.createElement("dialog");
+    dialog.className = "confirmation-dialog";
+    dialog.setAttribute("aria-labelledby", "delete-source-title");
+    const content = document.createElement("div");
+    content.className = "dialog-content";
+    const title = document.createElement("h3");
+    title.id = "delete-source-title";
+    title.textContent = "Delete C# file";
+    const message = document.createElement("p");
+    message.textContent = `Delete ${relativePath}?${warning}`;
+    const buttons = document.createElement("div");
+    buttons.className = "dialog-buttons";
+    const cancel = document.createElement("button");
+    cancel.className = "btn-cancel";
+    cancel.type = "button";
+    cancel.textContent = "Cancel";
+    const confirm = document.createElement("button");
+    confirm.className = "btn-confirm danger-confirm";
+    confirm.type = "button";
+    confirm.textContent = "Delete";
+    buttons.append(cancel, confirm);
+    content.append(title, message, buttons);
+    dialog.append(content);
+
+    let settled = false;
+    const finish = (value: boolean): void => {
+      if (settled) return;
+      settled = true;
+      dialog.close();
+      dialog.remove();
+      resolve(value);
+    };
+    cancel.addEventListener("click", () => finish(false));
+    confirm.addEventListener("click", () => finish(true));
+    dialog.addEventListener("cancel", event => {
+      event.preventDefault();
+      finish(false);
+    });
+    dialog.addEventListener("click", event => {
+      if (event.target === dialog) finish(false);
+    });
+
+    document.body.append(dialog);
+    dialog.showModal();
+    cancel.focus();
   });
 }
 
