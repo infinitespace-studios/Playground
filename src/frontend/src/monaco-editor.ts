@@ -14,6 +14,7 @@
 
 import * as monaco from "monaco-editor";
 import EditorWorker from "monaco-editor/editor/editor.worker.js?worker";
+import type { ProjectEditorModel } from "./project-manager";
 import {
   readPersistedAppScale,
   monacoFontSizeForScale,
@@ -184,7 +185,12 @@ export function installEditor(): {
   getValue: () => string;
   setValue: (content: string) => void;
   onDidChangeContent: (listener: () => void) => void;
-  setMarkers: (markers: monaco.editor.IMarkerData[]) => void;
+  createProjectModel: (key: string, content: string) => ProjectEditorModel;
+  renameProjectModel: (model: ProjectEditorModel, key: string) => ProjectEditorModel;
+  setActiveProjectModel: (model: ProjectEditorModel | null) => void;
+  getProjectModelKeys: () => string[];
+  setMarkers: (markers: monaco.editor.IMarkerData[], modelKey?: string) => void;
+  clearAllMarkers: () => void;
   revealAndFocus: (line: number, column: number) => void;
   getStatus: () => EditorStatusState;
   onStatusChange: (listener: (status: EditorStatusState) => void) => void;
@@ -202,9 +208,35 @@ export function installEditor(): {
   // editor renders at the saved size immediately (no flash).
   const initialFontSize = monacoFontSizeForScale(readPersistedAppScale());
 
-  const model = monaco.editor.createModel(defaultGame1Source, "csharp");
+  const scratchModel = monaco.editor.createModel(defaultGame1Source, "csharp");
+  type ManagedProjectModel = ProjectEditorModel & { raw: monaco.editor.ITextModel };
+  const projectModels = new Map<string, ManagedProjectModel>();
+  const viewStates = new Map<string, monaco.editor.ICodeEditorViewState>();
+  let activeProjectModelKey: string | null = null;
+
+  const createProjectModel = (key: string, content: string): ManagedProjectModel => {
+    const raw = monaco.editor.createModel(content, "csharp", monaco.Uri.parse(key));
+    const managed: ManagedProjectModel = {
+      key,
+      raw,
+      getValue: () => raw.getValue(),
+      dispose: () => {
+        if (activeProjectModelKey === key) {
+          editorInstance?.setModel(scratchModel);
+          activeProjectModelKey = null;
+        }
+        monaco.editor.setModelMarkers(raw, "playground", []);
+        viewStates.delete(key);
+        projectModels.delete(key);
+        raw.dispose();
+      },
+    };
+    projectModels.set(key, managed);
+    return managed;
+  };
+
   editorInstance = monaco.editor.create(host, {
-    model,
+    model: scratchModel,
     theme: resolveMonacoTheme(),
     automaticLayout: true,
     // Issue 061: editor text defaults to >= 14 px for readability. Issue 062:
@@ -273,13 +305,61 @@ export function installEditor(): {
   // Indentation is a model option; re-attach if the model is ever swapped so we
   // never listen to a stale model. The workbench reuses one model today, but
   // this keeps the wiring correct regardless.
-  let optionsSubscription = model.onDidChangeOptions(() => emitStatus());
+  let optionsSubscription = scratchModel.onDidChangeOptions(() => emitStatus());
   editorInstance.onDidChangeModel(() => {
     optionsSubscription.dispose();
     const nextModel = editorInstance?.getModel();
     if (nextModel) optionsSubscription = nextModel.onDidChangeOptions(() => emitStatus());
     emitStatus();
   });
+
+  const setActiveProjectModel = (next: ProjectEditorModel | null): void => {
+    if (!editorInstance) return;
+    const current = editorInstance.getModel();
+    if (current && activeProjectModelKey && current === projectModels.get(activeProjectModelKey)?.raw) {
+      const state = editorInstance.saveViewState();
+      if (state) viewStates.set(activeProjectModelKey, state);
+    }
+    const nextRaw = next ? projectModels.get(next.key)?.raw : scratchModel;
+    if (!nextRaw) return;
+    activeProjectModelKey = next?.key ?? null;
+    editorInstance.setModel(nextRaw);
+    if (next) {
+      const state = viewStates.get(next.key);
+      if (state) editorInstance.restoreViewState(state);
+    }
+  };
+
+  const renameProjectModel = (model: ProjectEditorModel, key: string): ProjectEditorModel => {
+    const old = projectModels.get(model.key);
+    if (!old) throw new Error("cannot rename an unknown Monaco project model");
+    if (activeProjectModelKey === model.key && editorInstance) {
+      const state = editorInstance.saveViewState();
+      if (state) viewStates.set(model.key, state);
+    }
+    const next = createProjectModel(key, model.getValue());
+    const state = viewStates.get(model.key);
+    if (state) {
+      viewStates.set(key, state);
+      viewStates.delete(model.key);
+    }
+    return next;
+  };
+
+  const setMarkers = (markers: monaco.editor.IMarkerData[], modelKey?: string): void => {
+    const target = modelKey
+      ? projectModels.get(modelKey)?.raw
+      : editorInstance?.getModel();
+    if (target) monaco.editor.setModelMarkers(target, "playground", markers);
+  };
+
+  const clearAllMarkers = (): void => {
+    const active = editorInstance?.getModel();
+    if (active) monaco.editor.setModelMarkers(active, "playground", []);
+    for (const projectModel of projectModels.values()) {
+      monaco.editor.setModelMarkers(projectModel.raw, "playground", []);
+    }
+  };
 
   return {
     // PRD 8.6: Run must compile the current in-memory source, so always read
@@ -294,14 +374,14 @@ export function installEditor(): {
     onDidChangeContent: (listener: () => void) => {
       editorInstance?.onDidChangeModelContent(() => listener());
     },
-    // Issue 048: set inline diagnostic markers (squiggles) on the model under
-    // the "playground" owner. Passing an empty array clears them.
-    setMarkers: (markers: monaco.editor.IMarkerData[]) => {
-      const activeModel = editorInstance?.getModel();
-      if (activeModel) {
-        monaco.editor.setModelMarkers(activeModel, "playground", markers);
-      }
-    },
+    createProjectModel,
+    renameProjectModel,
+    setActiveProjectModel,
+    getProjectModelKeys: () => [...projectModels.keys()],
+    // Issue 048/069: markers can target an inactive persistent model by its
+    // stable key; omitting the key targets the visible scratch/active model.
+    setMarkers,
+    clearAllMarkers,
     // Issue 048: move the cursor to a diagnostic's location, scroll it into
     // view, and focus the editor (click-to-navigate from the Problems panel).
     revealAndFocus: (line: number, column: number) => {

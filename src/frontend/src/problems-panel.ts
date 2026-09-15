@@ -24,7 +24,14 @@ import type * as monaco from "monaco-editor";
 const MARKER_SEVERITY = { Hint: 1, Info: 2, Warning: 4, Error: 8 } as const;
 
 interface ProblemsPanelEditorHooks {
-  setMarkers: (markers: monaco.editor.IMarkerData[]) => void;
+  /** Set markers on a stable model key; undefined targets the visible model. */
+  setMarkers: (modelKey: string | undefined, markers: monaco.editor.IMarkerData[]) => void;
+  /** Clear markers across active and inactive project models. */
+  clearAllMarkers: () => void;
+  /** Resolve a diagnostic's project-relative file to its stable model key. */
+  modelKeyForFile: (file: string) => string | null | undefined;
+  /** Activate the diagnostic's source model before revealing its location. */
+  activateFile: (file: string) => void;
   revealAndFocus: (line: number, column: number) => void;
 }
 
@@ -144,7 +151,10 @@ export function installProblemsPanel(editor: ProblemsPanelEditorHooks): {
       if (hasSourcePosition(d)) {
         row.setAttribute("role", "button");
         row.tabIndex = 0;
-        const navigate = () => editor.revealAndFocus(d.line, d.column);
+        const navigate = () => {
+          if (d.file) editor.activateFile(d.file);
+          editor.revealAndFocus(d.line, d.column);
+        };
         row.addEventListener("click", navigate);
         row.addEventListener("keydown", event => {
           if (event.key === "Enter" || event.key === " ") {
@@ -163,17 +173,27 @@ export function installProblemsPanel(editor: ProblemsPanelEditorHooks): {
   }
 
   function applyMarkers(diagnostics: readonly Diagnostic[]): void {
-    const markers: monaco.editor.IMarkerData[] = diagnostics
-      .filter(hasSourcePosition)
-      .map(d => ({
+    editor.clearAllMarkers();
+    const byModel = new Map<string | undefined, monaco.editor.IMarkerData[]>();
+    for (const d of diagnostics) {
+      if (!hasSourcePosition(d)) continue;
+      // A project diagnostic with a file that is no longer open must not be
+      // painted onto whichever model happens to be active.
+      const resolvedModelKey = d.file ? editor.modelKeyForFile(d.file) : undefined;
+      if (d.file && resolvedModelKey === null) continue;
+      const modelKey = resolvedModelKey ?? undefined;
+      const markers = byModel.get(modelKey) ?? [];
+      markers.push({
         severity: markerSeverity(d.severity),
         message: `${d.id}: ${d.message}`,
         startLineNumber: d.line,
         startColumn: d.column,
         endLineNumber: d.line,
         endColumn: d.column + 1,
-      }));
-    editor.setMarkers(markers);
+      });
+      byModel.set(modelKey, markers);
+    }
+    for (const [modelKey, markers] of byModel) editor.setMarkers(modelKey, markers);
   }
 
   function onDiagnostics(

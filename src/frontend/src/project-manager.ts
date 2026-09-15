@@ -33,6 +33,20 @@ const WINDOWS_RESERVED_SOURCE_STEMS = new Set([
   "lpt1", "lpt2", "lpt3", "lpt4", "lpt5", "lpt6", "lpt7", "lpt8", "lpt9",
 ]);
 
+/** Stable, path-redacted URI used by Monaco for a folder-project source model. */
+export function projectModelUri(projectIdentity: string, relativePath: string): string {
+  const identity = encodeURIComponent(projectIdentity);
+  const path = relativePath.split("/").map(segment => encodeURIComponent(segment)).join("/");
+  return `playground-model://${identity}/${path}`;
+}
+
+/** Minimal editor-facing model contract kept independent of Monaco's runtime types. */
+export interface ProjectEditorModel {
+  readonly key: string;
+  getValue: () => string;
+  dispose: () => void;
+}
+
 /**
  * Validate and canonicalize a project-relative C# source path before invoking
  * the shell. Rust repeats this validation at the native boundary so forged
@@ -117,6 +131,8 @@ export interface ProjectManifest {
 interface ProjectFile {
   /** Path relative to the project root, forward-slashed (explorer label). */
   relativePath: string;
+  /** Persistent Monaco model for this source file. */
+  model: ProjectEditorModel;
   /** Absolute path on disk (atomic Save All target). */
   absolutePath: string;
   /** Content as last saved to / loaded from disk. */
@@ -228,10 +244,12 @@ function hasLegacyPreviewBlock(text: string): boolean {
 // ----- Public API -----
 
 export interface ProjectManagerHooks {
-  /** Load content into Monaco (switching the visible file). */
-  setEditorContent: (content: string) => void;
-  /** Read the live Monaco buffer (current visible file's edits). */
-  getEditorContent: () => string;
+  /** Create a persistent Monaco model for a project source. */
+  createProjectModel: (key: string, content: string) => ProjectEditorModel;
+  /** Recreate a model under a new stable URI during rename. */
+  renameProjectModel: (model: ProjectEditorModel, key: string) => ProjectEditorModel;
+  /** Make a project model visible, or restore the scratch model with null. */
+  setActiveProjectModel: (model: ProjectEditorModel | null) => void;
   /** Re-render the file explorer after the file list / active file changes. */
   renderExplorer: (files: ReadonlyArray<{ relativePath: string; dirty: boolean; active: boolean }>) => void;
   /** Update the global dirty indicator (any file dirty). */
@@ -267,6 +285,8 @@ export interface ProjectManagerApi {
   getSources: () => Array<{ path: string; text: string }>;
   /** Whether a folder project is currently open. */
   hasProject: () => boolean;
+  /** Stable Monaco model key for a source path, or null when it is not open. */
+  modelKeyFor: (relativePath: string) => string | null;
   /** Stable, path-redacted acknowledgement identity for the open project. */
   identity: () => string | null;
   /**
@@ -374,7 +394,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
   function syncActiveBuffer(): void {
     const file = activeFile();
     if (!file) return;
-    file.currentContent = hooks.getEditorContent();
+    file.currentContent = file.model.getValue();
     const wasDirty = file.dirty;
     file.dirty = file.currentContent !== file.savedContent;
     if (file.dirty !== wasDirty) {
@@ -390,11 +410,14 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
     const target = files.find(f => f.relativePath === relativePath);
     if (!target) return;
     activePath = relativePath;
-    hooks.setEditorContent(target.currentContent);
+    hooks.setActiveProjectModel(target.model);
     renderExplorer();
   }
 
   function closeProject(): void {
+    // Switch away before disposal so the editor never retains a disposed model.
+    hooks.setActiveProjectModel(null);
+    for (const file of files) file.model.dispose();
     projectRoot = null;
     currentProjectIdentity = null;
     projectFolderName = "";
@@ -413,13 +436,17 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
 
   const api: ProjectManagerApi = {
     hasProject: () => projectRoot !== null,
+    modelKeyFor: relativePath => {
+      const normalized = relativePath.replaceAll("\\", "/");
+      return files.find(file => file.relativePath === normalized)?.model.key ?? null;
+    },
     identity: () => currentProjectIdentity,
     closeProject,
     isDirty: () => anyDirty(),
     getSources: () => {
       // Ensure the visible file's live edits are captured first.
       syncActiveBuffer();
-      return files.map(f => ({ path: f.relativePath, text: f.currentContent }));
+      return files.map(f => ({ path: f.relativePath, text: f.model.getValue() }));
     },
     primarySourcePath: () => {
       if (files.length === 0) return null;
@@ -519,16 +546,21 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         if (createdPath.toLowerCase() !== canonicalPath) {
           throw new Error("the shell returned a different source path");
         }
+        const model = hooks.createProjectModel(
+          projectModelUri(currentProjectIdentity!, createdPath),
+          NEW_SOURCE_FILE_TEMPLATE,
+        );
         files.push({
           relativePath: createdPath,
           absolutePath: created.absolutePath,
+          model,
           savedContent: NEW_SOURCE_FILE_TEMPLATE,
           currentContent: NEW_SOURCE_FILE_TEMPLATE,
           dirty: false,
         });
         files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
         activePath = createdPath;
-        hooks.setEditorContent(NEW_SOURCE_FILE_TEMPLATE);
+        hooks.setActiveProjectModel(model);
         hooks.setDirtyIndicator(anyDirty());
         renderExplorer();
         return true;
@@ -573,9 +605,19 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         if (returnedPath.toLowerCase() !== canonicalNextPath) {
           throw new Error("the shell returned a different source path");
         }
+        const oldModel = source.model;
+        const nextModel = hooks.renameProjectModel(
+          oldModel,
+          projectModelUri(currentProjectIdentity!, returnedPath),
+        );
         source.relativePath = returnedPath;
         source.absolutePath = renamed.absolutePath;
-        if (activePath === relativePath) activePath = returnedPath;
+        source.model = nextModel;
+        if (activePath === relativePath) {
+          activePath = returnedPath;
+          hooks.setActiveProjectModel(nextModel);
+        }
+        oldModel.dispose();
         files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
         renderExplorer();
         return true;
@@ -605,13 +647,15 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         return false;
       }
 
+      const removed = files[index];
       const wasActive = activePath === relativePath;
       files.splice(index, 1);
       if (wasActive) {
         const next = files[Math.min(index, files.length - 1)] ?? null;
         activePath = next?.relativePath ?? null;
-        hooks.setEditorContent(next?.currentContent ?? "");
+        hooks.setActiveProjectModel(next?.model ?? null);
       }
+      removed.model.dispose();
       hooks.setDirtyIndicator(anyDirty());
       renderExplorer();
       return true;
@@ -670,7 +714,32 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         return false;
       }
 
-      // Commit new project state.
+      // Create the complete model set before replacing the current project, so
+      // a model-construction failure leaves the old project visible and intact.
+      let nextFiles: ProjectFile[];
+      const createdModels: ProjectEditorModel[] = [];
+      try {
+        nextFiles = project.csFiles.map(f => {
+          const model = hooks.createProjectModel(projectModelUri(identity, f.relativePath), f.content);
+          createdModels.push(model);
+          return {
+            relativePath: f.relativePath,
+            absolutePath: f.absolutePath,
+            model,
+            savedContent: f.content,
+            currentContent: f.content,
+            dirty: false,
+          };
+        });
+      } catch (error) {
+        for (const model of createdModels) model.dispose();
+        hooks.showError("Could not open folder", error instanceof Error ? error.message : String(error));
+        return false;
+      }
+
+      // Commit new project state and dispose every model from the prior folder.
+      hooks.setActiveProjectModel(null);
+      for (const file of files) file.model.dispose();
       projectRoot = project.root;
       currentProjectIdentity = identity;
       projectFolderName = project.folderName;
@@ -678,16 +747,10 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       manifestNeedsWrite = needsManifestWrite;
       contentFiles = project.contentFiles ?? [];
       contentRootExists = project.contentRootExists ?? contentFiles.length > 0;
-      files = project.csFiles.map(f => ({
-        relativePath: f.relativePath,
-        absolutePath: f.absolutePath,
-        savedContent: f.content,
-        currentContent: f.content,
-        dirty: false,
-      }));
+      files = nextFiles;
       activePath = (api.primarySourcePath() ?? files[0].relativePath);
       const active = activeFile();
-      if (active) hooks.setEditorContent(active.currentContent);
+      if (active) hooks.setActiveProjectModel(active.model);
       hooks.setDirtyIndicator(false);
       renderExplorer();
       // Issue 064: publish the newly-opened project's content inventory to the

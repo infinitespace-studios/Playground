@@ -112,8 +112,9 @@ function showModalError(title: string, message: string): void {
 const assetBrowser = installAssetBrowser();
 
 const project = installProjectManager({
-  setEditorContent: content => editor.setValue(content),
-  getEditorContent: () => editor.getValue(),
+  createProjectModel: (key, content) => editor.createProjectModel(key, content),
+  renameProjectModel: (model, key) => editor.renameProjectModel(model, key),
+  setActiveProjectModel: model => editor.setActiveProjectModel(model),
   renderExplorer: entries => {
     if (!fileExplorer) return;
     fileExplorer.replaceChildren();
@@ -467,7 +468,12 @@ if (saveButton) {
 // onDiagnostics hook is handed to the Run control below so a failed compile
 // populates and reveals the Problems tab.
 const problems = installProblemsPanel({
-  setMarkers: editor.setMarkers,
+  setMarkers: (modelKey, markers) => editor.setMarkers(markers, modelKey),
+  clearAllMarkers: editor.clearAllMarkers,
+  modelKeyForFile: file => project.hasProject() ? project.modelKeyFor(file) : undefined,
+  activateFile: file => {
+    if (project.hasProject()) project.switchTo(file);
+  },
   revealAndFocus: editor.revealAndFocus,
 });
 

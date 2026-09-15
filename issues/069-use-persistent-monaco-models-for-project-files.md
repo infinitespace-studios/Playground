@@ -1,7 +1,7 @@
 # Use persistent Monaco models for every project source file
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [068-rename-and-delete-source-files.md](068-rename-and-delete-source-files.md), [048-navigate-problems-rows-to-editor-markers.md](048-navigate-problems-rows-to-editor-markers.md)
 **Feature area:** Multi-file authoring, editor foundation
 **Triage:** feature-backlog
@@ -38,10 +38,10 @@ Use a three-file project. Make independent edits/cursors/selections, switch repe
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Human project owner/user, with automated verification by the implementation session
+- **Date:** 2026-09-15
+- **Evidence:** The human verifier exercised the three-file folder workflow, including independent file edits and model switching, inactive-file diagnostics, Problems-row navigation, project cleanup/reopen behavior, and repeated switching. The verifier confirmed that clicking an error now activates the correct source file and moves the cursor to the reported location. Automated evidence: combined frontend lifecycle/protocol tests 129/129 passed; frontend typecheck and Vite build passed; PRODUCT Rust tests 48/48 passed; PROOF Rust tests 62/62 passed; Cargo format/build checks passed; command-inventory self-test passed.
 
 ## Commit gate
 

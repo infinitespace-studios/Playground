@@ -21,6 +21,7 @@ import {
   parseManifest,
   serializeManifest,
   PROJECT_SCHEMA_VERSION,
+  type ProjectEditorModel,
   type ProjectManagerApi,
   type ProjectManagerHooks,
 } from "./project-manager.ts";
@@ -182,14 +183,37 @@ interface Harness {
 
 function installHarness(): Harness {
   let editorContent = "scratch";
+  let activeModel: (ProjectEditorModel & { content: string; disposed: boolean }) | null = null;
   const dirtyStates: boolean[] = [];
   let explorerEntries: ReadonlyArray<{ relativePath: string; dirty: boolean; active: boolean }> = [];
   const errors: Array<{ title: string; message: string }> = [];
   const contentSnapshots: Array<ReturnType<ProjectManagerApi["contentSnapshot"]>> = [];
 
   const hooks: ProjectManagerHooks = {
-    setEditorContent: content => { editorContent = content; },
-    getEditorContent: () => editorContent,
+    createProjectModel: (key, content) => {
+      const model = {
+        key,
+        content,
+        disposed: false,
+        getValue: () => model.content,
+        dispose: () => { model.disposed = true; },
+      };
+      return model;
+    },
+    renameProjectModel: (model, key) => {
+      const renamed = {
+        key,
+        content: model.getValue(),
+        disposed: false,
+        getValue: () => renamed.content,
+        dispose: () => { renamed.disposed = true; },
+      };
+      return renamed;
+    },
+    setActiveProjectModel: model => {
+      activeModel = model as typeof activeModel;
+      editorContent = model?.getValue() ?? "";
+    },
     renderExplorer: entries => { explorerEntries = entries; },
     setDirtyIndicator: dirty => { dirtyStates.push(dirty); },
     showError: (title, message) => { errors.push({ title, message }); },
@@ -199,7 +223,10 @@ function installHarness(): Harness {
   return {
     project: installProjectManager(hooks),
     editorContent: () => editorContent,
-    setEditorContent: content => { editorContent = content; },
+    setEditorContent: content => {
+      editorContent = content;
+      if (activeModel) activeModel.content = content;
+    },
     dirtyStates,
     explorer: () => explorerEntries,
     errors,
