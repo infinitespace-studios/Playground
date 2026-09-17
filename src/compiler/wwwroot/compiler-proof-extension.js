@@ -637,6 +637,10 @@ globalThis.__playgroundCompilerExtension = controls => {
       async onRuntimeReady({ exports }) {
         proofState.successfulRuntimeStarts += 1;
         globalThis.compilerIssue21Proof.runtimeStarts += 1;
+        // PROOF-only same-origin bridge for issue 073. PRODUCT never loads
+        // this extension or exposes a language-service entry point.
+        globalThis.compilerProofLanguageService = request =>
+          JSON.parse(exports.LanguageServiceHandle(JSON.stringify(request)));
         globalThis.compilerProofCompile = requestJson => JSON.parse(exports.Compile(requestJson));
         const proofAuthorized = standaloneProofPage ? true : await proofAuthorization;
         globalThis.compilerIssue21Proof.retention = await initializeCompilerProofMode(

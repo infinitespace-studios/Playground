@@ -283,6 +283,8 @@ export interface ProjectManagerApi {
   saveAll: () => Promise<boolean>;
   /** All open .cs files as compile sources (active file reflects live edits). */
   getSources: () => Array<{ path: string; text: string }>;
+  /** Subscribe to project/file/model lifecycle changes. */
+  subscribe: (listener: () => void) => () => void;
   /** Whether a folder project is currently open. */
   hasProject: () => boolean;
   /** Stable Monaco model key for a source path, or null when it is not open. */
@@ -359,6 +361,11 @@ export interface ProjectManagerApi {
 }
 
 export function installProjectManager(hooks: ProjectManagerHooks): ProjectManagerApi {
+  const stateListeners = new Set<() => void>();
+  function notifyStateChanged(): void {
+    for (const listener of stateListeners) listener();
+  }
+
   function anyDirty(): boolean {
     return files.some(f => f.dirty);
   }
@@ -412,6 +419,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
     activePath = relativePath;
     hooks.setActiveProjectModel(target.model);
     renderExplorer();
+    notifyStateChanged();
   }
 
   function closeProject(): void {
@@ -432,9 +440,14 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
     // Issue 064: clearing to scratch state must clear the rail's assets too, so
     // a project switch can never leave stale assets from the prior project.
     emitContentChanged();
+    notifyStateChanged();
   }
 
   const api: ProjectManagerApi = {
+    subscribe: listener => {
+      stateListeners.add(listener);
+      return () => stateListeners.delete(listener);
+    },
     hasProject: () => projectRoot !== null,
     modelKeyFor: relativePath => {
       const normalized = relativePath.replaceAll("\\", "/");
@@ -563,6 +576,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         hooks.setActiveProjectModel(model);
         hooks.setDirtyIndicator(anyDirty());
         renderExplorer();
+        notifyStateChanged();
         return true;
       } catch (error) {
         hooks.showError("Could not create file", error instanceof Error ? error.message : String(error));
@@ -620,6 +634,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
         oldModel.dispose();
         files.sort((a, b) => a.relativePath.localeCompare(b.relativePath));
         renderExplorer();
+        notifyStateChanged();
         return true;
       } catch (error) {
         hooks.showError("Could not rename file", error instanceof Error ? error.message : String(error));
@@ -658,18 +673,27 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       removed.model.dispose();
       hooks.setDirtyIndicator(anyDirty());
       renderExplorer();
+      notifyStateChanged();
       return true;
     },
     openFolder: async () => {
-      const picked = await invoke<string | null>("project_pick_folder");
-      if (!picked) return false;
-
+      const fixture = (globalThis as typeof globalThis & {
+        __PLAYGROUND_BROWSER_PROJECT_FIXTURE__?: () => ProjectReadResult;
+      }).__PLAYGROUND_BROWSER_PROJECT_FIXTURE__;
       let project: ProjectReadResult;
-      try {
-        project = await invoke<ProjectReadResult>("project_read", { path: picked });
-      } catch (error) {
-        hooks.showError("Could not open folder", error instanceof Error ? error.message : String(error));
-        return false;
+      if (fixture) {
+        // PROOF-only browser fallback: static Vite runs have no native folder
+        // picker, so the proof entry supplies a deterministic in-memory project.
+        project = fixture();
+      } else {
+        const picked = await invoke<string | null>("project_pick_folder");
+        if (!picked) return false;
+        try {
+          project = await invoke<ProjectReadResult>("project_read", { path: picked });
+        } catch (error) {
+          hooks.showError("Could not open folder", error instanceof Error ? error.message : String(error));
+          return false;
+        }
       }
 
       if (project.csFiles.length === 0) {
@@ -756,6 +780,7 @@ export function installProjectManager(hooks: ProjectManagerHooks): ProjectManage
       // Issue 064: publish the newly-opened project's content inventory to the
       // rail (replacing any prior project's assets).
       emitContentChanged();
+      notifyStateChanged();
       return true;
     },
     saveAll: async () => {

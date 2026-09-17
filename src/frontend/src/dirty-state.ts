@@ -260,6 +260,16 @@ export function installDirtyStateTracker(
       setApplicationDirtyState(false);
     },
     openFile: async () => {
+      const fixture = (globalThis as typeof globalThis & {
+        __PLAYGROUND_BROWSER_PROJECT_FIXTURE__?: () => {
+          csFiles: Array<{ relativePath: string; content: string }>;
+        };
+      }).__PLAYGROUND_BROWSER_PROJECT_FIXTURE__;
+      if (fixture) {
+        // PROOF-only browser fallback: static Vite has no native file dialog.
+        const first = fixture().csFiles[0];
+        if (first) return { fileName: first.relativePath, content: first.content };
+      }
       try {
         // Show native open dialog via our approved application command.
         // Returns [path, content] or null if cancelled.

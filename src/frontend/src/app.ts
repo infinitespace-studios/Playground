@@ -19,7 +19,7 @@ import { installAppScaleControls } from "./scaling-controller";
 
 // Issue 047: mount the real Monaco editor with the default HelloWorld example
 // before wiring Run, so Run can read the live editor buffer.
-const editor = installEditor();
+export const editor = installEditor();
 
 // Issue 050: dirty-state tracking for the Monaco editor
 // Initialize with the default example content
@@ -111,7 +111,7 @@ function showModalError(title: string, message: string): void {
 // prior project.
 const assetBrowser = installAssetBrowser();
 
-const project = installProjectManager({
+export const project = installProjectManager({
   createProjectModel: (key, content) => editor.createProjectModel(key, content),
   renameProjectModel: (model, key) => editor.renameProjectModel(model, key),
   setActiveProjectModel: model => editor.setActiveProjectModel(model),
@@ -481,7 +481,7 @@ const problems = installProblemsPanel({
 // runtime failures (distinct blocks). Its hooks are handed to the Run control
 // so live output streams in and a runtime exception is displayed. The editor
 // and Problems tab stay interactive after a failure (PRD 8.5).
-const output = installOutputPanel();
+export const output = installOutputPanel();
 
 // Issue 052: preview-panel focus/input routing + status indicator. Returns the
 // lifecycle callback that drives the indicator from the Run/Stop controller.

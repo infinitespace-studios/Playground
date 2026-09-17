@@ -147,6 +147,11 @@ void runProjectLifecycleScenario();
 
 // Workbench application controller wiring (imported after main module)
 import "./app";
+import { installProofLanguageService } from "./language-service-proof";
+
+// Issue 073: PROOF-only Monaco completion provider backed by the persistent
+// direct SemanticModel session. PRODUCT never imports this module.
+installProofLanguageService();
 
 // Issue 046: persistent theme + accessibility
 initTheme();

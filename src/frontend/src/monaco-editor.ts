@@ -191,6 +191,7 @@ export function installEditor(): {
   getProjectModelKeys: () => string[];
   setMarkers: (markers: monaco.editor.IMarkerData[], modelKey?: string) => void;
   clearAllMarkers: () => void;
+  registerCompletionProvider: (provider: monaco.languages.CompletionItemProvider) => monaco.IDisposable;
   revealAndFocus: (line: number, column: number) => void;
   getStatus: () => EditorStatusState;
   onStatusChange: (listener: (status: EditorStatusState) => void) => void;
@@ -382,6 +383,8 @@ export function installEditor(): {
     // stable key; omitting the key targets the visible scratch/active model.
     setMarkers,
     clearAllMarkers,
+    registerCompletionProvider: provider =>
+      monaco.languages.registerCompletionItemProvider("csharp", provider),
     // Issue 048: move the cursor to a diagnostic's location, scroll it into
     // view, and focus the editor (click-to-navigate from the Problems panel).
     revealAndFocus: (line: number, column: number) => {

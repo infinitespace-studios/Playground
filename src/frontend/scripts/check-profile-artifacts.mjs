@@ -133,6 +133,7 @@ const EXPECTED_SCENARIO_COUNT = 8;
 // into PRODUCT or a drop from PROOF is a HARD FAILURE) without matching the
 // structural proof-* scenario prefix guard.
 const PROOF_SUPPORT_MODULES = [
+  "src/language-service-proof.ts",
   "src/packaged-proof-readiness.ts",
   "src/persistent-compile-support.ts",
   "src/embedded-preview-support.ts",
