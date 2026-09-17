@@ -192,6 +192,10 @@ export function installEditor(): {
   setMarkers: (markers: monaco.editor.IMarkerData[], modelKey?: string) => void;
   clearAllMarkers: () => void;
   registerCompletionProvider: (provider: monaco.languages.CompletionItemProvider) => monaco.IDisposable;
+  registerHoverProvider: (provider: monaco.languages.HoverProvider) => monaco.IDisposable;
+  registerSignatureHelpProvider: (provider: monaco.languages.SignatureHelpProvider) => monaco.IDisposable;
+  registerDefinitionProvider: (provider: monaco.languages.DefinitionProvider) => monaco.IDisposable;
+  registerModifiedClick: (listener: (model: monaco.editor.ITextModel, position: monaco.Position) => void) => monaco.IDisposable;
   revealAndFocus: (line: number, column: number) => void;
   getStatus: () => EditorStatusState;
   onStatusChange: (listener: (status: EditorStatusState) => void) => void;
@@ -385,6 +389,19 @@ export function installEditor(): {
     clearAllMarkers,
     registerCompletionProvider: provider =>
       monaco.languages.registerCompletionItemProvider("csharp", provider),
+    registerHoverProvider: provider => monaco.languages.registerHoverProvider("csharp", provider),
+    registerSignatureHelpProvider: provider => monaco.languages.registerSignatureHelpProvider("csharp", provider),
+    registerDefinitionProvider: provider => monaco.languages.registerDefinitionProvider("csharp", provider),
+    registerModifiedClick: listener => editorInstance!.onMouseDown(event => {
+      if (!event.event.metaKey && !event.event.ctrlKey) return;
+      if (event.target.type !== monaco.editor.MouseTargetType.CONTENT_TEXT &&
+          event.target.type !== monaco.editor.MouseTargetType.CONTENT_EMPTY) return;
+      const model = editorInstance?.getModel();
+      const position = event.target.position;
+      if (!model || !position) return;
+      event.event.preventDefault();
+      listener(model, position);
+    }),
     // Issue 048: move the cursor to a diagnostic's location, scroll it into
     // view, and focus the editor (click-to-navigate from the Problems panel).
     revealAndFocus: (line: number, column: number) => {

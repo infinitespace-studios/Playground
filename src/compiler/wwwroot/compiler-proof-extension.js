@@ -641,6 +641,8 @@ globalThis.__playgroundCompilerExtension = controls => {
         // this extension or exposes a language-service entry point.
         globalThis.compilerProofLanguageService = request =>
           JSON.parse(exports.LanguageServiceHandle(JSON.stringify(request)));
+        globalThis.compilerProofLanguageFeatures = request =>
+          JSON.parse(exports.LanguageFeatureHandle(JSON.stringify(request)));
         globalThis.compilerProofCompile = requestJson => JSON.parse(exports.Compile(requestJson));
         const proofAuthorized = standaloneProofPage ? true : await proofAuthorization;
         globalThis.compilerIssue21Proof.retention = await initializeCompilerProofMode(

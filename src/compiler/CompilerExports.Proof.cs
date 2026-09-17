@@ -325,6 +325,181 @@ public static partial class CompilerExports
     private static LanguageSession? _languageSession;
 
     [JSExport]
+    public static string LanguageFeatureHandle(string? requestJson)
+    {
+        try
+        {
+            if (string.IsNullOrEmpty(requestJson) || requestJson.Length > 256 * 1024)
+                throw new LanguageServiceFailure("MESSAGE_TOO_LARGE", "Language feature request exceeds the size limit.");
+            using var json = JsonDocument.Parse(requestJson);
+            var root = json.RootElement;
+            var sessionId = root.GetProperty("sessionId").GetString();
+            var uri = root.GetProperty("uri").GetString();
+            var version = root.GetProperty("version").GetInt32();
+            var offset = root.GetProperty("offset").GetInt32();
+            var operation = root.GetProperty("operation").GetString();
+            if (!IsCanonicalUuidV4(sessionId) || string.IsNullOrEmpty(uri) || version < 1 || offset < 0)
+                throw new LanguageServiceFailure("MALFORMED_PAYLOAD", "Language feature identity or position is invalid.");
+            lock (LanguageSessionLock)
+            {
+                var session = RequireLanguageSession(sessionId!);
+                if (!session.Documents.TryGetValue(uri!, out var document))
+                    throw new LanguageServiceFailure("DOCUMENT_NOT_FOUND", "Language document was not opened.");
+                if (version != document.Version)
+                    throw new LanguageServiceFailure("STALE_DOCUMENT_VERSION", "Language feature request is stale.");
+                if (session.Compilation is null)
+                    throw new LanguageServiceFailure("INVALID_STATE", "Language compilation is not initialized.");
+                var model = session.Compilation.GetSemanticModel(document.Tree);
+                var position = Math.Min(offset, document.Text.Length);
+                return operation switch
+                {
+                    "quickInfo" => SerializeFeatureSuccess(writer => WriteQuickInfo(writer, document, model, position)),
+                    "signatureHelp" => SerializeFeatureSuccess(writer => WriteSignatureHelp(writer, document, model, position)),
+                    "definition" => SerializeFeatureSuccess(writer => WriteDefinitions(writer, document, model, position)),
+                    _ => throw new LanguageServiceFailure("UNKNOWN_MESSAGE_TYPE", "Unknown language feature operation."),
+                };
+            }
+        }
+        catch (LanguageServiceFailure failure)
+        {
+            return SerializeFeatureFailure(failure.Code, failure.Message);
+        }
+        catch (Exception exception)
+        {
+            return SerializeFeatureFailure("INTERNAL_ERROR", $"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    private static ISymbol? SymbolAt(SemanticModel model, SyntaxTree tree, int position)
+    {
+        var textLength = tree.GetText().Length;
+        foreach (var candidate in new[] {
+            Math.Clamp(position, 0, Math.Max(0, textLength - 1)),
+            Math.Clamp(position - 1, 0, Math.Max(0, textLength - 1)),
+        }.Distinct())
+        {
+            var token = tree.GetRoot().FindToken(candidate);
+            foreach (var node in token.Parent?.AncestorsAndSelf() ?? Enumerable.Empty<SyntaxNode>())
+            {
+                var symbol = model.GetSymbolInfo(node).Symbol ?? model.GetTypeInfo(node).Type;
+                if (symbol is not null) return symbol;
+            }
+        }
+        return null;
+    }
+
+    private static void WriteQuickInfo(Utf8JsonWriter writer, LanguageDocument document, SemanticModel model, int position)
+    {
+        var symbol = SymbolAt(model, document.Tree, position);
+        writer.WriteStartObject();
+        if (symbol is null)
+        {
+            writer.WriteBoolean("found", false);
+        }
+        else
+        {
+            writer.WriteBoolean("found", true);
+            writer.WriteString("display", symbol.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
+            writer.WriteString("kind", symbol.Kind.ToString());
+            var documentation = symbol.GetDocumentationCommentXml(cancellationToken: default);
+            if (!string.IsNullOrEmpty(documentation)) writer.WriteString("documentation", documentation);
+        }
+        writer.WriteEndObject();
+    }
+
+    private static void WriteSignatureHelp(Utf8JsonWriter writer, LanguageDocument document, SemanticModel model, int position)
+    {
+        var safePosition = Math.Max(0, Math.Min(position, document.Text.Length));
+        var token = document.Tree.GetRoot().FindToken(Math.Max(0, safePosition - 1));
+        var invocation = token.Parent?.AncestorsAndSelf().OfType<InvocationExpressionSyntax>().FirstOrDefault();
+        var methods = new List<IMethodSymbol>();
+        if (invocation is not null)
+        {
+            var info = model.GetSymbolInfo(invocation);
+            methods.AddRange(info.CandidateSymbols.OfType<IMethodSymbol>());
+            if (info.Symbol is IMethodSymbol selectedMethod) methods.Add(selectedMethod);
+        }
+        var distinctMethods = methods
+            .GroupBy(method => method.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat), StringComparer.Ordinal)
+            .Select(group => group.First())
+            .Take(20)
+            .ToArray();
+        var activeParameter = invocation?.ArgumentList.Arguments.Count(argument => argument.SpanStart < safePosition) ?? 0;
+        writer.WriteStartObject();
+        writer.WriteNumber("activeParameter", activeParameter);
+        writer.WriteStartArray("signatures");
+        foreach (var method in distinctMethods)
+        {
+            writer.WriteStartObject();
+            writer.WriteString("label", method.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
+            writer.WriteStartArray("parameters");
+            foreach (var parameter in method.Parameters)
+            {
+                writer.WriteStartObject();
+                writer.WriteString("label", parameter.ToDisplayString(SymbolDisplayFormat.MinimallyQualifiedFormat));
+                writer.WriteEndObject();
+            }
+            writer.WriteEndArray();
+            writer.WriteEndObject();
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static void WriteDefinitions(Utf8JsonWriter writer, LanguageDocument document, SemanticModel model, int position)
+    {
+        var symbol = SymbolAt(model, document.Tree, position);
+        writer.WriteStartObject();
+        writer.WriteStartArray("locations");
+        if (symbol is not null)
+        {
+            foreach (var location in symbol.Locations.Where(location => location.IsInSource && location.SourceTree is not null).Take(8))
+            {
+                var span = location.GetLineSpan();
+                writer.WriteStartObject();
+                writer.WriteString("path", span.Path);
+                writer.WriteNumber("startLine", span.StartLinePosition.Line + 1);
+                writer.WriteNumber("startColumn", span.StartLinePosition.Character + 1);
+                writer.WriteNumber("endLine", span.EndLinePosition.Line + 1);
+                writer.WriteNumber("endColumn", span.EndLinePosition.Character + 1);
+                writer.WriteEndObject();
+            }
+        }
+        writer.WriteEndArray();
+        writer.WriteEndObject();
+    }
+
+    private static string SerializeFeatureSuccess(Action<Utf8JsonWriter> writeData)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean("success", true);
+            writer.WritePropertyName("data");
+            writeData(writer);
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string SerializeFeatureFailure(string code, string message)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteBoolean("success", false);
+            writer.WriteStartObject("error");
+            writer.WriteString("code", code);
+            writer.WriteString("message", message);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    [JSExport]
     public static string LanguageServiceHandle(string? requestJson)
     {
         string? type = null;

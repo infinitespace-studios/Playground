@@ -10,6 +10,7 @@ import { editor, output, project } from "./app";
 
 interface ProofCompilerWindow extends Window {
   compilerProofLanguageService?: (request: unknown) => unknown;
+  compilerProofLanguageFeatures?: (request: unknown) => unknown;
 }
 
 interface TrackedDocument {
@@ -49,12 +50,31 @@ let failureReported = false;
     {
       relativePath: "Game1.cs",
       absolutePath: "browser-proof://issue073-project/Game1.cs",
-      content: "public class Game1 { private Player player = new Player(); void Test() { player. } }",
+      content: `using System;
+
+public class Game1
+{
+    private readonly Player player = new Player();
+
+    public void Test()
+    {
+        player.
+    }
+}
+`,
     },
     {
       relativePath: "Player.cs",
       absolutePath: "browser-proof://issue073-project/Player.cs",
-      content: "public class Player { public int Score; public void Jump() { } }",
+      content: `public class Player
+{
+    public int Score;
+
+    public void Jump()
+    {
+    }
+}
+`,
     },
   ],
   contentFiles: [],
@@ -159,6 +179,26 @@ function scheduleSync(): void {
   }, 50);
 }
 
+function safeMarkdown(value: string): string {
+  return value.slice(0, 2_000).replace(/[\\`*_\[\]<>]/g, "\\$&");
+}
+
+function featureCall(operation: string, model: monaco.editor.ITextModel, position: monaco.Position): any {
+  const child = compilerFrame.contentWindow as ProofCompilerWindow | null;
+  const service = child?.compilerProofLanguageFeatures;
+  if (!service) throw new Error("The PROOF compiler language-feature bridge is unavailable.");
+  const uri = project.hasProject() ? model.uri.toString() : stableScratchUri();
+  const document = tracked.get(uri);
+  if (!document) return null;
+  return service({
+    operation,
+    sessionId,
+    uri,
+    version: document.version,
+    offset: model.getOffsetAt(position),
+  });
+}
+
 function completionKind(kind: string): monaco.languages.CompletionItemKind {
   const kinds = monaco.languages.CompletionItemKind;
   return ({
@@ -170,6 +210,41 @@ function completionKind(kind: string): monaco.languages.CompletionItemKind {
     namespace: kinds.Module,
     variable: kinds.Variable,
   } as Record<string, monaco.languages.CompletionItemKind>)[kind] ?? kinds.Reference;
+}
+
+type DefinitionLocation = {
+  path: string;
+  startLine: number;
+  startColumn: number;
+  endLine: number;
+  endColumn: number;
+};
+
+async function definitionLocations(
+  model: monaco.editor.ITextModel,
+  position: monaco.Position,
+  activate = false,
+): Promise<monaco.languages.Location[]> {
+  await syncDocuments();
+  const result = featureCall("definition", model, position);
+  if (!result?.success || !Array.isArray(result.data?.locations)) return [];
+  return result.data.locations
+    .map((location: DefinitionLocation) => {
+      const normalizedPath = location.path.replaceAll("\\", "/");
+      const basename = normalizedPath.split("/").at(-1) ?? normalizedPath;
+      const targetPath = project.modelKeyFor(normalizedPath)
+        ? normalizedPath
+        : (project.modelKeyFor(basename) ? basename : null);
+      if (!targetPath) return null;
+      const key = project.modelKeyFor(targetPath);
+      if (!key) return null;
+      if (activate) project.switchTo(targetPath);
+      return {
+        uri: monaco.Uri.parse(key),
+        range: new monaco.Range(location.startLine, location.startColumn, location.endLine, location.endColumn),
+      };
+    })
+    .filter((location: monaco.languages.Location | null): location is monaco.languages.Location => location !== null);
 }
 
 export function installProofLanguageService(): void {
@@ -219,6 +294,85 @@ export function installProofLanguageService(): void {
         return { suggestions: [] };
       }
     },
+  });
+
+  editor.registerHoverProvider({
+    provideHover: async (model, position, token) => {
+      if (token.isCancellationRequested) return null;
+      try {
+        await syncDocuments();
+        const result = featureCall("quickInfo", model, position);
+        if (!result?.success || !result.data?.found) return null;
+        const display = safeMarkdown(String(result.data.display ?? ""));
+        const documentation = result.data.documentation
+          ? `\n\n${safeMarkdown(String(result.data.documentation))}`
+          : "";
+        const word = model.getWordAtPosition(position);
+        return {
+          contents: [{ value: `\`\`\`csharp\n${display}\n\`\`\`${documentation}` }],
+          range: word ? new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn) : undefined,
+        };
+      } catch (error) {
+        reportFailure(error);
+        return null;
+      }
+    },
+  });
+
+  editor.registerSignatureHelpProvider({
+    signatureHelpTriggerCharacters: ["(", ","],
+    signatureHelpRetriggerCharacters: [",", ")"],
+    provideSignatureHelp: async (model, position, token) => {
+      if (token.isCancellationRequested) return null;
+      try {
+        await syncDocuments();
+        const result = featureCall("signatureHelp", model, position);
+        if (!result?.success || !result.data?.signatures?.length) return null;
+        return {
+          value: {
+            signatures: result.data.signatures.map((signature: { label: string; parameters: Array<{ label: string }> }) => ({
+              label: safeMarkdown(signature.label),
+              parameters: signature.parameters.map(parameter => ({ label: safeMarkdown(parameter.label) })),
+            })),
+            activeSignature: 0,
+            activeParameter: Math.max(0, result.data.activeParameter ?? 0),
+          },
+          dispose: () => undefined,
+        };
+      } catch (error) {
+        reportFailure(error);
+        return null;
+      }
+    },
+  });
+
+  editor.registerDefinitionProvider({
+    provideDefinition: async (model, position, token) => {
+      if (token.isCancellationRequested) return null;
+      try {
+        return await definitionLocations(model, position);
+      } catch (error) {
+        reportFailure(error);
+        return null;
+      }
+    },
+  });
+
+  // Monaco's built-in modifier-click path varies across WebKit/browser builds.
+  // Keep the provider for keyboard/command navigation, but also make the
+  // explicit Ctrl/Cmd-click path deterministic for persistent project models.
+  editor.registerModifiedClick(async (model, position) => {
+    try {
+      const locations = await definitionLocations(model, position, true);
+      const first = locations[0];
+      if (first) {
+        const line = first.range.startLineNumber;
+        const column = first.range.startColumn;
+        editor.revealAndFocus(line, column);
+      }
+    } catch (error) {
+      reportFailure(error);
+    }
   });
 }
 
