@@ -321,6 +321,391 @@ public static partial class CompilerExports
         }
     }
 
+    private static readonly object LanguageSessionLock = new();
+    private static LanguageSession? _languageSession;
+
+    [JSExport]
+    public static string LanguageServiceHandle(string? requestJson)
+    {
+        string? type = null;
+        string? correlationId = null;
+        try
+        {
+            if (string.IsNullOrEmpty(requestJson) || requestJson.Length > 8 * 1024 * 1024)
+                throw new LanguageServiceFailure("MESSAGE_TOO_LARGE", "Language request exceeds the size limit.");
+            using var document = JsonDocument.Parse(requestJson);
+            var root = document.RootElement;
+            if (!root.TryGetProperty("protocolVersion", out var protocol) || protocol.ValueKind != JsonValueKind.Number)
+                throw new LanguageServiceFailure("MISSING_PROTOCOL_VERSION", "protocolVersion is required.", control: true);
+            if (protocol.GetInt32() != 1)
+                throw new LanguageServiceFailure("UNSUPPORTED_PROTOCOL_VERSION", "Unsupported language protocol version.", control: true);
+            type = root.GetProperty("type").GetString();
+            correlationId = root.GetProperty("correlationId").GetString();
+            if (!IsCanonicalUuidV4(correlationId) || string.IsNullOrEmpty(type))
+                throw new LanguageServiceFailure("MALFORMED_ENVELOPE", "Language envelope identity is invalid.", control: true);
+            var payload = root.GetProperty("payload");
+            return type switch
+            {
+                "language.session.open.request" => HandleLanguageSessionOpen(correlationId!, type!, payload),
+                "language.session.close.request" => HandleLanguageSessionClose(correlationId!, type!, payload),
+                "language.document.open.request" => HandleLanguageDocument(correlationId!, type!, payload, replace: false),
+                "language.document.replace.request" => HandleLanguageDocument(correlationId!, type!, payload, replace: true),
+                "language.document.close.request" => HandleLanguageDocumentClose(correlationId!, type!, payload),
+                "language.completion.request" => HandleLanguageCompletion(correlationId!, type!, payload),
+                _ => throw new LanguageServiceFailure("UNKNOWN_MESSAGE_TYPE", "Unknown language-service message type.", control: true),
+            };
+        }
+        catch (LanguageServiceFailure failure)
+        {
+            if (failure.Control || !IsCanonicalUuidV4(correlationId) || string.IsNullOrEmpty(type))
+                return SerializeLanguageControlError(failure.Code, failure.Message, correlationId, type);
+            return SerializeLanguageResponseError(correlationId!, ResponseTypeFor(type!), failure.Code, failure.Message);
+        }
+        catch (Exception exception)
+        {
+            if (!IsCanonicalUuidV4(correlationId) || string.IsNullOrEmpty(type))
+                return SerializeLanguageControlError("INTERNAL_ERROR", "Language service request failed.", correlationId, type);
+            return SerializeLanguageResponseError(correlationId!, ResponseTypeFor(type!), "INTERNAL_ERROR", $"{exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    private static string HandleLanguageSessionOpen(string correlationId, string type, JsonElement payload)
+    {
+        var sessionId = RequireUuid(payload, "sessionId");
+        lock (LanguageSessionLock)
+        {
+            if (_languageSession is not null && _languageSession.Id != sessionId)
+                throw new LanguageServiceFailure("LANGUAGE_SESSION_CONFLICT", "A different language session is active.");
+            _languageSession ??= new LanguageSession(sessionId);
+            if (payload.TryGetProperty("documents", out var documents))
+            {
+                if (documents.ValueKind != JsonValueKind.Array || documents.GetArrayLength() > 256)
+                    throw new LanguageServiceFailure("TOO_MANY_DOCUMENTS", "Language session document limit exceeded.");
+                foreach (var document in documents.EnumerateArray())
+                    UpsertLanguageDocument(_languageSession, document, replace: false);
+            }
+            return SerializeLanguageResponse(correlationId, type, writer =>
+            {
+                writer.WriteStartObject("data");
+                writer.WriteString("sessionId", sessionId);
+                writer.WriteBoolean("accepted", true);
+                writer.WriteEndObject();
+            });
+        }
+    }
+
+    private static string HandleLanguageSessionClose(string correlationId, string type, JsonElement payload)
+    {
+        var sessionId = RequireUuid(payload, "sessionId");
+        lock (LanguageSessionLock)
+        {
+            if (_languageSession?.Id == sessionId) _languageSession = null;
+            return SerializeLanguageResponse(correlationId, type, writer =>
+            {
+                writer.WriteStartObject("data");
+                writer.WriteString("sessionId", sessionId);
+                writer.WriteBoolean("accepted", true);
+                writer.WriteEndObject();
+            });
+        }
+    }
+
+    private static string HandleLanguageDocument(string correlationId, string type, JsonElement payload, bool replace)
+    {
+        var sessionId = RequireUuid(payload, "sessionId");
+        var uri = RequireDocumentUri(payload, "uri");
+        var path = RequireLogicalPath(payload, "path");
+        var version = RequireVersion(payload, "version");
+        var text = RequireDocumentText(payload, "text");
+        lock (LanguageSessionLock)
+        {
+            var session = RequireLanguageSession(sessionId);
+            if (replace && !session.Documents.ContainsKey(uri))
+                throw new LanguageServiceFailure("DOCUMENT_NOT_FOUND", "Language document was not opened.");
+            if (session.Documents.TryGetValue(uri, out var existing))
+            {
+                if (version < existing.Version)
+                    throw new LanguageServiceFailure("STALE_DOCUMENT_VERSION", "Document version is stale.");
+                if (version == existing.Version && (existing.Text != text || existing.Path != path))
+                    throw new LanguageServiceFailure("DOCUMENT_VERSION_CONFLICT", "Document version conflicts with stored text.");
+                if (version == existing.Version)
+                    return SerializeLanguageDocumentResponse(correlationId, type, existing);
+            }
+            var next = new LanguageDocument(uri, path, version, text, CSharpSyntaxTree.ParseText(
+                SourceText.From(text, Encoding.UTF8), new CSharpParseOptions(LanguageVersion.CSharp13), path));
+            session.Documents[uri] = next;
+            RebuildLanguageCompilation(session);
+            return SerializeLanguageDocumentResponse(correlationId, type, next);
+        }
+    }
+
+    private static string HandleLanguageDocumentClose(string correlationId, string type, JsonElement payload)
+    {
+        var sessionId = RequireUuid(payload, "sessionId");
+        var uri = RequireDocumentUri(payload, "uri");
+        var version = RequireVersion(payload, "version");
+        lock (LanguageSessionLock)
+        {
+            var session = RequireLanguageSession(sessionId);
+            if (session.Documents.TryGetValue(uri, out var existing) && version < existing.Version)
+                throw new LanguageServiceFailure("STALE_DOCUMENT_VERSION", "Document version is stale.");
+            session.Documents.Remove(uri);
+            RebuildLanguageCompilation(session);
+            return SerializeLanguageResponse(correlationId, type, writer =>
+            {
+                writer.WriteStartObject("data");
+                writer.WriteString("sessionId", sessionId);
+                writer.WriteString("uri", uri);
+                writer.WriteNumber("version", version);
+                writer.WriteBoolean("accepted", true);
+                writer.WriteEndObject();
+            });
+        }
+    }
+
+    private static string HandleLanguageCompletion(string correlationId, string type, JsonElement payload)
+    {
+        var sessionId = RequireUuid(payload, "sessionId");
+        var uri = RequireDocumentUri(payload, "uri");
+        var version = RequireVersion(payload, "version");
+        var position = payload.GetProperty("position");
+        var offset = position.GetProperty("offset").GetInt32();
+        if (offset < 0) throw new LanguageServiceFailure("MALFORMED_PAYLOAD", "Completion offset is invalid.");
+        lock (LanguageSessionLock)
+        {
+            var session = RequireLanguageSession(sessionId);
+            if (!session.Documents.TryGetValue(uri, out var document))
+                throw new LanguageServiceFailure("DOCUMENT_NOT_FOUND", "Language document was not opened.");
+            if (version != document.Version)
+                throw new LanguageServiceFailure("STALE_DOCUMENT_VERSION", "Completion requested for a stale document version.");
+            if (session.Compilation is null)
+                throw new LanguageServiceFailure("INVALID_STATE", "Language compilation is not initialized.");
+            var positionInText = Math.Min(offset, document.Text.Length);
+            var token = document.Tree.GetRoot().FindToken(Math.Max(0, positionInText - 1));
+            var access = token.Parent?.AncestorsAndSelf().OfType<MemberAccessExpressionSyntax>().FirstOrDefault();
+            var receiverType = access is null ? null : session.Compilation.GetSemanticModel(document.Tree).GetTypeInfo(access.Expression).Type;
+            var items = receiverType?.GetMembers()
+                .Where(symbol => !symbol.IsImplicitlyDeclared && !string.IsNullOrEmpty(symbol.Name) && IsCompletionPolicyAllowed(symbol))
+                .Select(symbol => (Name: symbol.Name, Kind: CompletionKind(symbol.Kind)))
+                .Distinct()
+                .OrderBy(item => item.Name, StringComparer.Ordinal)
+                .ThenBy(item => item.Kind, StringComparer.Ordinal)
+                .Take(100)
+                .ToArray() ?? Array.Empty<(string Name, string Kind)>();
+            return SerializeLanguageResponse(correlationId, type, writer =>
+            {
+                writer.WriteStartObject("data");
+                writer.WriteString("sessionId", sessionId);
+                writer.WriteString("uri", uri);
+                writer.WriteNumber("version", version);
+                writer.WriteStartArray("items");
+                foreach (var item in items)
+                {
+                    writer.WriteStartObject();
+                    writer.WriteString("label", item.Name);
+                    writer.WriteString("kind", item.Kind);
+                    writer.WriteEndObject();
+                }
+                writer.WriteEndArray();
+                writer.WriteBoolean("isIncomplete", false);
+                writer.WriteEndObject();
+            });
+        }
+    }
+
+    private static void UpsertLanguageDocument(LanguageSession session, JsonElement payload, bool replace)
+    {
+        var uri = RequireDocumentUri(payload, "uri");
+        var path = RequireLogicalPath(payload, "path");
+        var version = RequireVersion(payload, "version");
+        var text = RequireDocumentText(payload, "text");
+        if (replace && !session.Documents.ContainsKey(uri))
+            throw new LanguageServiceFailure("DOCUMENT_NOT_FOUND", "Language document was not opened.");
+        if (!session.Documents.ContainsKey(uri) && session.Documents.Count >= 256)
+            throw new LanguageServiceFailure("TOO_MANY_DOCUMENTS", "Language session document limit exceeded.");
+        var aggregateBytes = session.Documents.Values.Sum(document => Encoding.UTF8.GetByteCount(document.Text));
+        if (session.Documents.TryGetValue(uri, out var existing))
+        {
+            if (version < existing.Version)
+                throw new LanguageServiceFailure("STALE_DOCUMENT_VERSION", "Document version is stale.");
+            if (version == existing.Version && (existing.Text != text || existing.Path != path))
+                throw new LanguageServiceFailure("DOCUMENT_VERSION_CONFLICT", "Document version conflicts with stored text.");
+            if (version == existing.Version) return;
+            aggregateBytes -= Encoding.UTF8.GetByteCount(existing.Text);
+        }
+        if (aggregateBytes + Encoding.UTF8.GetByteCount(text) > 8 * 1024 * 1024)
+            throw new LanguageServiceFailure("LANGUAGE_SESSION_CONFLICT", "Language session text exceeds its aggregate limit.");
+        session.Documents[uri] = new LanguageDocument(
+            uri, path, version, text,
+            CSharpSyntaxTree.ParseText(SourceText.From(text, Encoding.UTF8), new CSharpParseOptions(LanguageVersion.CSharp13), path));
+        RebuildLanguageCompilation(session);
+    }
+
+    private static void RebuildLanguageCompilation(LanguageSession session)
+    {
+        session.Compilation = CSharpCompilation.Create(
+            "LanguageSession",
+            session.Documents.Values.Select(document => document.Tree),
+            BrowserMetadataReferences.Allowlisted,
+            new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: false, concurrentBuild: false, deterministic: true));
+    }
+
+    private static LanguageSession RequireLanguageSession(string id) =>
+        _languageSession is { } session && session.Id == id
+            ? session
+            : throw new LanguageServiceFailure("LANGUAGE_SESSION_NOT_FOUND", "Language session was not opened.");
+
+    private static string RequireUuid(JsonElement payload, string name)
+    {
+        var value = payload.GetProperty(name).GetString();
+        if (!IsCanonicalUuidV4(value)) throw new LanguageServiceFailure("MALFORMED_PAYLOAD", $"{name} must be a canonical UUIDv4.");
+        return value!;
+    }
+
+    private static int RequireVersion(JsonElement payload, string name)
+    {
+        var value = payload.GetProperty(name).GetInt32();
+        if (value < 1) throw new LanguageServiceFailure("MALFORMED_PAYLOAD", $"{name} must be positive.");
+        return value;
+    }
+
+    private static string RequireDocumentUri(JsonElement payload, string name)
+    {
+        var value = payload.GetProperty(name).GetString();
+        if (string.IsNullOrEmpty(value) || value.Length > 512 || !value.StartsWith("playground-model://", StringComparison.Ordinal) || value.Contains("..", StringComparison.Ordinal) || value.Contains('\\'))
+            throw new LanguageServiceFailure("MALFORMED_PAYLOAD", "uri must be a stable playground-model URI.");
+        return value;
+    }
+
+    private static string RequireLogicalPath(JsonElement payload, string name)
+    {
+        var value = payload.GetProperty(name).GetString();
+        if (string.IsNullOrEmpty(value) || value.Length > 512 || value.StartsWith('/') || value.EndsWith('/') || value.Contains('\\') || value.Split('/').Any(segment => segment is "" or "." or ".."))
+            throw new LanguageServiceFailure("MALFORMED_PAYLOAD", "path must be canonical and relative.");
+        return value;
+    }
+
+    private static string RequireDocumentText(JsonElement payload, string name)
+    {
+        var value = payload.GetProperty(name).GetString();
+        if (value is null || Encoding.UTF8.GetByteCount(value) > 1024 * 1024)
+            throw new LanguageServiceFailure("DOCUMENT_TEXT_TOO_LARGE", "Document text exceeds the 1 MiB limit.");
+        return value;
+    }
+
+    private static bool IsCanonicalUuidV4(string? value) =>
+        value is not null && Guid.TryParseExact(value, "D", out var id) && id.Version == 4 && id.ToString("D") == value;
+
+    private static bool IsCompletionPolicyAllowed(ISymbol symbol)
+    {
+        // Completion is advisory, but do not knowingly advertise the primary
+        // native/JS interop escape hatches that PolicyAnalyzer rejects at Run.
+        return symbol.Name is not ("DllImport" or "UnmanagedCallersOnly" or
+            "LibraryImport" or "JSImport" or "JSExport" or "Marshal" or
+            "NativeLibrary") && !symbol.Name.StartsWith("Unsafe", StringComparison.Ordinal);
+    }
+
+    private static string CompletionKind(SymbolKind kind) => kind switch
+    {
+        SymbolKind.NamedType => "class",
+        SymbolKind.Method => "method",
+        SymbolKind.Property => "property",
+        SymbolKind.Field => "field",
+        SymbolKind.Namespace => "namespace",
+        SymbolKind.Local or SymbolKind.Parameter => "variable",
+        _ => "other",
+    };
+
+    private static string ResponseTypeFor(string type) => type.Replace(".request", ".response", StringComparison.Ordinal);
+
+    private static string SerializeLanguageDocumentResponse(string correlationId, string type, LanguageDocument document) =>
+        SerializeLanguageResponse(correlationId, type, writer =>
+        {
+            writer.WriteStartObject("data");
+            writer.WriteString("uri", document.Uri);
+            writer.WriteString("path", document.Path);
+            writer.WriteNumber("version", document.Version);
+            writer.WriteString("text", document.Text);
+            writer.WriteEndObject();
+        });
+
+    private static string SerializeLanguageResponse(string correlationId, string type, Action<Utf8JsonWriter> writeData)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("protocolVersion", 1);
+            writer.WriteString("correlationId", correlationId);
+            writer.WriteString("type", ResponseTypeFor(type));
+            writer.WriteStartObject("result");
+            writer.WriteBoolean("success", true);
+            writeData(writer);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string SerializeLanguageResponseError(string correlationId, string type, string code, string message)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("protocolVersion", 1);
+            writer.WriteString("correlationId", correlationId);
+            writer.WriteString("type", ResponseTypeFor(type));
+            writer.WriteStartObject("result");
+            writer.WriteBoolean("success", false);
+            writer.WriteStartObject("error");
+            writer.WriteString("code", code);
+            writer.WriteString("message", message);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private static string SerializeLanguageControlError(string code, string message, string? correlationId, string? type)
+    {
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteNumber("protocolVersion", 1);
+            writer.WriteString("correlationId", Guid.NewGuid().ToString("D"));
+            writer.WriteString("type", "protocol.error");
+            writer.WriteStartObject("payload");
+            writer.WriteStartObject("error");
+            writer.WriteString("code", code);
+            writer.WriteString("message", message);
+            writer.WriteEndObject();
+            if (IsCanonicalUuidV4(correlationId)) writer.WriteString("rejectedCorrelationId", correlationId);
+            if (!string.IsNullOrEmpty(type)) writer.WriteString("rejectedType", type);
+            writer.WriteEndObject();
+            writer.WriteEndObject();
+        }
+        return Encoding.UTF8.GetString(stream.ToArray());
+    }
+
+    private sealed class LanguageSession(string id)
+    {
+        public string Id { get; } = id;
+        public Dictionary<string, LanguageDocument> Documents { get; } = new(StringComparer.Ordinal);
+        public CSharpCompilation? Compilation { get; set; }
+    }
+
+    private sealed record LanguageDocument(string Uri, string Path, int Version, string Text, SyntaxTree Tree);
+    private sealed class LanguageServiceFailure(string code, string message, bool control = false) : Exception(code)
+    {
+        public string Code { get; } = code;
+        public string MessageText { get; } = message;
+        public bool Control { get; } = control;
+        public override string Message => MessageText;
+    }
+
     /// <summary>
     /// A smaller backend experiment that avoids Workspaces and MEF entirely.
     /// It proves one useful completion by compiling sources with the already
@@ -372,7 +757,7 @@ public static partial class CompilerExports
                 .FirstOrDefault();
             var receiverType = access is null ? null : model.GetTypeInfo(access.Expression).Type;
             var items = receiverType?.GetMembers()
-                .Where(symbol => !symbol.IsImplicitlyDeclared && !string.IsNullOrEmpty(symbol.Name))
+                .Where(symbol => !symbol.IsImplicitlyDeclared && !string.IsNullOrEmpty(symbol.Name) && IsCompletionPolicyAllowed(symbol))
                 .Select(symbol => new DirectCompletionItem(symbol.Name, symbol.Kind.ToString()))
                 .DistinctBy(item => item.Name)
                 .OrderBy(item => item.Name, StringComparer.Ordinal)

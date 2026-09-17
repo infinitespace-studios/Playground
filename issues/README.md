@@ -140,8 +140,8 @@ Copilot-Session: 1428e10b-3d66-414a-b04c-5944666db423
 | 070 | [Spike Roslyn language services in browser WASM](070-spike-roslyn-language-services-in-browser-wasm.md) | AFK | Done | 016, 019, 031 | Feature 2 |
 | 070A | [Prove one working browser completion backend](070a-prove-one-working-browser-completion-backend.md) | AFK | Done | 070 | Feature 2 |
 | 071 | [Define language-service protocol and document sync](071-define-language-service-protocol-and-document-sync.md) | AFK | Ready | 015, 036, 070A | Feature 2 |
-| 072 | [Implement persistent Roslyn completion workspace](072-implement-persistent-roslyn-completion-workspace.md) | AFK | Blocked | 070, 071 | Feature 2 |
-| 073 | [Connect Monaco to context-aware completions](073-connect-monaco-to-context-aware-completions.md) | AFK | Blocked | 069, 072 | Feature 2 |
+| 072 | [Implement persistent SemanticModel completion backend](072-implement-persistent-roslyn-completion-workspace.md) | AFK | Ready | 070A, 071 | Feature 2 |
+| 073 | [Connect Monaco to context-aware completions](073-connect-monaco-to-context-aware-completions.md) | AFK | Ready | 069, 072 | Feature 2 |
 | 074 | [Add hover, signature help, and definition navigation](074-add-hover-signature-help-and-definition-navigation.md) | AFK | Blocked | 073 | Feature 2 |
 | 075 | [Define curated managed dependency policy](075-define-curated-managed-dependency-policy.md) | AFK | Ready | 019, 031, 043 | Feature 5 |
 | 076 | [Prove one managed dependency pack in WASM](076-prove-one-managed-dependency-pack-in-wasm.md) | AFK | Blocked | 075 | Feature 5 |

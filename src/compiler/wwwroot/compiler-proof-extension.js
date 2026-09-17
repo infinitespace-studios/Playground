@@ -22,6 +22,7 @@ globalThis.__playgroundCompilerExtension = controls => {
   const diagnosticsButton = document.querySelector("#diagnostics");
   const languageServicesButton = document.querySelector("#language-services");
   const directCompletionButton = document.querySelector("#direct-completion");
+  const languageSessionButton = document.querySelector("#language-session");
   const results = document.querySelector("#results");
   const proofOutput = document.querySelector("#proof-state");
   // The issue-070 static page is intentionally loaded without the Workbench
@@ -42,6 +43,7 @@ globalThis.__playgroundCompilerExtension = controls => {
     referenceProof: null,
     diagnosticProof: null,
     languageServiceSpike: null,
+    languageSessionProof: null,
     error: null,
   };
 
@@ -126,6 +128,7 @@ globalThis.__playgroundCompilerExtension = controls => {
     if (diagnosticsButton) diagnosticsButton.disabled = true;
     if (languageServicesButton) languageServicesButton.disabled = true;
     if (directCompletionButton) directCompletionButton.disabled = true;
+    if (languageSessionButton) languageSessionButton.disabled = true;
     if (event.isTrusted) {
       proofState.trustedClickCount += 1;
     }
@@ -140,6 +143,7 @@ globalThis.__playgroundCompilerExtension = controls => {
       if (diagnosticsButton) diagnosticsButton.disabled = Boolean(proofState.diagnosticProof);
       if (languageServicesButton) languageServicesButton.disabled = Boolean(proofState.languageServiceSpike);
       if (directCompletionButton) directCompletionButton.disabled = false;
+      if (languageSessionButton) languageSessionButton.disabled = false;
     }
     renderState();
   }
@@ -441,6 +445,126 @@ globalThis.__playgroundCompilerExtension = controls => {
     }
   });
 
+  languageSessionButton?.addEventListener("click", async event => {
+    if (!beginCall(event) || proofState.languageSessionProof) return;
+    if (status) status.textContent = "Running persistent direct-completion session proof...";
+    try {
+      const exports = await controls.exportsPromise;
+      const sessionId = crypto.randomUUID();
+      let sequence = 0;
+      const call = (type, payload) => JSON.parse(exports.LanguageServiceHandle(JSON.stringify({
+        protocolVersion: 1,
+        correlationId: crypto.randomUUID(),
+        type,
+        payload,
+      })));
+      const gameText = "class Game { Player player = new Player(); void M() { player. } }";
+      const playerText = "public class Player { public int Score; public void Jump() { } }";
+      const gameUri = `playground-model://${sessionId}/Game.cs`;
+      const playerUri = `playground-model://${sessionId}/Player.cs`;
+      const open = call("language.session.open.request", { sessionId });
+      const gameOpen = call("language.document.open.request", {
+        sessionId, uri: gameUri, path: "Game.cs", version: 1, text: gameText,
+      });
+      const playerOpen = call("language.document.open.request", {
+        sessionId, uri: playerUri, path: "Player.cs", version: 1, text: playerText,
+      });
+      const position = gameText.indexOf("player.") + "player.".length;
+      const completion = call("language.completion.request", {
+        sessionId, uri: gameUri, version: 1,
+        position: { offset: position, line: 1, column: position + 1 },
+      });
+      const replaced = call("language.document.replace.request", {
+        sessionId, uri: playerUri, path: "Player.cs", version: 2,
+        text: `${playerText.slice(0, -2)} public int Health; }`,
+      });
+      const gameReplaced = call("language.document.replace.request", {
+        sessionId, uri: gameUri, path: "Game.cs", version: 2,
+        text: `${gameText} // newer generation`,
+      });
+      const stale = call("language.completion.request", {
+        sessionId, uri: gameUri, version: 1,
+        position: { offset: position, line: 1, column: position + 1 },
+      });
+      const items = completion.result?.success ? completion.result.data.items : [];
+      let version = 3;
+      const positiveFixtures = [
+        { text: "class Game { Player player = new Player(); void M() { player./*cursor*/ } }", expected: "Score" },
+        { text: "class Game { Player player = new Player(); void M() { player./*cursor*/ } }", expected: "Jump" },
+        { text: "class Game { void M() { string value = \"x\"; value./*cursor*/ } }", expected: "ToString" },
+        { text: "class Game { void M() { int value = 1; value./*cursor*/ } }", expected: "ToString" },
+        { text: "class Game { Player player = new Player(); void M() { player./*cursor*/ } }", expected: "GetType" },
+      ];
+      const negativeFixtures = [
+        { text: "class Game { void M() { missing./*cursor*/ } }", absent: "Score" },
+        { text: "class Game { void M() { value./*cursor*/ } }", absent: "ToString" },
+        { text: "class Game { void M() { } }", absent: "Score" },
+        { text: "class Game { Player player = new Player(); void M() { player./*cursor*/ } }", absent: "NotARealMember" },
+        { text: "class Game { void M() { string value = \"x\"; value./*cursor*/ } }", absent: "Score" },
+      ];
+      const runFixture = fixture => {
+        const marker = "/*cursor*/";
+        const text = fixture.text.replace(marker, "");
+        const offset = fixture.text.indexOf(marker);
+        const replacement = call("language.document.replace.request", {
+          sessionId, uri: gameUri, path: "Game.cs", version: version++, text,
+        });
+        const result = replacement.result?.success
+          ? call("language.completion.request", {
+              sessionId, uri: gameUri, version: version - 1,
+              position: { offset, line: 1, column: offset + 1 },
+            })
+          : replacement;
+        const resultItems = result.result?.success ? result.result.data.items : [];
+        return { result, found: resultItems.some(item => item.label === (fixture.expected ?? fixture.absent)), items: resultItems };
+      };
+      const positiveResults = positiveFixtures.map(runFixture);
+      const negativeResults = negativeFixtures.map(runFixture);
+      const updateTimes = [];
+      const heapBefore = performance.memory?.usedJSHeapSize ?? null;
+      for (let index = 0; index < 100; index += 1) {
+        const text = `class Game { Player player = new Player(); void M() { player. } } // update-${index}`;
+        const start = performance.now();
+        call("language.document.replace.request", {
+          sessionId, uri: gameUri, path: "Game.cs", version: version++, text,
+        });
+        updateTimes.push(performance.now() - start);
+      }
+      const heapAfter = performance.memory?.usedJSHeapSize ?? null;
+      const sortedUpdates = [...updateTimes].sort((left, right) => left - right);
+      const updateBenchmark = {
+        count: updateTimes.length,
+        p50Ms: sortedUpdates[Math.floor(sortedUpdates.length * 0.5)],
+        p95Ms: sortedUpdates[Math.floor(sortedUpdates.length * 0.95)],
+        heapBefore,
+        heapAfter,
+      };
+      const closed = call("language.session.close.request", { sessionId });
+      const assertions = {
+        sessionAccepted: open.result?.success === true,
+        bothDocumentsOpened: gameOpen.result?.success === true && playerOpen.result?.success === true,
+        scoreFound: items.some(item => item.label === "Score"),
+        replacementAccepted: replaced.result?.success === true && gameReplaced.result?.success === true,
+        staleRejected: stale.result?.success === false && stale.result.error.code === "STALE_DOCUMENT_VERSION",
+        positiveFixtures: positiveResults.every(result => result.result?.success === true && result.found),
+        negativeFixtures: negativeResults.every(result => result.result?.success === true && !result.found),
+        hundredUpdates: updateBenchmark.count === 100,
+        sessionClosed: closed.result?.success === true,
+      };
+      proofState.languageSessionProof = {
+        trusted: event.isTrusted, assertions, sequence, items,
+        positiveResults, negativeResults, updateBenchmark,
+      };
+      if (!Object.values(assertions).every(Boolean)) throw new Error("Persistent language session proof failed.");
+      appendResult(`Persistent session success=true; Score=true; positives=5; negatives=5; updates=100; staleRejected=true; trusted=${event.isTrusted}`);
+      if (status) status.textContent = "Persistent completion session proof complete.";
+    } catch (error) {
+      showError(error);
+    } finally {
+      endCall();
+    }
+  });
+
   diagnosticsButton?.addEventListener("click", async event => {
     if (!beginCall(event) || proofState.diagnosticProof) return;
     if (status) status.textContent = "Compiling structured diagnostic proof cases in browser WebAssembly...";
@@ -476,6 +600,7 @@ globalThis.__playgroundCompilerExtension = controls => {
         if (diagnosticsButton) diagnosticsButton.disabled = false;
         if (languageServicesButton) languageServicesButton.disabled = false;
         if (directCompletionButton) directCompletionButton.disabled = false;
+        if (languageSessionButton) languageSessionButton.disabled = false;
         renderState();
       },
       onCompileTransfer(transfer) {
