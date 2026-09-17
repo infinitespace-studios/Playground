@@ -97,7 +97,17 @@ export type ProtocolErrorCode =
   | "PREVIEW_START_FAILED"
   | "PREVIEW_STOP_FAILED"
   | "PREVIEW_RUNTIME_FAILED"
-  | "INTERNAL_ERROR";
+  | "INTERNAL_ERROR"
+  | "LANGUAGE_SESSION_NOT_FOUND"
+  | "LANGUAGE_SESSION_CONFLICT"
+  | "DOCUMENT_NOT_FOUND"
+  | "DOCUMENT_VERSION_CONFLICT"
+  | "STALE_DOCUMENT_VERSION"
+  | "LANGUAGE_REQUEST_SUPERSEDED"
+  | "COMPLETION_UNAVAILABLE"
+  | "DOCUMENT_TEXT_TOO_LARGE"
+  | "TOO_MANY_DOCUMENTS"
+  | "TOO_MANY_COMPLETION_ITEMS";
 
 export type ErrorDetailValue = string | number | boolean | null;
 export type ErrorDetails = Readonly<Record<string, ErrorDetailValue>>;
@@ -350,6 +360,100 @@ export type MessageByType = {
 
 export type ProtocolMessage = MessageByType[keyof MessageByType];
 
+/** Backend-neutral language-service contracts. These are intentionally kept
+ * outside MessageType/MessageByType: the existing compiler/preview transport
+ * rejects them until a later issue wires the trusted compiler route. */
+export type LanguageSessionId = UuidV4;
+export type DocumentVersion = number;
+export type DocumentUri = string;
+
+export interface LanguageSessionOpenPayload {
+  readonly sessionId: LanguageSessionId;
+  readonly documents?: readonly LanguageDocumentSnapshot[];
+}
+export interface LanguageSessionClosePayload {
+  readonly sessionId: LanguageSessionId;
+}
+export interface LanguageDocumentSnapshot {
+  readonly uri: DocumentUri;
+  readonly path: string;
+  readonly version: DocumentVersion;
+  readonly text: string;
+}
+export interface LanguageDocumentOpenPayload extends LanguageDocumentSnapshot {
+  readonly sessionId: LanguageSessionId;
+}
+export interface LanguageDocumentReplacePayload extends LanguageDocumentSnapshot {
+  readonly sessionId: LanguageSessionId;
+}
+export interface LanguageDocumentClosePayload {
+  readonly sessionId: LanguageSessionId;
+  readonly uri: DocumentUri;
+  readonly version: DocumentVersion;
+}
+export interface LanguageCompletionPosition {
+  readonly offset: number;
+  readonly line: number;
+  readonly column: number;
+}
+export interface LanguageCompletionRequestPayload extends RequestOptions {
+  readonly sessionId: LanguageSessionId;
+  readonly uri: DocumentUri;
+  readonly version: DocumentVersion;
+  readonly position: LanguageCompletionPosition;
+}
+export type LanguageCompletionKind = "class" | "method" | "property" | "field" | "keyword" | "namespace" | "variable" | "other";
+export interface LanguageCompletionItem {
+  readonly label: string;
+  readonly kind: LanguageCompletionKind;
+  readonly detail?: string;
+  readonly sortText?: string;
+}
+export interface LanguageCompletionResponseData {
+  readonly sessionId: LanguageSessionId;
+  readonly uri: DocumentUri;
+  readonly version: DocumentVersion;
+  readonly items: readonly LanguageCompletionItem[];
+  readonly isIncomplete: boolean;
+}
+
+export interface LanguageRequestPayloadByType {
+  readonly "language.session.open.request": LanguageSessionOpenPayload;
+  readonly "language.session.close.request": LanguageSessionClosePayload;
+  readonly "language.document.open.request": LanguageDocumentOpenPayload;
+  readonly "language.document.replace.request": LanguageDocumentReplacePayload;
+  readonly "language.document.close.request": LanguageDocumentClosePayload;
+  readonly "language.completion.request": LanguageCompletionRequestPayload;
+}
+export interface LanguageResponseDataByType {
+  readonly "language.session.open.response": { readonly sessionId: LanguageSessionId; readonly accepted: true };
+  readonly "language.session.close.response": { readonly sessionId: LanguageSessionId; readonly accepted: true };
+  readonly "language.document.open.response": LanguageDocumentSnapshot;
+  readonly "language.document.replace.response": LanguageDocumentSnapshot;
+  readonly "language.document.close.response": { readonly sessionId: LanguageSessionId; readonly uri: DocumentUri; readonly version: DocumentVersion; readonly accepted: true };
+  readonly "language.completion.response": LanguageCompletionResponseData;
+}
+export type LanguageRequestType = keyof LanguageRequestPayloadByType;
+export type LanguageResponseType = keyof LanguageResponseDataByType;
+export type LanguageRequestEnvelope<T extends LanguageRequestType> = {
+  readonly protocolVersion: ProtocolVersion;
+  readonly correlationId: CorrelationId;
+  readonly type: T;
+  readonly payload: LanguageRequestPayloadByType[T];
+};
+export type LanguageResponseEnvelope<T extends LanguageResponseType> = {
+  readonly protocolVersion: ProtocolVersion;
+  readonly correlationId: CorrelationId;
+  readonly type: T;
+  readonly result: ProtocolResult<LanguageResponseDataByType[T]>;
+};
+export type LanguageServiceRequest = {
+  [T in LanguageRequestType]: LanguageRequestEnvelope<T>
+}[LanguageRequestType];
+export type LanguageServiceResponse = {
+  [T in LanguageResponseType]: LanguageResponseEnvelope<T>
+}[LanguageResponseType];
+
 export const PROTOCOL_LIMITS = {
   maxMessageBytes: 32 * 1024 * 1024,
   maxSourceFiles: 64,
@@ -380,6 +484,12 @@ export const PROTOCOL_LIMITS = {
   maxPreviewLoadTimeoutMs: 10_000,
   maxPreviewStartTimeoutMs: 10_000,
   maxPreviewStopTimeoutMs: 2_000,
+  maxLanguageDocuments: 256,
+  maxLanguageSessionBytes: 8 * 1024 * 1024,
+  maxCompletionItems: 100,
+  maxCompletionLabelUtf8Bytes: 256,
+  maxCompletionDetailUtf8Bytes: 512,
+  maxCompletionRequestTimeoutMs: 2_000,
 } as const;
 
 export const PROTOCOL_DEFAULT_TIMEOUTS_MS = {

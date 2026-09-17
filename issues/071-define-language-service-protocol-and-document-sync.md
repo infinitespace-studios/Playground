@@ -1,7 +1,7 @@
 # Define the language-service protocol and document synchronization
 
 **Type:** AFK
-**Status:** Ready
+**Status:** Done
 **Blocked by:** [070a-prove-one-working-browser-completion-backend.md](070a-prove-one-working-browser-completion-backend.md), [015-define-version-protocol-envelopes-and-errors.md](015-define-version-protocol-envelopes-and-errors.md), [036-validate-forged-malformed-oversized-messages.md](036-validate-forged-malformed-oversized-messages.md)
 **Feature area:** IntelliSense
 **Triage:** feature-backlog
@@ -38,10 +38,14 @@ Run typecheck and all protocol tests. The reviewer constructs valid and invalid 
 
 ## Verification record
 
-- **Verdict:** Pending
-- **Verifier:** Pending
-- **Date:** Pending
-- **Evidence:** Pending
+- **Verdict:** PASS
+- **Verifier:** Independent issue-071 protocol verifier
+- **Date:** 2026-09-16
+- **Evidence:** All five required checks passed against the uncommitted diff. Frontend `tsc --noEmit` typecheck: clean. `npm run test:protocol`: 104/104 pass (existing compile/preview behavior unchanged; the only assertion delta is `PROTOCOL_ERROR_CODES.length` 32 -> 42 for the ten additive language codes). New `src/frontend/src/language-service-protocol.test.ts`: 4/4 pass, covering an idempotent session/document trace with deterministic completion ordering (`["Score","ToString"]`), stale/conflicting version rejection (`STALE_DOCUMENT_VERSION`, `DOCUMENT_VERSION_CONFLICT`), malformed/oversized/duplicate/preview-route traffic (`MISSING_PROTOCOL_VERSION`, `DOCUMENT_TEXT_TOO_LARGE`, `DUPLICATE_CORRELATION_ID`, and `validateCompileRequest` rejecting `language.completion.request` as `UNKNOWN_MESSAGE_TYPE`), and client-side late-completion supersession. Strict `tsc --noEmit --strict src/shared/MessageContracts.ts`: clean. `npm run build` (Vite): built in ~0.9s, exit 0.
+
+  Manual review confirmed the normative docs match the runtime validators: Protocol.md section 4A documents the six request/response pairs, the `playground-model://` URI rule, monotonically increasing positive-integer versions, idempotent open/replace/close, `STALE_DOCUMENT_VERSION`/`DOCUMENT_VERSION_CONFLICT`/`DOCUMENT_NOT_FOUND` semantics, the supersession-generation defense with `LANGUAGE_REQUEST_SUPERSEDED`, deterministic ordering by sortText -> label -> kind, duplicate-label rejection, and the bounded limits (256 documents/session, 8 MiB aggregate, 1 MiB/document, 512-byte URI/path, 100 items, 256/512-byte item fields, 100-2000 ms timeout). `LANGUAGE_LIMITS` in `LanguageServiceProtocol.js` and the new `PROTOCOL_LIMITS`/`ProtocolRuntime.js` `PROTOCOL_ERROR_CODES` entries match those documented values 1:1. Preview-route rejection verified structurally: the ten `language.*` types are absent from `ProtocolRuntime.js` `messageTypes` and from `MessageType`/`MessageByType`, so every existing compiler/preview endpoint rejects them before any handler runs.
+
+  Scope: the diff is confined to issue 071 (`src/shared/Protocol.md`, `src/shared/MessageContracts.ts`, `src/shared/ProtocolRuntime.js` error-code array only, new `src/shared/LanguageServiceProtocol.js`/`.d.ts`, new `src/frontend/src/language-service-protocol.test.ts`, and the `protocol.test.ts` count assertion). No Roslyn workspace, Monaco UI, or new Tauri authority was added. The `external/MonoGame` submodule shows pre-existing dirty build artifacts (compiled `.mgfxo` effect resources, `.vscode/launch.json`, generated content) unrelated to and untouched by this issue's protocol work.
 
 ## Commit gate
 

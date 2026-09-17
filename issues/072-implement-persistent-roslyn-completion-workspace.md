@@ -1,7 +1,7 @@
 # Implement a persistent Roslyn completion workspace
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [070-spike-roslyn-language-services-in-browser-wasm.md](070-spike-roslyn-language-services-in-browser-wasm.md), [071-define-language-service-protocol-and-document-sync.md](071-define-language-service-protocol-and-document-sync.md)
 **Feature area:** IntelliSense compiler backend
 **Triage:** feature-backlog

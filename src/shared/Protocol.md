@@ -175,6 +175,16 @@ Stable v1 codes:
 | `PREVIEW_STOP_FAILED` | Cooperative stop failed; forced teardown follows |
 | `PREVIEW_RUNTIME_FAILED` | Unhandled game/runtime/content/shader failure |
 | `INTERNAL_ERROR` | Sanitized unexpected implementation failure |
+| `LANGUAGE_SESSION_NOT_FOUND` | Language request references an unknown session |
+| `LANGUAGE_SESSION_CONFLICT` | Session or aggregate document state conflicts |
+| `DOCUMENT_NOT_FOUND` | Document is not open in the language session |
+| `DOCUMENT_VERSION_CONFLICT` | Same document version contains different text/path |
+| `STALE_DOCUMENT_VERSION` | Request version is older than the current document |
+| `LANGUAGE_REQUEST_SUPERSEDED` | A newer document generation superseded completion |
+| `COMPLETION_UNAVAILABLE` | No language-service backend is installed |
+| `DOCUMENT_TEXT_TOO_LARGE` | Language document exceeds its text limit |
+| `TOO_MANY_DOCUMENTS` | Language session exceeds its document limit |
+| `TOO_MANY_COMPLETION_ITEMS` | Completion result exceeds its item limit |
 
 `protocol.error` is a non-terminal control event with payload:
 
@@ -232,6 +242,65 @@ values (no unpaired surrogates). All byte totals use checked safe-integer
 addition. All numeric counts, line/column values, sequence values, exit codes,
 and timeouts must be finite integers. Lines and columns are 1-based; a
 non-file/global diagnostic uses `file: ""`, `line: 0`, `column: 0`.
+
+## 4A. Language-service route and document synchronization
+
+The language-service route is a future host-to-compiler route. Its envelopes
+use the same version/correlation rules as this document, but its message types
+are intentionally not included in the current compiler/preview endpoint route
+set. A preview receiver must reject every `language.*` type as
+`UNKNOWN_MESSAGE_TYPE` or `MESSAGE_ROUTE_REJECTED`; no language-service message
+may reach the game iframe.
+
+The backend-neutral request types are:
+
+| Request | Response | Purpose |
+| --- | --- | --- |
+| `language.session.open.request` | `language.session.open.response` | Idempotently create a project language session and optionally seed documents |
+| `language.session.close.request` | `language.session.close.response` | Idempotently close a session and discard its documents |
+| `language.document.open.request` | `language.document.open.response` | Open one stable document at a version |
+| `language.document.replace.request` | `language.document.replace.response` | Replace one document at a newer version |
+| `language.document.close.request` | `language.document.close.response` | Close one document at a version |
+| `language.completion.request` | `language.completion.response` | Request bounded completion for a document version and position |
+
+Every language request carries a session UUID, and every document carries:
+
+- `uri`: a stable `playground-model://` URI; it contains no absolute host path;
+- `path`: a canonical forward-slash relative source path;
+- `version`: a positive monotonically increasing safe integer; and
+- `text`: the complete document text for open/replace operations.
+
+A completion request carries `uri`, `version`, and
+`position: { offset, line, column }`. Offset is zero-based UTF-16 text offset;
+line and column are one-based. All three must describe the same document
+version at the sender boundary.
+
+Open and replace are idempotent for an identical `(uri, version, text)` tuple.
+A lower version is rejected with `STALE_DOCUMENT_VERSION`; an equal version
+with different text/path is `DOCUMENT_VERSION_CONFLICT`; a replace for an
+unknown document is `DOCUMENT_NOT_FOUND`. Close is idempotent for a known
+session. A completion request whose version is not the current document
+version is rejected as `STALE_DOCUMENT_VERSION`.
+
+The completion backend must order items deterministically by `sortText`, then
+label, then kind, reject duplicate labels, and return no more than 100 items.
+Each item has a bounded `label`, `kind`, optional `detail`, and optional
+`sortText`. A backend may return `isIncomplete: true` when the bounded result
+is only a prefix.
+
+Each document has a supersession generation. Opening/replacing/closing a
+newer document version increments it. A completion result whose generation is
+no longer current returns `LANGUAGE_REQUEST_SUPERSEDED` (or is discarded by
+the client if it arrived after a newer request). Clients must cancel the prior
+request where transport cancellation is available, but generation checks are
+the authoritative stale-result defense.
+
+Language-service limits are deliberately conservative for the first backend:
+maximum 256 documents per session, 8 MiB aggregate session text, 1 MiB per
+document, 512 UTF-8 bytes per URI/path, 100 completion items, 256 bytes per
+label/sort key, 512 bytes per detail, and 100–2,000 ms completion timeouts.
+The route does not authorize metadata references, filesystem access, Tauri
+commands, or preview communication.
 
 ## 5. Normative v1 limits
 

@@ -736,7 +736,7 @@ test("matches assembly, diagnostic, error-detail, and error-code contract bounda
   assert.throws(() => validateCompileResponse(failedCompileResponse("INTERNAL_ERROR", {
     details: { key: "x".repeat(1025) },
   }), uuid, compileId), /MALFORMED/);
-  assert.equal(PROTOCOL_ERROR_CODES.length, 32);
+  assert.equal(PROTOCOL_ERROR_CODES.length, 42);
   assert.equal(PLAYGROUND_DIAGNOSTIC_IDS.length, 22);
   assert.equal(LIMITS.errorDetails, 16 * 1024);
   assert.equal(Object.isFrozen(LIMITS), true);
