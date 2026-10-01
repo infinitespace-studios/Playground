@@ -143,8 +143,8 @@ Copilot-Session: 1428e10b-3d66-414a-b04c-5944666db423
 | 072 | [Implement persistent SemanticModel completion backend](072-implement-persistent-roslyn-completion-workspace.md) | AFK | Done | 070A, 071 | Feature 2 |
 | 073 | [Connect Monaco to context-aware completions (PROOF)](073-connect-monaco-to-context-aware-completions.md) | AFK | Done | 069, 072 | Feature 2 |
 | 074 | [Add hover, signature help, and definition navigation (PROOF)](074-add-hover-signature-help-and-definition-navigation.md) | AFK | Done | 073 | Feature 2 |
-| 075 | [Define curated managed dependency policy](075-define-curated-managed-dependency-policy.md) | AFK | Ready | 019, 031, 043 | Feature 5 |
-| 076 | [Prove one managed dependency pack in WASM](076-prove-one-managed-dependency-pack-in-wasm.md) | AFK | Blocked | 075 | Feature 5 |
+| 075 | [Define curated managed dependency policy](075-define-curated-managed-dependency-policy.md) | AFK | Done | 019, 031, 043 | Feature 5 |
+| 076 | [Prove one managed dependency pack in WASM](076-prove-one-managed-dependency-pack-in-wasm.md) | AFK | Ready | 075 | Feature 5 |
 | 077 | [Build deterministic dependency-pack staging and cache](077-build-deterministic-dependency-pack-staging-and-cache.md) | AFK | Blocked | 076 | Feature 5 |
 | 078 | [Add project dependency-pack selection](078-add-project-dependency-pack-selection.md) | AFK | Blocked | 073, 077 | Feature 5 |
 | 079 | [Retain incremental compiler state](079-retain-incremental-compiler-state.md) | AFK | Ready | 016, 041 | Feature 6 |

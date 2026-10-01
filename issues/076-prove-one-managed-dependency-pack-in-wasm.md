@@ -1,7 +1,7 @@
 # Prove one managed dependency pack in browser WebAssembly
 
 **Type:** AFK
-**Status:** Blocked
+**Status:** Ready
 **Blocked by:** [075-define-curated-managed-dependency-policy.md](075-define-curated-managed-dependency-policy.md)
 **Feature area:** Dependencies feasibility
 **Triage:** feature-backlog spike
